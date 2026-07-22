@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { Button } from '@felinic/ui'
 import { onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 // 两段式危险操作：第一次点击进入待确认态（3 秒后自动复位），
 // 第二次点击才真正触发。内部工具的轻量删除确认，不开对话框。
 const props = defineProps<{ label: string; confirmLabel?: string; disabled?: boolean }>()
 const emit = defineEmits<{ confirm: [] }>()
+
+const { t } = useI18n()
 
 const armed = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -35,6 +38,6 @@ onBeforeUnmount(() => {
     :disabled="props.disabled"
     @click="onClick"
   >
-    {{ armed ? (props.confirmLabel ?? '确认删除') : props.label }}
+    {{ armed ? (props.confirmLabel ?? t('common.confirmDelete')) : props.label }}
   </Button>
 </template>

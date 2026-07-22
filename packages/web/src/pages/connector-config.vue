@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button, toast } from '@felinic/ui'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError } from '../api/client'
@@ -21,6 +22,7 @@ import SettingsRow from '../components/SettingsRow.vue'
 import SettingsSection from '../components/SettingsSection.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const type = computed(() => String(route.params.type))
@@ -43,7 +45,7 @@ onMounted(async () => {
   try {
     await reload(true)
   } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '加载配置失败')
+    toast.error(e instanceof ApiError ? e.message : t('connector.loadFailed'))
     if (e instanceof ApiError && e.status === 404) void router.push('/connectors')
   }
 })
@@ -57,9 +59,9 @@ async function onSave(payload: ConfigPayload) {
   try {
     await putConfig(type.value, { ...payload, if_match: config.value?.updated_at })
     await reload()
-    toast.success('配置已保存')
+    toast.success(t('connector.saved'))
   } catch (e) {
-    reportError(e, '保存失败')
+    reportError(e, t('connector.saveFailed'))
   } finally {
     busy.value = false
   }
@@ -68,9 +70,9 @@ async function onSave(payload: ConfigPayload) {
 async function onValidate(payload: ConfigPayload) {
   try {
     await validateConfig(type.value, payload)
-    toast.success('校验通过')
+    toast.success(t('connector.validateOk'))
   } catch (e) {
-    reportError(e, '校验失败')
+    reportError(e, t('connector.validateFailed'))
   }
 }
 
@@ -79,9 +81,9 @@ async function onVerify() {
   try {
     await verifyMcp(type.value)
     await reload()
-    toast.success('MCP 验证通过')
+    toast.success(t('connector.verifyOk'))
   } catch (e) {
-    reportError(e, 'MCP 验证失败')
+    reportError(e, t('connector.verifyFailed'))
   } finally {
     busy.value = false
   }
@@ -92,9 +94,9 @@ async function onDelete() {
   try {
     await deleteConfig(type.value)
     await reload()
-    toast.success('配置已删除')
+    toast.success(t('connector.deleted'))
   } catch (e) {
-    reportError(e, '删除失败')
+    reportError(e, t('connector.deleteFailed'))
   } finally {
     busy.value = false
   }
@@ -102,20 +104,20 @@ async function onDelete() {
 </script>
 
 <template>
-  <PageShell :title="item?.name || type">
-    <SettingsSection title="状态">
-      <SettingsRow label="当前状态" description="由代码定义与配置实时计算">
+  <PageShell :title="item?.name || type" back-to="/connectors">
+    <SettingsSection :title="t('connector.statusSection')">
+      <SettingsRow :label="t('connector.currentStatus')" :description="t('connector.currentStatusDesc')">
         <StatusBadge :status="item?.status ?? ''" />
       </SettingsRow>
-      <SettingsRow label="Remote MCP 验证" description="实测握手并比对工具映射；自托管地址修改后需重新验证">
-        <Button size="sm" variant="outline" :disabled="busy" @click="onVerify">验证 MCP</Button>
+      <SettingsRow :label="t('connector.verifyRow')" :description="t('connector.verifyDesc')">
+        <Button size="sm" variant="outline" :disabled="busy" @click="onVerify">{{ t('connector.verify') }}</Button>
       </SettingsRow>
-      <SettingsRow v-if="config" label="删除配置" description="删除后回到待配置状态，已有连接不受影响">
-        <ArmButton label="删除配置" :disabled="busy" @confirm="onDelete" />
+      <SettingsRow v-if="config" :label="t('connector.deleteConfig')" :description="t('connector.deleteConfigDesc')">
+        <ArmButton :label="t('connector.deleteConfig')" :disabled="busy" @confirm="onDelete" />
       </SettingsRow>
     </SettingsSection>
 
-    <SettingsSection title="平台配置">
+    <SettingsSection :title="t('connector.configSection')">
       <ConfigForm
         v-if="fields.length > 0"
         :fields="fields"
@@ -124,7 +126,7 @@ async function onDelete() {
         @save="onSave"
         @validate="onValidate"
       />
-      <SettingsRow v-else label="该连接器没有需要管理员填写的配置" />
+      <SettingsRow v-else :label="t('connector.noFields')" />
     </SettingsSection>
   </PageShell>
 </template>

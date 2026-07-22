@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button, Input, Label, NativeSelect, NativeSelectOption } from '@felinic/ui'
 import { computed, reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { ConfigField, ConnectorConfig } from '../api/types'
 
@@ -20,6 +21,8 @@ const emit = defineEmits<{
   save: [payload: ConfigPayload]
   validate: [payload: ConfigPayload]
 }>()
+
+const { t } = useI18n()
 
 const values = reactive<Record<string, string>>({})
 const errors = reactive<Record<string, string>>({})
@@ -50,14 +53,14 @@ function check(): boolean {
     if (f.required) {
       const satisfied = f.secret ? value !== '' || secretSet.value.has(key) : value !== ''
       if (!satisfied) {
-        errors[key] = '必填'
+        errors[key] = t('connector.fieldRequired')
         continue
       }
     }
     if (value !== '' && f.pattern) {
       try {
         if (!new RegExp(f.pattern).test(value)) {
-          errors[key] = `需匹配 ${f.pattern}`
+          errors[key] = t('connector.patternMismatch', { pattern: f.pattern })
         }
       } catch {
         // 非法正则交给服务端报错
@@ -106,7 +109,7 @@ function onValidate() {
         v-model="values[f.key ?? '']"
         class="w-full"
       >
-        <NativeSelectOption v-if="!f.required" value="">（未设置）</NativeSelectOption>
+        <NativeSelectOption v-if="!f.required" value="">—</NativeSelectOption>
         <NativeSelectOption v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</NativeSelectOption>
       </NativeSelect>
       <Input
@@ -114,7 +117,7 @@ function onValidate() {
         :id="`cfg-${f.key}`"
         v-model="values[f.key ?? '']"
         :type="f.secret ? 'password' : 'text'"
-        :placeholder="f.secret && secretSet.has(f.key ?? '') ? '已设置，留空保持不变' : undefined"
+        :placeholder="f.secret && secretSet.has(f.key ?? '') ? t('connector.secretSet') : undefined"
         autocomplete="off"
       />
       <p v-if="f.description" class="text-body text-muted-foreground">{{ f.description }}</p>
@@ -122,8 +125,8 @@ function onValidate() {
     </div>
 
     <div class="flex items-center gap-2 pt-1">
-      <Button type="submit" :disabled="props.busy">保存配置</Button>
-      <Button type="button" variant="outline" :disabled="props.busy" @click="onValidate">仅校验</Button>
+      <Button type="submit" :disabled="props.busy">{{ t('connector.save') }}</Button>
+      <Button type="button" variant="outline" :disabled="props.busy" @click="onValidate">{{ t('connector.validate') }}</Button>
       <slot name="extra" />
     </div>
   </form>

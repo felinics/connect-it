@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { TextButton, toast } from '@felinic/ui'
-import { ChevronRight } from 'lucide-vue-next'
+import { ActionCard, toast } from '@felinic/ui'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/client'
 import { listApiTokens, listConnections, listConnectors } from '../api/endpoints'
 import type { ApiToken, CatalogItem, Connection } from '../api/types'
 import PageShell from '../components/PageShell.vue'
 import ProviderLogo from '../components/ProviderLogo.vue'
-import SettingsRow from '../components/SettingsRow.vue'
-import SettingsSection from '../components/SettingsSection.vue'
 import StatTile from '../components/StatTile.vue'
-import StatusBadge from '../components/StatusBadge.vue'
+
+const { t } = useI18n()
+const router = useRouter()
 
 const connectors = ref<CatalogItem[]>([])
 const connections = ref<Connection[]>([])
@@ -26,7 +27,7 @@ onMounted(async () => {
       listApiTokens(),
     ])
   } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '加载概览失败')
+    toast.error(e instanceof ApiError ? e.message : t('overview.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -38,66 +39,68 @@ const activeConnections = computed(
 )
 const activeTokens = computed(() => tokens.value.filter((t) => !t.revoked_at).length)
 
-// 需要关注：未就绪的连接器＋需要重新授权的连接。首页只回答「现在是否正常」。
+// 需要关注＝真正异常的状态。「待配置」是正常的初始态，可能长期存在大量
+// 未启用的连接器，不进清单。
+const attentionStatuses = new Set(['degraded', 'config_incompatible', 'definition_missing'])
 const attentionConnectors = computed(() =>
-  connectors.value.filter((c) => c.status !== 'ready' && c.status !== 'catalog_only'),
+  connectors.value.filter((c) => attentionStatuses.has(c.status ?? '')),
 )
 const attentionConnections = computed(() =>
   connections.value.filter((c) => c.status !== 'active'),
 )
-const allGood = computed(
-  () =>
-    !loading.value &&
-    attentionConnectors.value.length === 0 &&
-    attentionConnections.value.length === 0,
+const attentionCount = computed(
+  () => attentionConnectors.value.length + attentionConnections.value.length,
 )
+const allGood = computed(() => !loading.value && attentionCount.value === 0)
 </script>
 
 <template>
-  <PageShell title="概览" wide>
+  <PageShell :title="t('overview.title')" wide>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <StatTile label="连接器" :value="connectors.length" :hint="`${readyCount} 个就绪`" />
-      <StatTile label="连接" :value="connections.length" :hint="`${activeConnections} 个可用`" />
-      <StatTile label="API Token" :value="activeTokens" hint="有效数量" />
       <StatTile
-        label="需要关注"
-        :value="attentionConnectors.length + attentionConnections.length"
-        :hint="allGood ? '一切正常' : '见下方清单'"
+        :label="t('overview.connectors')"
+        :value="connectors.length"
+        :hint="t('overview.readyCount', { n: readyCount })"
+      />
+      <StatTile
+        :label="t('overview.connections')"
+        :value="connections.length"
+        :hint="t('overview.usableCount', { n: activeConnections })"
+      />
+      <StatTile :label="t('overview.tokens')" :value="activeTokens" :hint="t('overview.validCount')" />
+      <StatTile
+        :label="t('overview.attention')"
+        :value="attentionCount"
+        :hint="allGood ? t('overview.allGood') : t('overview.seeBelow')"
       />
     </div>
 
-    <SettingsSection v-if="!allGood && !loading" title="需要关注">
-      <SettingsRow v-for="item in attentionConnectors" :key="`c-${item.type}`">
-        <template #label>
-          <div class="flex items-center gap-3">
-            <ProviderLogo :name="item.name || item.type || ''" :icon-url="item.icon_url" />
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="text-control font-medium">{{ item.name || item.type }}</span>
-                <StatusBadge :status="item.status ?? ''" />
-              </div>
-              <div class="mt-0.5 text-body text-muted-foreground">连接器未就绪</div>
-            </div>
-          </div>
-        </template>
-        <TextButton as-child>
-          <RouterLink :to="`/connectors/${item.type}`">去配置<ChevronRight /></RouterLink>
-        </TextButton>
-      </SettingsRow>
-      <SettingsRow v-for="conn in attentionConnections" :key="`n-${conn.id}`">
-        <template #label>
-          <div class="flex items-center gap-2">
-            <span class="text-control font-medium">{{ conn.alias }}</span>
-            <StatusBadge :status="conn.status ?? ''" />
-          </div>
-          <div class="mt-0.5 text-body text-muted-foreground">
-            {{ conn.connector_type }} 连接需要处理
-          </div>
-        </template>
-        <TextButton as-child>
-          <RouterLink to="/connections">去处理<ChevronRight /></RouterLink>
-        </TextButton>
-      </SettingsRow>
-    </SettingsSection>
+    <section v-if="!allGood && !loading" class="space-y-2.5">
+      <h2 class="px-2 text-label font-medium text-muted-foreground">{{ t('overview.attention') }}</h2>
+      <div class="grid gap-3">
+        <ActionCard
+          v-for="item in attentionConnectors"
+          :key="`c-${item.type}`"
+          :title="item.name || item.type || ''"
+          :description="`${t(`status.${item.status}`)} · ${t('overview.connectorAbnormal')}`"
+          @click="router.push(`/connectors/${item.type}`)"
+        >
+          <template #icon>
+            <ProviderLogo :name="item.name || item.type || ''" :icon-url="item.icon_url" bare />
+          </template>
+        </ActionCard>
+        <ActionCard
+          v-for="conn in attentionConnections"
+          :key="`n-${conn.id}`"
+          :title="conn.alias ?? ''"
+          :description="`${conn.connector_type} · ${t('overview.connectionNeedsAction')}`"
+          @click="router.push('/connections')"
+        >
+          <template #icon>
+            <ProviderLogo :name="conn.alias ?? '?'" bare />
+          </template>
+        </ActionCard>
+      </div>
+    </section>
   </PageShell>
 </template>

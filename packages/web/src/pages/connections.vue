@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button, Input, Label, NativeSelect, NativeSelectOption, toast } from '@felinic/ui'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError } from '../api/client'
@@ -21,6 +22,7 @@ import SettingsRow from '../components/SettingsRow.vue'
 import SettingsSection from '../components/SettingsSection.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
@@ -46,9 +48,9 @@ onMounted(async () => {
   const connected = route.query.connected
   const errorCode = route.query.error
   if (typeof connected === 'string' && connected !== '') {
-    toast.success(`连接 ${connected} 授权成功`)
+    toast.success(t('connections.connected', { alias: connected }))
   } else if (typeof errorCode === 'string' && errorCode !== '') {
-    toast.error(`授权失败：${errorCode}`)
+    toast.error(t('connections.authError', { code: errorCode }))
   }
   if (connected || errorCode) {
     void router.replace({ path: '/connections' })
@@ -59,7 +61,7 @@ onMounted(async () => {
     connections.value = conns
     connectors.value = cats
   } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '加载连接失败')
+    toast.error(e instanceof ApiError ? e.message : t('connections.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -78,7 +80,7 @@ watch(
         form.value.authMethod = methods.value[0]?.key ?? ''
       }
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : '加载认证方式失败')
+      toast.error(e instanceof ApiError ? e.message : t('connections.loadMethodsFailed'))
     }
   },
 )
@@ -107,12 +109,12 @@ async function submitCreate() {
       alias: form.value.alias,
       fields: credentialValues.value,
     })
-    toast.success('连接已创建')
+    toast.success(t('connections.created'))
     form.value = { connectorType: '', authMethod: '', alias: '' }
     credentialValues.value = {}
     await reloadConnections()
   } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '创建连接失败')
+    toast.error(e instanceof ApiError ? e.message : t('connections.createFailed'))
   } finally {
     busy.value = false
   }
@@ -123,24 +125,24 @@ async function onReauth(conn: Connection) {
     const { authorization_url } = await reauthConnection(conn.id ?? '')
     if (authorization_url) redirectTo(authorization_url)
   } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '发起重新授权失败')
+    toast.error(e instanceof ApiError ? e.message : t('connections.reauthFailed'))
   }
 }
 
 async function onDelete(conn: Connection) {
   try {
     await deleteConnection(conn.id ?? '')
-    toast.success(`连接 ${conn.alias} 已删除`)
+    toast.success(t('connections.deleted', { alias: conn.alias }))
     await reloadConnections()
   } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '删除连接失败')
+    toast.error(e instanceof ApiError ? e.message : t('connections.deleteFailed'))
   }
 }
 </script>
 
 <template>
-  <PageShell title="连接">
-    <SettingsSection title="已有连接">
+  <PageShell :title="t('connections.title')">
+    <SettingsSection :title="t('connections.existing')">
       <SettingsRow v-for="conn in connections" :key="conn.id">
         <template #label>
           <div class="flex items-center gap-2">
@@ -151,36 +153,36 @@ async function onDelete(conn: Connection) {
             {{ conn.connector_type }} · {{ conn.auth_method }}
           </div>
         </template>
-        <Button size="sm" variant="outline" @click="onReauth(conn)">重新授权</Button>
-        <ArmButton label="删除" @confirm="onDelete(conn)" />
+        <Button size="sm" variant="outline" @click="onReauth(conn)">{{ t('connections.reauth') }}</Button>
+        <ArmButton :label="t('connections.delete')" @confirm="onDelete(conn)" />
       </SettingsRow>
-      <SettingsRow v-if="!loading && connections.length === 0" label="还没有任何连接" description="在下方创建第一个连接" />
+      <SettingsRow v-if="!loading && connections.length === 0" :label="t('connections.empty')" :description="t('connections.emptyDesc')" />
     </SettingsSection>
 
-    <SettingsSection title="新建连接">
+    <SettingsSection :title="t('connections.create')">
       <form class="space-y-4 p-5" @submit.prevent="submitCreate">
         <div class="space-y-1.5">
-          <Label for="conn-type">连接器</Label>
+          <Label for="conn-type">{{ t('connections.connector') }}</Label>
           <NativeSelect id="conn-type" v-model="form.connectorType" class="w-full">
-            <NativeSelectOption value="">选择连接器</NativeSelectOption>
+            <NativeSelectOption value="">{{ t('connections.selectConnector') }}</NativeSelectOption>
             <NativeSelectOption v-for="c in connectors" :key="c.type" :value="c.type ?? ''">
               {{ c.name || c.type }}
             </NativeSelectOption>
           </NativeSelect>
         </div>
         <div v-if="methods.length > 0" class="space-y-1.5">
-          <Label for="conn-method">认证方式</Label>
+          <Label for="conn-method">{{ t('connections.authMethod') }}</Label>
           <NativeSelect id="conn-method" v-model="form.authMethod" class="w-full">
-            <NativeSelectOption value="">选择认证方式</NativeSelectOption>
+            <NativeSelectOption value="">{{ t('connections.selectAuthMethod') }}</NativeSelectOption>
             <NativeSelectOption v-for="m in methods" :key="m.key" :value="m.key ?? ''">
               {{ m.label || m.key }}
             </NativeSelectOption>
           </NativeSelect>
         </div>
         <div class="space-y-1.5">
-          <Label for="conn-alias">别名</Label>
-          <Input id="conn-alias" v-model="form.alias" placeholder="如 gh-main（小写字母、数字、连字符）" />
-          <p class="text-body text-muted-foreground">别名用于在聚合 MCP 中标识这个连接，创建后不可改。</p>
+          <Label for="conn-alias">{{ t('connections.alias') }}</Label>
+          <Input id="conn-alias" v-model="form.alias" :placeholder="t('connections.aliasPlaceholder')" />
+          <p class="text-body text-muted-foreground">{{ t('connections.aliasHint') }}</p>
         </div>
         <div v-if="selectedMethod && selectedMethod.type !== 'oauth2'" class="space-y-4">
           <div v-for="f in selectedMethod.credential_fields" :key="f.key" class="space-y-1.5">
@@ -200,7 +202,7 @@ async function onDelete(conn: Connection) {
           type="submit"
           :disabled="busy || !form.connectorType || !form.authMethod || !form.alias"
         >
-          {{ selectedMethod?.type === 'oauth2' ? '发起授权' : '创建连接' }}
+          {{ selectedMethod?.type === 'oauth2' ? t('connections.startOAuth') : t('connections.submit') }}
         </Button>
       </form>
     </SettingsSection>

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { Button, Input, Label, toast } from '@felinic/ui'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ApiError } from '../api/client'
 import { changePassword } from '../api/endpoints'
 import PageShell from '../components/PageShell.vue'
 import SettingsSection from '../components/SettingsSection.vue'
 
+const { t } = useI18n()
 const password = ref('')
 const confirm = ref('')
 const error = ref('')
@@ -15,11 +17,11 @@ const busy = ref(false)
 async function submit() {
   error.value = ''
   if (password.value.length < 8) {
-    error.value = '密码至少 8 个字符'
+    error.value = t('settings.tooShort')
     return
   }
   if (password.value !== confirm.value) {
-    error.value = '两次输入不一致'
+    error.value = t('settings.mismatch')
     return
   }
   busy.value = true
@@ -27,9 +29,9 @@ async function submit() {
     await changePassword(password.value)
     password.value = ''
     confirm.value = ''
-    toast.success('密码已修改')
+    toast.success(t('settings.saved'))
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : '修改失败'
+    error.value = e instanceof ApiError ? e.message : t('settings.failed')
   } finally {
     busy.value = false
   }
@@ -37,19 +39,19 @@ async function submit() {
 </script>
 
 <template>
-  <PageShell title="设置">
-    <SettingsSection title="修改密码">
+  <PageShell :title="t('settings.title')">
+    <SettingsSection :title="t('settings.changePassword')">
       <form class="space-y-4 p-5" @submit.prevent="submit">
         <div class="space-y-1.5">
-          <Label for="pw-new">新密码</Label>
+          <Label for="pw-new">{{ t('settings.newPassword') }}</Label>
           <Input id="pw-new" v-model="password" type="password" autocomplete="new-password" />
         </div>
         <div class="space-y-1.5">
-          <Label for="pw-confirm">确认新密码</Label>
+          <Label for="pw-confirm">{{ t('settings.confirmPassword') }}</Label>
           <Input id="pw-confirm" v-model="confirm" type="password" autocomplete="new-password" />
         </div>
         <p v-if="error" class="text-body text-destructive">{{ error }}</p>
-        <Button type="submit" :disabled="busy || password === ''">保存</Button>
+        <Button type="submit" :disabled="busy || password === ''">{{ t('settings.save') }}</Button>
       </form>
     </SettingsSection>
   </PageShell>
