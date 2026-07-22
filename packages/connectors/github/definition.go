@@ -15,6 +15,7 @@ var Definition = connector.Definition{
 	Description:         "GitHub 代码托管与协作平台",
 	Categories:          []string{"developer_tools"},
 	HomepageURL:         "https://github.com",
+	IconURL:             "https://cdn.simpleicons.org/github",
 	ConfigSchemaVersion: 1,
 
 	// 两个字段均可选：不配置时 OAuth 授权在发起时报错（oauthsvc 行为），

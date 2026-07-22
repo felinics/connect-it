@@ -15,6 +15,7 @@ var Definition = connector.Definition{
 	Description:         "Google Gmail 邮件服务",
 	Categories:          []string{"communication"},
 	HomepageURL:         "https://mail.google.com",
+	IconURL:             "https://cdn.simpleicons.org/gmail",
 	ConfigSchemaVersion: 1,
 
 	ConfigFields: []connector.ConfigField{

@@ -15,6 +15,7 @@ var Definition = connector.Definition{
 	Description:         "Google Ads 广告投放平台（经自托管官方 MCP server）",
 	Categories:          []string{"advertising"},
 	HomepageURL:         "https://ads.google.com",
+	IconURL:             "https://cdn.simpleicons.org/googleads",
 	ConfigSchemaVersion: 1,
 
 	ConfigFields: []connector.ConfigField{

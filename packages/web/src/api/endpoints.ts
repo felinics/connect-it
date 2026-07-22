@@ -4,6 +4,8 @@ import * as sdk from '@connect-it/sdk'
 import { ApiError, unwrap } from './client'
 import type { ConnectorConfig } from './types'
 
+export const healthz = () => unwrap(sdk.healthz())
+
 export const login = (username: string, password: string) =>
   unwrap(sdk.login({ body: { username, password } }), { allowUnauthorized: true })
 
