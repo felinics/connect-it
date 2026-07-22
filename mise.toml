@@ -1,0 +1,28 @@
+[tools]
+go = "1.25"
+node = "22"
+pnpm = "10"
+
+[tasks.test]
+description = "逐 Go module 运行测试"
+run = '''
+set -e
+for d in packages/*/; do
+  if [ -f "$d/go.mod" ]; then
+    echo "==> $d"
+    (cd "$d" && go test ./...)
+  fi
+done
+'''
+
+[tasks.vet]
+description = "逐 Go module 运行 go vet"
+run = '''
+set -e
+for d in packages/*/; do
+  if [ -f "$d/go.mod" ]; then
+    echo "==> $d"
+    (cd "$d" && go vet ./...)
+  fi
+done
+'''
