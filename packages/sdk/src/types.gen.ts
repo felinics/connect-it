@@ -16,8 +16,16 @@ export type ApiAuthMethodDto = {
     type?: string;
 };
 
-export type ApiAuthorizationUrlResponse = {
+export type ApiBeginOAuthRequest = {
+    alias?: string;
+    auth_method?: string;
+    connector_type?: string;
+    redirect_url?: string;
+};
+
+export type ApiBeginOAuthResponse = {
     authorization_url?: string;
+    connection_id?: string;
 };
 
 export type ApiChangePasswordRequest = {
@@ -56,7 +64,7 @@ export type ApiCreateApiKeyRequest = {
 };
 
 export type ApiCreateConnectionResponse = {
-    id?: string;
+    connection_id?: string;
 };
 
 export type ApiCreateMcpSessionRequest = {
@@ -96,10 +104,8 @@ export type ApiPutConfigRequest = {
     };
 };
 
-export type ApiStartOAuthRequest = {
-    alias?: string;
-    auth_method?: string;
-    connector_type?: string;
+export type ApiReauthRequest = {
+    redirect_url?: string;
 };
 
 export type ApiValidateConfigRequest = {
@@ -244,79 +250,7 @@ export type ListConnectionsResponses = {
 
 export type ListConnectionsResponse = ListConnectionsResponses[keyof ListConnectionsResponses];
 
-export type CreateApiKeyConnectionData = {
-    /**
-     * 凭证字段按 auth method 的 CredentialFields 填写
-     */
-    body: ApiCreateApiKeyRequest;
-    path?: never;
-    query?: never;
-    url: '/admin/connections/api-key';
-};
-
-export type CreateApiKeyConnectionErrors = {
-    /**
-     * Not Found
-     */
-    404: ApiErrorResponse;
-    /**
-     * Conflict
-     */
-    409: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
-     */
-    422: ApiErrorResponse;
-};
-
-export type CreateApiKeyConnectionError = CreateApiKeyConnectionErrors[keyof CreateApiKeyConnectionErrors];
-
-export type CreateApiKeyConnectionResponses = {
-    /**
-     * Created
-     */
-    201: ApiCreateConnectionResponse;
-};
-
-export type CreateApiKeyConnectionResponse = CreateApiKeyConnectionResponses[keyof CreateApiKeyConnectionResponses];
-
-export type StartOAuthData = {
-    /**
-     * 目标 connector、auth method 与 alias
-     */
-    body: ApiStartOAuthRequest;
-    path?: never;
-    query?: never;
-    url: '/admin/connections/oauth';
-};
-
-export type StartOAuthErrors = {
-    /**
-     * Not Found
-     */
-    404: ApiErrorResponse;
-    /**
-     * Conflict
-     */
-    409: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
-     */
-    422: ApiErrorResponse;
-};
-
-export type StartOAuthError = StartOAuthErrors[keyof StartOAuthErrors];
-
-export type StartOAuthResponses = {
-    /**
-     * OK
-     */
-    200: ApiAuthorizationUrlResponse;
-};
-
-export type StartOAuthResponse = StartOAuthResponses[keyof StartOAuthResponses];
-
-export type DeleteConnectionData = {
+export type AdminDeleteConnectionData = {
     body?: never;
     path: {
         /**
@@ -328,23 +262,23 @@ export type DeleteConnectionData = {
     url: '/admin/connections/{id}';
 };
 
-export type DeleteConnectionErrors = {
+export type AdminDeleteConnectionErrors = {
     /**
      * Not Found
      */
     404: ApiErrorResponse;
 };
 
-export type DeleteConnectionError = DeleteConnectionErrors[keyof DeleteConnectionErrors];
+export type AdminDeleteConnectionError = AdminDeleteConnectionErrors[keyof AdminDeleteConnectionErrors];
 
-export type DeleteConnectionResponses = {
+export type AdminDeleteConnectionResponses = {
     /**
      * No Content
      */
     204: unknown;
 };
 
-export type ReauthConnectionData = {
+export type AdminReauthConnectionData = {
     body?: never;
     path: {
         /**
@@ -356,23 +290,23 @@ export type ReauthConnectionData = {
     url: '/admin/connections/{id}/reauth';
 };
 
-export type ReauthConnectionErrors = {
+export type AdminReauthConnectionErrors = {
     /**
      * Not Found
      */
     404: ApiErrorResponse;
 };
 
-export type ReauthConnectionError = ReauthConnectionErrors[keyof ReauthConnectionErrors];
+export type AdminReauthConnectionError = AdminReauthConnectionErrors[keyof AdminReauthConnectionErrors];
 
-export type ReauthConnectionResponses = {
+export type AdminReauthConnectionResponses = {
     /**
      * OK
      */
-    200: ApiAuthorizationUrlResponse;
+    200: ApiBeginOAuthResponse;
 };
 
-export type ReauthConnectionResponse = ReauthConnectionResponses[keyof ReauthConnectionResponses];
+export type AdminReauthConnectionResponse = AdminReauthConnectionResponses[keyof AdminReauthConnectionResponses];
 
 export type AdminListConnectorsData = {
     body?: never;
@@ -668,6 +602,161 @@ export type HealthzResponses = {
 };
 
 export type HealthzResponse = HealthzResponses[keyof HealthzResponses];
+
+export type CreateApiKeyConnectionData = {
+    /**
+     * 凭证字段按 auth method 的 CredentialFields 填写；alias 可选
+     */
+    body: ApiCreateApiKeyRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/connections/api-key';
+};
+
+export type CreateApiKeyConnectionErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+};
+
+export type CreateApiKeyConnectionError = CreateApiKeyConnectionErrors[keyof CreateApiKeyConnectionErrors];
+
+export type CreateApiKeyConnectionResponses = {
+    /**
+     * Created
+     */
+    201: ApiCreateConnectionResponse;
+};
+
+export type CreateApiKeyConnectionResponse = CreateApiKeyConnectionResponses[keyof CreateApiKeyConnectionResponses];
+
+export type BeginOAuthConnectionData = {
+    /**
+     * alias 为可选展示标签；redirect_url 为授权完成后回跳调用方的地址（可选）
+     */
+    body: ApiBeginOAuthRequest;
+    path?: never;
+    query?: never;
+    url: '/v1/connections/oauth';
+};
+
+export type BeginOAuthConnectionErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+};
+
+export type BeginOAuthConnectionError = BeginOAuthConnectionErrors[keyof BeginOAuthConnectionErrors];
+
+export type BeginOAuthConnectionResponses = {
+    /**
+     * Created
+     */
+    201: ApiBeginOAuthResponse;
+};
+
+export type BeginOAuthConnectionResponse = BeginOAuthConnectionResponses[keyof BeginOAuthConnectionResponses];
+
+export type DeleteConnectionData = {
+    body?: never;
+    path: {
+        /**
+         * connection id（uuid）
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/v1/connections/{id}';
+};
+
+export type DeleteConnectionErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+};
+
+export type DeleteConnectionError = DeleteConnectionErrors[keyof DeleteConnectionErrors];
+
+export type DeleteConnectionResponses = {
+    /**
+     * No Content
+     */
+    204: unknown;
+};
+
+export type GetConnectionData = {
+    body?: never;
+    path: {
+        /**
+         * connection id（uuid）
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/v1/connections/{id}';
+};
+
+export type GetConnectionErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+};
+
+export type GetConnectionError = GetConnectionErrors[keyof GetConnectionErrors];
+
+export type GetConnectionResponses = {
+    /**
+     * OK
+     */
+    200: ConnsvcConnectionView;
+};
+
+export type GetConnectionResponse = GetConnectionResponses[keyof GetConnectionResponses];
+
+export type ReauthConnectionData = {
+    /**
+     * redirect_url 可选
+     */
+    body?: ApiReauthRequest;
+    path: {
+        /**
+         * connection id（uuid）
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/v1/connections/{id}/reauth';
+};
+
+export type ReauthConnectionErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+};
+
+export type ReauthConnectionError = ReauthConnectionErrors[keyof ReauthConnectionErrors];
+
+export type ReauthConnectionResponses = {
+    /**
+     * OK
+     */
+    200: ApiBeginOAuthResponse;
+};
+
+export type ReauthConnectionResponse = ReauthConnectionResponses[keyof ReauthConnectionResponses];
 
 export type ListConnectorsData = {
     body?: never;

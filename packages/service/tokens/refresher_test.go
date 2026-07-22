@@ -109,8 +109,9 @@ func (e *env) seedOAuth(t *testing.T, expiresIn time.Duration) uuid.UUID {
 	if !exp.IsZero() {
 		expPtr = &exp
 	}
+	alias := "a-" + id.String()[:8]
 	if _, err := e.q.CreateConnection(context.Background(), store.CreateConnectionParams{
-		ID: id, ConnectorType: "example_app", Alias: "a-" + id.String()[:8],
+		ID: id, ConnectorType: "example_app", Alias: &alias,
 		AuthMethod: "oauth", Credential: ct, SecretKeyVersion: int32(ver),
 		Scopes: []string{}, Status: "active", AccessTokenExpiresAt: expPtr,
 	}); err != nil {
@@ -127,8 +128,9 @@ func (e *env) seedAPIKey(t *testing.T) uuid.UUID {
 	if err != nil {
 		t.Fatal(err)
 	}
+	alias := "k-" + id.String()[:8]
 	if _, err := e.q.CreateConnection(context.Background(), store.CreateConnectionParams{
-		ID: id, ConnectorType: "example_app", Alias: "k-" + id.String()[:8],
+		ID: id, ConnectorType: "example_app", Alias: &alias,
 		AuthMethod: "pat", Credential: ct, SecretKeyVersion: int32(ver),
 		Scopes: []string{}, Status: "active",
 	}); err != nil {

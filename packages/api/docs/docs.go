@@ -139,9 +139,9 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "connections"
+                    "admin"
                 ],
-                "summary": "列出全部 connection（不含 credential）",
+                "summary": "列出全部连接（运维视角，不含 credential）",
                 "operationId": "listConnections",
                 "responses": {
                     "200": {
@@ -156,117 +156,13 @@ const docTemplate = `{
                 }
             }
         },
-        "/admin/connections/api-key": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "connections"
-                ],
-                "summary": "用 API key / 自定义凭证创建 connection",
-                "operationId": "createApiKeyConnection",
-                "parameters": [
-                    {
-                        "description": "凭证字段按 auth method 的 CredentialFields 填写",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.createAPIKeyRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.createConnectionResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable Entity",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/connections/oauth": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "connections"
-                ],
-                "summary": "发起 OAuth 授权，返回跳转地址",
-                "operationId": "startOAuth",
-                "parameters": [
-                    {
-                        "description": "目标 connector、auth method 与 alias",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.startOAuthRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.authorizationURLResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable Entity",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/connections/{id}": {
             "delete": {
                 "tags": [
-                    "connections"
+                    "admin"
                 ],
-                "summary": "删除 connection",
-                "operationId": "deleteConnection",
+                "summary": "删除连接（运维）",
+                "operationId": "adminDeleteConnection",
                 "parameters": [
                     {
                         "type": "string",
@@ -295,10 +191,10 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "connections"
+                    "admin"
                 ],
-                "summary": "对既有 connection 重新发起授权",
-                "operationId": "reauthConnection",
+                "summary": "生成重授权链接（运维转交给对应用户打开）",
+                "operationId": "adminReauthConnection",
                 "parameters": [
                     {
                         "type": "string",
@@ -312,7 +208,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.authorizationURLResponse"
+                            "$ref": "#/definitions/api.beginOAuthResponse"
                         }
                     },
                     "404": {
@@ -687,6 +583,231 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/connections/api-key": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "用 API key / 自定义凭证创建连接，返回其持久 ID",
+                "operationId": "createApiKeyConnection",
+                "parameters": [
+                    {
+                        "description": "凭证字段按 auth method 的 CredentialFields 填写；alias 可选",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.createAPIKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.createConnectionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/connections/oauth": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "发起 OAuth 授权：立即创建 pending 连接并返回其持久 ID 与授权 URL",
+                "operationId": "beginOAuthConnection",
+                "parameters": [
+                    {
+                        "description": "alias 为可选展示标签；redirect_url 为授权完成后回跳调用方的地址（可选）",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.beginOAuthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.beginOAuthResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/connections/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "查询连接状态（pending / active / reauth_required …）",
+                "operationId": "getConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/connsvc.ConnectionView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "删除连接",
+                "operationId": "deleteConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/connections/{id}/reauth": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "对既有连接重新发起授权（ID 不变）",
+                "operationId": "reauthConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "redirect_url 可选",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/api.reauthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.beginOAuthResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/connectors": {
             "get": {
                 "security": [
@@ -873,10 +994,30 @@ const docTemplate = `{
                 }
             }
         },
-        "api.authorizationURLResponse": {
+        "api.beginOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "auth_method": {
+                    "type": "string"
+                },
+                "connector_type": {
+                    "type": "string"
+                },
+                "redirect_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.beginOAuthResponse": {
             "type": "object",
             "properties": {
                 "authorization_url": {
+                    "type": "string"
+                },
+                "connection_id": {
                     "type": "string"
                 }
             }
@@ -971,7 +1112,7 @@ const docTemplate = `{
         "api.createConnectionResponse": {
             "type": "object",
             "properties": {
-                "id": {
+                "connection_id": {
                     "type": "string"
                 }
             }
@@ -1055,16 +1196,10 @@ const docTemplate = `{
                 }
             }
         },
-        "api.startOAuthRequest": {
+        "api.reauthRequest": {
             "type": "object",
             "properties": {
-                "alias": {
-                    "type": "string"
-                },
-                "auth_method": {
-                    "type": "string"
-                },
-                "connector_type": {
+                "redirect_url": {
                     "type": "string"
                 }
             }

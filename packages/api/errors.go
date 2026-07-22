@@ -32,14 +32,13 @@ func mapServiceError(c echo.Context, err error) error {
 		errors.Is(err, authsvc.ErrNotFound),
 		errors.Is(err, connsvc.ErrNotFound),
 		errors.Is(err, connsvc.ErrUnknownConnector),
-		errors.Is(err, oauthsvc.ErrUnknownConnector):
+		errors.Is(err, oauthsvc.ErrUnknownConnector),
+		errors.Is(err, oauthsvc.ErrConnectionGone):
 		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
 	case errors.Is(err, configsvc.ErrConflict):
 		return writeError(c, http.StatusConflict, "conflict", "配置已被修改，请刷新后重试")
 	case errors.Is(err, configsvc.ErrIncompatible):
 		return writeError(c, http.StatusConflict, "config_incompatible", "数据库配置版本比当前代码新")
-	case errors.Is(err, connsvc.ErrAliasTaken), errors.Is(err, oauthsvc.ErrAliasTaken):
-		return writeError(c, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, connsvc.ErrInvalidAlias),
 		errors.Is(err, connsvc.ErrUnknownAuthMethod),
 		errors.Is(err, connsvc.ErrWrongAuthType),

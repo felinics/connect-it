@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
@@ -29,7 +28,6 @@ var (
 	ErrUnknownAuthMethod = errors.New("connsvc: 未知 auth method")
 	ErrWrongAuthType     = errors.New("connsvc: auth method 不是 api_key / custom_credential")
 	ErrInvalidFields     = errors.New("connsvc: credential 字段不合法")
-	ErrAliasTaken        = errors.New("connsvc: alias 已被占用")
 	ErrNotFound          = errors.New("connsvc: connection 不存在")
 )
 
@@ -53,8 +51,10 @@ type ConnectionView struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// CreateAPIKey 创建一条 api_key / custom_credential 连接并返回其持久 ID。
+// alias 是可选展示标签（空串表示不设）。
 func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethodKey, alias string, fields map[string]string) (uuid.UUID, error) {
-	if !AliasPattern.MatchString(alias) {
+	if alias != "" && !AliasPattern.MatchString(alias) {
 		return uuid.Nil, ErrInvalidAlias
 	}
 	def, ok := s.reg.Get(t)
@@ -87,10 +87,14 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 	if err != nil {
 		return uuid.Nil, err
 	}
+	var aliasPtr *string
+	if alias != "" {
+		aliasPtr = &alias
+	}
 	_, err = s.q.CreateConnection(ctx, store.CreateConnectionParams{
 		ID:               id,
 		ConnectorType:    string(t),
-		Alias:            alias,
+		Alias:            aliasPtr,
 		AuthMethod:       authMethodKey,
 		Credential:       ct,
 		SecretKeyVersion: int32(ver),
@@ -99,9 +103,6 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 		// AccessTokenExpiresAt 保持 nil（NULL）：api_key 不过期
 	})
 	if err != nil {
-		if isUniqueViolation(err) {
-			return uuid.Nil, fmt.Errorf("%w: %s", ErrAliasTaken, alias)
-		}
 		return uuid.Nil, err
 	}
 	return id, nil
@@ -142,10 +143,14 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func toView(r store.Connection) ConnectionView {
+	alias := ""
+	if r.Alias != nil {
+		alias = *r.Alias
+	}
 	return ConnectionView{
 		ID:            r.ID,
 		ConnectorType: r.ConnectorType,
-		Alias:         r.Alias,
+		Alias:         alias,
 		AuthMethod:    r.AuthMethod,
 		Status:        r.Status,
 		CreatedAt:     r.CreatedAt,
@@ -180,7 +185,3 @@ func validateFields(defs []connector.ConfigField, got map[string]string) error {
 	return nil
 }
 
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}

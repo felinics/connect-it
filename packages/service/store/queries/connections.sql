@@ -10,14 +10,11 @@ RETURNING *;
 -- name: GetConnection :one
 SELECT * FROM connections WHERE id = $1;
 
--- name: GetConnectionByAlias :one
-SELECT * FROM connections WHERE alias = $1;
-
 -- name: GetConnectionForUpdate :one
 SELECT * FROM connections WHERE id = $1 FOR UPDATE;
 
 -- name: ListConnections :many
-SELECT * FROM connections ORDER BY created_at, alias;
+SELECT * FROM connections ORDER BY created_at DESC;
 
 -- name: UpdateConnectionCredential :exec
 UPDATE connections

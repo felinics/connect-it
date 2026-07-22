@@ -1,4 +1,8 @@
 // Package oauthsvc 实现 OAuth 授权发起（state＋PKCE）与回调处理（授权码换 token）。
+//
+// SaaS 模型：每次 Begin 立即创建一条 pending 连接并返回其持久 ID（连接 ID 即
+// 句柄，调用方自己维护「谁拥有这个 ID」）；终端用户完成授权后回调把连接置
+// active。BeginReauth 复用既有 ID 重新授权。
 package oauthsvc
 
 import (
@@ -39,10 +43,24 @@ var (
 	ErrUnknownConnector  = errors.New("oauthsvc: 未知 connector type")
 	ErrUnknownAuthMethod = errors.New("oauthsvc: 未知 auth method")
 	ErrNotOAuth          = errors.New("oauthsvc: auth method 不是 oauth2")
-	ErrAliasTaken        = errors.New("oauthsvc: alias 已被其他 connector 或 auth method 占用")
 	ErrInvalidState      = errors.New("oauthsvc: state 无效或已过期")
 	ErrMissingClient     = errors.New("oauthsvc: 配置缺少 client_id / client_secret")
+	ErrConnectionGone    = errors.New("oauthsvc: connection 不存在")
 )
+
+// BeginResult 是授权发起的结果：连接 ID 当场返回（pending），
+// AuthorizationURL 交给终端用户跳转。
+type BeginResult struct {
+	ConnectionID     uuid.UUID
+	AuthorizationURL string
+}
+
+// CallbackResult 是回调处理的结果；RedirectURL 为发起时调用方登记的回跳地址
+// （可为空，表示落在 connect-it 的默认完成页）。
+type CallbackResult struct {
+	ConnectionID uuid.UUID
+	RedirectURL  string
+}
 
 type Service struct {
 	q       *store.Queries
@@ -57,63 +75,85 @@ func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *c
 	return &Service{q: q, reg: reg, cfg: cfg, kr: kr, hc: hc, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
-// Begin 生成授权 URL：随机 state（库中只存 sha256）、PKCE S256，
-// 写 oauth_authorizations（10 分钟过期）。alias 已有同 connector＋同 auth method
-// 的 connection 时进入重授权路径（绑定 connection_id）。
-func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias string) (string, error) {
-	if !connsvc.AliasPattern.MatchString(alias) {
-		return "", connsvc.ErrInvalidAlias
+// Begin 创建一条 pending 连接并生成授权 URL。alias 是可选展示标签；
+// redirectURL 是授权完成后回跳给调用方的地址（可为空）。
+func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias, redirectURL string) (BeginResult, error) {
+	if alias != "" && !connsvc.AliasPattern.MatchString(alias) {
+		return BeginResult{}, connsvc.ErrInvalidAlias
 	}
 	def, ok := s.reg.Get(t)
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+		return BeginResult{}, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
 	}
 	method, err := findOAuthMethod(def, authMethodKey)
 	if err != nil {
-		return "", err
+		return BeginResult{}, err
 	}
 
-	var connectionID *uuid.UUID
-	existing, err := s.q.GetConnectionByAlias(ctx, alias)
-	switch {
-	case err == nil:
-		if existing.ConnectorType != string(t) || existing.AuthMethod != authMethodKey {
-			return "", fmt.Errorf("%w: %s", ErrAliasTaken, alias)
-		}
-		id := existing.ID
-		connectionID = &id // 重授权
-	case errors.Is(err, pgx.ErrNoRows):
-		// 全新连接
-	default:
-		return "", err
+	// pending 连接：ID 当场生成并返回，凭证在回调时写入。
+	connID := uuid.New()
+	emptyCred, keyVersion, err := s.kr.Encrypt(nil, []byte(connID.String()))
+	if err != nil {
+		return BeginResult{}, err
+	}
+	scopes := method.OAuth.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+	var aliasPtr *string
+	if alias != "" {
+		aliasPtr = &alias
+	}
+	if _, err := s.q.CreateConnection(ctx, store.CreateConnectionParams{
+		ID:               connID,
+		ConnectorType:    string(t),
+		Alias:            aliasPtr,
+		AuthMethod:       authMethodKey,
+		Credential:       emptyCred,
+		SecretKeyVersion: int32(keyVersion),
+		Scopes:           scopes,
+		Status:           statusPending,
+	}); err != nil {
+		return BeginResult{}, err
 	}
 
-	return s.begin(ctx, t, method, alias, connectionID)
+	authURL, err := s.createAuthorization(ctx, t, method, alias, connID, redirectURL)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	return BeginResult{ConnectionID: connID, AuthorizationURL: authURL}, nil
 }
 
-// BeginReauth 对既有 connection 重新发起授权：复用其 connector_type／auth_method／alias。
-func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID) (string, error) {
+// BeginReauth 对既有连接重新发起授权：ID 不变，回调后覆盖凭证并置 active。
+func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID, redirectURL string) (BeginResult, error) {
 	row, err := s.q.GetConnection(ctx, connectionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", connsvc.ErrNotFound
+			return BeginResult{}, ErrConnectionGone
 		}
-		return "", err
+		return BeginResult{}, err
 	}
 	t := connector.Type(row.ConnectorType)
 	def, ok := s.reg.Get(t)
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+		return BeginResult{}, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
 	}
 	method, err := findOAuthMethod(def, row.AuthMethod)
 	if err != nil {
-		return "", err
+		return BeginResult{}, err
 	}
-	id := row.ID
-	return s.begin(ctx, t, method, row.Alias, &id)
+	alias := ""
+	if row.Alias != nil {
+		alias = *row.Alias
+	}
+	authURL, err := s.createAuthorization(ctx, t, method, alias, row.ID, redirectURL)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	return BeginResult{ConnectionID: row.ID, AuthorizationURL: authURL}, nil
 }
 
-func (s *Service) begin(ctx context.Context, t connector.Type, method connector.AuthMethod, alias string, connectionID *uuid.UUID) (string, error) {
+func (s *Service) createAuthorization(ctx context.Context, t connector.Type, method connector.AuthMethod, alias string, connectionID uuid.UUID, redirectURL string) (string, error) {
 	resolved, err := s.cfg.Resolved(ctx, t)
 	if err != nil {
 		return "", err
@@ -143,6 +183,7 @@ func (s *Service) begin(ctx context.Context, t connector.Type, method connector.
 	if err != nil {
 		return "", err
 	}
+	connID := connectionID
 	if _, err := s.q.CreateOAuthAuthorization(ctx, store.CreateOAuthAuthorizationParams{
 		ID:               authzID,
 		ConnectorType:    string(t),
@@ -151,7 +192,8 @@ func (s *Service) begin(ctx context.Context, t connector.Type, method connector.
 		SecretKeyVersion: int32(keyVersion),
 		AuthMethod:       method.Key,
 		Alias:            alias,
-		ConnectionID:     connectionID,
+		ConnectionID:     &connID,
+		RedirectUrl:      redirectURL,
 		Status:           statusPending,
 		ExpiresAt:        time.Now().Add(authorizationTTL),
 	}); err != nil {
@@ -180,40 +222,46 @@ func (s *Service) begin(ctx context.Context, t connector.Type, method connector.
 	return authEndpoint + sep + params.Encode(), nil
 }
 
-// HandleCallback 核对 state hash、用授权码换 token，创建或更新 connection 并置 active。
-func (s *Service) HandleCallback(ctx context.Context, state, code string) (uuid.UUID, error) {
+// HandleCallback 核对 state、用授权码换 token，把绑定的连接置 active。
+func (s *Service) HandleCallback(ctx context.Context, state, code string) (CallbackResult, error) {
 	authz, err := s.q.GetOAuthAuthorizationByStateHash(ctx, hashToken(state))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return uuid.Nil, ErrInvalidState
+			return CallbackResult{}, ErrInvalidState
 		}
-		return uuid.Nil, err
+		return CallbackResult{}, err
 	}
+	result := CallbackResult{RedirectURL: authz.RedirectUrl}
 	if authz.Status != statusPending || time.Now().After(authz.ExpiresAt) {
-		return uuid.Nil, ErrInvalidState
+		return result, ErrInvalidState
 	}
+	if authz.ConnectionID == nil {
+		return result, ErrInvalidState
+	}
+	connID := *authz.ConnectionID
+	result.ConnectionID = connID
 
 	t := connector.Type(authz.ConnectorType)
 	def, ok := s.reg.Get(t)
 	if !ok {
-		return uuid.Nil, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+		return result, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
 	}
 	method, err := findOAuthMethod(def, authz.AuthMethod)
 	if err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
 	resolved, err := s.cfg.Resolved(ctx, t)
 	if err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
 	clientID, _ := resolved["client_id"].(string)
 	clientSecret, _ := resolved["client_secret"].(string)
 	if clientID == "" {
-		return uuid.Nil, ErrMissingClient
+		return result, ErrMissingClient
 	}
 	verifier, err := s.kr.Decrypt(authz.PkceVerifier, int(authz.SecretKeyVersion), []byte(authz.ID.String()))
 	if err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
 
 	form := url.Values{}
@@ -226,11 +274,11 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (uuid.
 	// {tenant} 类占位符在调用前展开；OAuthConfig 本身保持纯数据。
 	oc := *method.OAuth
 	if oc.TokenEndpoint, err = ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
 	tok, err := ExchangeToken(ctx, s.hc, &oc, clientID, clientSecret, form)
 	if err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
 
 	now := time.Now()
@@ -240,63 +288,33 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (uuid.
 	}
 	plain, err := cred.Marshal()
 	if err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
 	var expiresAt *time.Time
 	if !cred.ExpiresAt.IsZero() {
 		expiresAt = &cred.ExpiresAt
 	}
-
-	var connID uuid.UUID
-	if authz.ConnectionID != nil {
-		// 重授权：更新既有 connection，AAD 用既有 id。
-		connID = *authz.ConnectionID
-		ct, ver, err := s.kr.Encrypt(plain, []byte(connID.String()))
-		if err != nil {
-			return uuid.Nil, err
-		}
-		if err := s.q.UpdateConnectionCredential(ctx, store.UpdateConnectionCredentialParams{
-			ID:                   connID,
-			Credential:           ct,
-			SecretKeyVersion:     int32(ver),
-			Status:               "active",
-			AccessTokenExpiresAt: expiresAt,
-		}); err != nil {
-			return uuid.Nil, err
-		}
-	} else {
-		connID = uuid.New()
-		ct, ver, err := s.kr.Encrypt(plain, []byte(connID.String()))
-		if err != nil {
-			return uuid.Nil, err
-		}
-		scopes := method.OAuth.Scopes
-		if scopes == nil {
-			scopes = []string{}
-		}
-		if _, err := s.q.CreateConnection(ctx, store.CreateConnectionParams{
-			ID:                   connID,
-			ConnectorType:        authz.ConnectorType,
-			Alias:                authz.Alias,
-			AuthMethod:           authz.AuthMethod,
-			Credential:           ct,
-			SecretKeyVersion:     int32(ver),
-			Scopes:               scopes,
-			Status:               "active",
-			AccessTokenExpiresAt: expiresAt,
-		}); err != nil {
-			return uuid.Nil, err
-		}
+	ciphertext, keyVersion, err := s.kr.Encrypt(plain, []byte(connID.String()))
+	if err != nil {
+		return result, err
 	}
-
+	if err := s.q.UpdateConnectionCredential(ctx, store.UpdateConnectionCredentialParams{
+		ID:                   connID,
+		Credential:           ciphertext,
+		SecretKeyVersion:     int32(keyVersion),
+		Status:               "active",
+		AccessTokenExpiresAt: expiresAt,
+	}); err != nil {
+		return result, err
+	}
 	if err := s.q.CompleteOAuthAuthorization(ctx, store.CompleteOAuthAuthorizationParams{
 		ID:           authz.ID,
 		Status:       statusCompleted,
 		ConnectionID: &connID,
 	}); err != nil {
-		return uuid.Nil, err
+		return result, err
 	}
-	return connID, nil
+	return result, nil
 }
 
 func findOAuthMethod(def connector.Definition, key string) (connector.AuthMethod, error) {

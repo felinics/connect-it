@@ -26,7 +26,6 @@ import (
 
 type testEnv struct {
 	svc      *oauthsvc.Service
-	conns    *connsvc.Service
 	q        *store.Queries
 	pool     *pgxpool.Pool
 	tokenHit *atomic.Int64
@@ -42,7 +41,7 @@ func newEnv(t *testing.T, usePKCE bool) *testEnv {
 		t.Fatal(err)
 	}
 
-	env := &testEnv{tokenHit: &atomic.Int64{}}
+	env := &testEnv{tokenHit: &atomic.Int64{}, pool: pool}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env.tokenHit.Add(1)
 		_ = r.ParseForm()
@@ -79,9 +78,7 @@ func newEnv(t *testing.T, usePKCE bool) *testEnv {
 		t.Fatal(err)
 	}
 	env.svc = oauthsvc.New(q, reg, cfg, kr, provider.Client(), "https://connect.internal")
-	env.conns = connsvc.New(q, reg, kr)
 	env.q = q
-	env.pool = pool
 	return env
 }
 
@@ -98,22 +95,35 @@ func TestFullAuthorizationFlow(t *testing.T) {
 	env := newEnv(t, true)
 	ctx := context.Background()
 
-	authURL, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1")
+	begin, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1", "https://saas.example/done")
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, _ := url.Parse(authURL)
+
+	// Begin 即返回持久 ID，连接已以 pending 落库
+	row, err := env.q.GetConnection(ctx, begin.ConnectionID)
+	if err != nil || row.Status != "pending" || row.Alias == nil || *row.Alias != "acct-1" {
+		t.Fatalf("pending 连接不符: %+v err=%v", row, err)
+	}
+
+	u, _ := url.Parse(begin.AuthorizationURL)
 	qs := u.Query()
 	if qs.Get("client_id") != "cid" || qs.Get("response_type") != "code" ||
 		qs.Get("redirect_uri") != "https://connect.internal/v1/oauth/callback" ||
 		qs.Get("scope") != "read write" ||
 		qs.Get("code_challenge") == "" || qs.Get("code_challenge_method") != "S256" {
-		t.Fatalf("授权 URL 参数不符: %s", authURL)
+		t.Fatalf("授权 URL 参数不符: %s", begin.AuthorizationURL)
 	}
 
-	connID, err := env.svc.HandleCallback(ctx, qs.Get("state"), "auth-code")
+	result, err := env.svc.HandleCallback(ctx, qs.Get("state"), "auth-code")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result.ConnectionID != begin.ConnectionID {
+		t.Fatalf("回调应绑定同一 ID: %s != %s", result.ConnectionID, begin.ConnectionID)
+	}
+	if result.RedirectURL != "https://saas.example/done" {
+		t.Fatalf("redirect_url 未透传: %q", result.RedirectURL)
 	}
 	if env.lastForm.Get("grant_type") != "authorization_code" ||
 		env.lastForm.Get("code") != "auth-code" ||
@@ -121,10 +131,9 @@ func TestFullAuthorizationFlow(t *testing.T) {
 		t.Fatalf("token 请求参数不符: %v", env.lastForm)
 	}
 
-	row, err := env.q.GetConnection(ctx, connID)
-	if err != nil || row.Status != "active" || row.Alias != "acct-1" ||
-		row.AccessTokenExpiresAt == nil {
-		t.Fatalf("connection 不符: %+v err=%v", row, err)
+	row, err = env.q.GetConnection(ctx, begin.ConnectionID)
+	if err != nil || row.Status != "active" || row.AccessTokenExpiresAt == nil {
+		t.Fatalf("回调后连接应 active: %+v err=%v", row, err)
 	}
 	// state 只能用一次
 	if _, err := env.svc.HandleCallback(ctx, qs.Get("state"), "again"); !errors.Is(err, oauthsvc.ErrInvalidState) {
@@ -132,40 +141,51 @@ func TestFullAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func TestReauthUpdatesExistingConnection(t *testing.T) {
+func TestBeginWithoutAlias(t *testing.T) {
+	env := newEnv(t, false)
+	begin, err := env.svc.Begin(context.Background(), "example_app", "oauth", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := env.q.GetConnection(context.Background(), begin.ConnectionID)
+	if err != nil || row.Alias != nil {
+		t.Fatalf("无 alias 应存 NULL: %+v err=%v", row, err)
+	}
+}
+
+func TestReauthKeepsSameConnection(t *testing.T) {
 	env := newEnv(t, false)
 	ctx := context.Background()
 
-	// 第一次授权
-	authURL, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1")
+	begin, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstID, err := env.svc.HandleCallback(ctx, stateFrom(t, authURL), "code-1")
-	if err != nil {
+	if _, err := env.svc.HandleCallback(ctx, stateFrom(t, begin.AuthorizationURL), "code-1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// BeginReauth 走既有 connection
-	authURL2, err := env.svc.BeginReauth(ctx, firstID)
+	re, err := env.svc.BeginReauth(ctx, begin.ConnectionID, "https://saas.example/back")
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondID, err := env.svc.HandleCallback(ctx, stateFrom(t, authURL2), "code-2")
+	if re.ConnectionID != begin.ConnectionID {
+		t.Fatalf("reauth 应复用同一 ID")
+	}
+	result, err := env.svc.HandleCallback(ctx, stateFrom(t, re.AuthorizationURL), "code-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secondID != firstID {
-		t.Fatalf("重授权应更新同一 connection: %s != %s", secondID, firstID)
-	}
-	list, err := env.conns.List(ctx)
-	if err != nil || len(list) != 1 {
-		t.Fatalf("应只有 1 个 connection: %+v err=%v", list, err)
+	if result.ConnectionID != begin.ConnectionID || result.RedirectURL != "https://saas.example/back" {
+		t.Fatalf("reauth 回调不符: %+v", result)
 	}
 
-	// 同 alias 再 Begin（非 reauth 入口）也进入重授权而不是报冲突
-	if _, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1"); err != nil {
-		t.Fatalf("同类型同 method 的 alias 应可重授权: %v", err)
+	var count int
+	if err := env.pool.QueryRow(ctx, "select count(*) from connections").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("reauth 不应新建连接: %d", count)
 	}
 }
 
@@ -180,34 +200,16 @@ func TestBeginValidation(t *testing.T) {
 	env := newEnv(t, false)
 	ctx := context.Background()
 
-	if _, err := env.svc.Begin(ctx, "example_app", "oauth", "Bad_Alias"); !errors.Is(err, connsvc.ErrInvalidAlias) {
+	if _, err := env.svc.Begin(ctx, "example_app", "oauth", "Bad_Alias", ""); !errors.Is(err, connsvc.ErrInvalidAlias) {
 		t.Fatalf("非法 alias: %v", err)
 	}
-	if _, err := env.svc.Begin(ctx, "nope", "oauth", "a1"); !errors.Is(err, oauthsvc.ErrUnknownConnector) {
+	if _, err := env.svc.Begin(ctx, "nope", "oauth", "", ""); !errors.Is(err, oauthsvc.ErrUnknownConnector) {
 		t.Fatalf("未知 connector: %v", err)
 	}
-	if _, err := env.svc.Begin(ctx, "example_app", "nope", "a1"); !errors.Is(err, oauthsvc.ErrUnknownAuthMethod) {
+	if _, err := env.svc.Begin(ctx, "example_app", "nope", "", ""); !errors.Is(err, oauthsvc.ErrUnknownAuthMethod) {
 		t.Fatalf("未知 method: %v", err)
 	}
-}
-
-func TestBeginAliasConflict(t *testing.T) {
-	env := newEnv(t, false)
-	ctx := context.Background()
-
-	authURL, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.svc.HandleCallback(ctx, stateFrom(t, authURL), "code"); err != nil {
-		t.Fatal(err)
-	}
-	// 直接改行的 connector_type，模拟 alias 已被其他 connector 占用
-	if _, err := env.pool.Exec(ctx,
-		"update connections set connector_type = 'other_app' where alias = 'acct-1'"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.svc.Begin(ctx, "example_app", "oauth", "acct-1"); !errors.Is(err, oauthsvc.ErrAliasTaken) {
-		t.Fatalf("被占用的 alias 应 ErrAliasTaken, got %v", err)
+	if _, err := env.svc.BeginReauth(ctx, [16]byte{1}, ""); !errors.Is(err, oauthsvc.ErrConnectionGone) {
+		t.Fatalf("不存在的连接 reauth: %v", err)
 	}
 }

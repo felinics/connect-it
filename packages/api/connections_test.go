@@ -22,8 +22,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
 
-// newConnServer 装配含假 OAuth provider 的完整服务栈。
-func newConnServer(t *testing.T) *httptest.Server {
+// newConnServer 装配含假 OAuth provider 的完整服务栈，返回服务与一个 Bearer token 头。
+func newConnServer(t *testing.T) (*httptest.Server, http.Header) {
 	t.Helper()
 	pool := testutil.NewDB(t)
 	kr, err := crypto.ParseKeyring("1:" + strings.Repeat("ee", 32))
@@ -81,124 +81,177 @@ func newConnServer(t *testing.T) *httptest.Server {
 	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
-	return srv
+
+	plaintext, _, err := auth.CreateAPIToken(t.Context(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bh := http.Header{}
+	bh.Set("Authorization", "Bearer "+plaintext)
+	return srv, bh
 }
 
-func TestAPIKeyConnectionLifecycleHTTP(t *testing.T) {
-	srv := newConnServer(t)
-	h := adminLogin(t, srv)
+func noRedirectClient() *http.Client {
+	return &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+}
 
-	// 校验失败：alias 非法
-	resp, body := doReq(t, http.MethodPost, srv.URL+"/admin/connections/api-key",
-		`{"connector_type":"example_app","auth_method":"pat","alias":"BAD","fields":{"token":"x"}}`, h)
-	if resp.StatusCode != http.StatusUnprocessableEntity {
-		t.Fatalf("非法 alias 应 422: %d %s", resp.StatusCode, body)
+func TestV1APIKeyConnectionLifecycle(t *testing.T) {
+	srv, bh := newConnServer(t)
+
+	// 无鉴权 → 401
+	resp, _ := doReq(t, http.MethodPost, srv.URL+"/v1/connections/api-key",
+		`{"connector_type":"example_app","auth_method":"pat","fields":{"token":"tok-1"}}`, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("无 Bearer 应 401: %d", resp.StatusCode)
 	}
 
-	// 创建
-	resp, body = doReq(t, http.MethodPost, srv.URL+"/admin/connections/api-key",
-		`{"connector_type":"example_app","auth_method":"pat","alias":"acct-1","fields":{"token":"tok-1"}}`, h)
+	// 创建（无 alias）→ 返回持久 ID
+	resp, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/api-key",
+		`{"connector_type":"example_app","auth_method":"pat","fields":{"token":"tok-1"}}`, bh)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("创建: %d %s", resp.StatusCode, body)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ConnectionID string `json:"connection_id"`
 	}
-	if err := json.Unmarshal([]byte(body), &created); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal([]byte(body), &created); err != nil || created.ConnectionID == "" {
+		t.Fatalf("应返回 connection_id: %s", body)
 	}
 
-	// 列表：包含 connection 且不含 credential
-	resp, body = doReq(t, http.MethodGet, srv.URL+"/admin/connections", "", h)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "acct-1") {
-		t.Fatalf("列表: %d %s", resp.StatusCode, body)
+	// 查询状态
+	resp, body = doReq(t, http.MethodGet, srv.URL+"/v1/connections/"+created.ConnectionID, "", bh)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"active"`) {
+		t.Fatalf("get: %d %s", resp.StatusCode, body)
 	}
 	if strings.Contains(body, "tok-1") {
-		t.Fatalf("列表不得含 credential: %s", body)
-	}
-
-	// 重复 alias → 409
-	resp, _ = doReq(t, http.MethodPost, srv.URL+"/admin/connections/api-key",
-		`{"connector_type":"example_app","auth_method":"pat","alias":"acct-1","fields":{"token":"tok-2"}}`, h)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("重复 alias 应 409: %d", resp.StatusCode)
+		t.Fatalf("响应不得含 credential: %s", body)
 	}
 
 	// 删除
-	resp, _ = doReq(t, http.MethodDelete, srv.URL+"/admin/connections/"+created.ID, "", h)
+	resp, _ = doReq(t, http.MethodDelete, srv.URL+"/v1/connections/"+created.ConnectionID, "", bh)
 	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("删除: %d", resp.StatusCode)
+		t.Fatalf("delete: %d", resp.StatusCode)
 	}
-	resp, _ = doReq(t, http.MethodDelete, srv.URL+"/admin/connections/"+created.ID, "", h)
+	resp, _ = doReq(t, http.MethodGet, srv.URL+"/v1/connections/"+created.ConnectionID, "", bh)
 	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("重复删除应 404: %d", resp.StatusCode)
+		t.Fatalf("删除后应 404: %d", resp.StatusCode)
 	}
 }
 
-func TestOAuthFlowHTTP(t *testing.T) {
-	srv := newConnServer(t)
-	h := adminLogin(t, srv)
+func TestV1OAuthFlowWithRedirect(t *testing.T) {
+	srv, bh := newConnServer(t)
 
-	// 发起
-	resp, body := doReq(t, http.MethodPost, srv.URL+"/admin/connections/oauth",
-		`{"connector_type":"example_app","auth_method":"oauth","alias":"gh-main"}`, h)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("发起: %d %s", resp.StatusCode, body)
+	// 发起：立即拿到 pending 连接 ID＋授权 URL
+	resp, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/oauth",
+		`{"connector_type":"example_app","auth_method":"oauth","alias":"user-42-gh","redirect_url":"https://saas.example/oauth/done"}`, bh)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("begin: %d %s", resp.StatusCode, body)
 	}
-	var started struct {
+	var begin struct {
+		ConnectionID     string `json:"connection_id"`
 		AuthorizationURL string `json:"authorization_url"`
 	}
-	if err := json.Unmarshal([]byte(body), &started); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal([]byte(body), &begin); err != nil || begin.ConnectionID == "" {
+		t.Fatalf("begin 应返回 connection_id: %s", body)
 	}
-	u, err := url.Parse(started.AuthorizationURL)
+
+	// 未完成授权前状态是 pending（SaaS 可轮询）
+	resp, body = doReq(t, http.MethodGet, srv.URL+"/v1/connections/"+begin.ConnectionID, "", bh)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"pending"`) {
+		t.Fatalf("pending 状态: %d %s", resp.StatusCode, body)
+	}
+
+	// 终端用户完成授权 → 回调 302 回 SaaS 登记的 redirect_url，带 connection_id
+	u, err := url.Parse(begin.AuthorizationURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := u.Query().Get("state")
-	if state == "" {
-		t.Fatalf("授权 URL 缺少 state: %s", started.AuthorizationURL)
-	}
-
-	// 回调（禁跟随重定向以断言 Location）
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	cbResp, err := client.Get(srv.URL + "/v1/oauth/callback?state=" + url.QueryEscape(state) + "&code=abc")
+	cbResp, err := noRedirectClient().Get(srv.URL + "/v1/oauth/callback?state=" + url.QueryEscape(state) + "&code=abc")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cbResp.Body.Close()
 	loc := cbResp.Header.Get("Location")
-	if cbResp.StatusCode != http.StatusFound || !strings.Contains(loc, "connected=gh-main") {
-		t.Fatalf("回调应 302 到 connected=gh-main: %d %s", cbResp.StatusCode, loc)
+	if cbResp.StatusCode != http.StatusFound ||
+		!strings.HasPrefix(loc, "https://saas.example/oauth/done") ||
+		!strings.Contains(loc, "status=connected") ||
+		!strings.Contains(loc, "connection_id="+begin.ConnectionID) {
+		t.Fatalf("回调应 302 回 redirect_url: %d %s", cbResp.StatusCode, loc)
 	}
 
-	// 列表可见
-	resp, body = doReq(t, http.MethodGet, srv.URL+"/admin/connections", "", h)
-	if !strings.Contains(body, "gh-main") || !strings.Contains(body, `"active"`) {
-		t.Fatalf("connection 未出现: %s", body)
-	}
-	var list []struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(body), &list); err != nil || len(list) != 1 {
-		t.Fatalf("解析列表: %v %s", err, body)
+	// 状态变 active
+	resp, body = doReq(t, http.MethodGet, srv.URL+"/v1/connections/"+begin.ConnectionID, "", bh)
+	if !strings.Contains(body, `"active"`) {
+		t.Fatalf("回调后应 active: %s", body)
 	}
 
-	// reauth
-	resp, body = doReq(t, http.MethodPost, srv.URL+"/admin/connections/"+list[0].ID+"/reauth", "", h)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "authorization_url") {
+	// reauth：同一 ID 再发起
+	resp, body = doReq(t, http.MethodPost, srv.URL+"/v1/connections/"+begin.ConnectionID+"/reauth",
+		`{"redirect_url":"https://saas.example/back"}`, bh)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, begin.ConnectionID) {
 		t.Fatalf("reauth: %d %s", resp.StatusCode, body)
 	}
+}
 
-	// provider 报错回调
-	errResp, err := client.Get(srv.URL + "/v1/oauth/callback?error=access_denied")
+func TestCallbackWithoutRedirectShowsPage(t *testing.T) {
+	srv, bh := newConnServer(t)
+
+	_, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/oauth",
+		`{"connector_type":"example_app","auth_method":"oauth"}`, bh)
+	var begin struct {
+		AuthorizationURL string `json:"authorization_url"`
+	}
+	if err := json.Unmarshal([]byte(body), &begin); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(begin.AuthorizationURL)
+	state := u.Query().Get("state")
+
+	cbResp, err := noRedirectClient().Get(srv.URL + "/v1/oauth/callback?state=" + url.QueryEscape(state) + "&code=abc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	errResp.Body.Close()
-	if loc := errResp.Header.Get("Location"); !strings.Contains(loc, "error=access_denied") {
-		t.Fatalf("错误回调应带 error: %s", loc)
+	defer cbResp.Body.Close()
+	page := make([]byte, 4096)
+	n, _ := cbResp.Body.Read(page)
+	if cbResp.StatusCode != http.StatusOK || !strings.Contains(string(page[:n]), "授权完成") {
+		t.Fatalf("无 redirect_url 应渲染完成页: %d %s", cbResp.StatusCode, page[:n])
+	}
+}
+
+func TestAdminConnectionsOpsView(t *testing.T) {
+	srv, bh := newConnServer(t)
+	h := adminLogin(t, srv)
+
+	// 造一条连接
+	_, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/api-key",
+		`{"connector_type":"example_app","auth_method":"pat","alias":"ops-1","fields":{"token":"tok"}}`, bh)
+	var created struct {
+		ConnectionID string `json:"connection_id"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	// 管理台可见
+	resp, body := doReq(t, http.MethodGet, srv.URL+"/admin/connections", "", h)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "ops-1") {
+		t.Fatalf("admin list: %d %s", resp.StatusCode, body)
+	}
+
+	// 管理台创建入口已移除
+	resp, _ = doReq(t, http.MethodPost, srv.URL+"/admin/connections/oauth",
+		`{"connector_type":"example_app","auth_method":"oauth"}`, h)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("admin 创建入口应已移除: %d", resp.StatusCode)
+	}
+
+	// 管理台删除
+	resp, _ = doReq(t, http.MethodDelete, srv.URL+"/admin/connections/"+created.ConnectionID, "", h)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("admin delete: %d", resp.StatusCode)
 	}
 }

@@ -43,19 +43,11 @@ export const verifyMcp = (type: string) => unwrap(sdk.verifyMcp({ path: { type }
 
 export const listConnections = () => unwrap(sdk.listConnections())
 
-export const startOAuth = (body: { connector_type: string; auth_method: string; alias: string }) =>
-  unwrap(sdk.startOAuth({ body }))
+export const adminDeleteConnection = (id: string) =>
+  unwrap(sdk.adminDeleteConnection({ path: { id } }))
 
-export const createApiKeyConnection = (body: {
-  connector_type: string
-  auth_method: string
-  alias: string
-  fields: Record<string, string>
-}) => unwrap(sdk.createApiKeyConnection({ body }))
-
-export const deleteConnection = (id: string) => unwrap(sdk.deleteConnection({ path: { id } }))
-
-export const reauthConnection = (id: string) => unwrap(sdk.reauthConnection({ path: { id } }))
+export const adminReauthConnection = (id: string) =>
+  unwrap(sdk.adminReauthConnection({ path: { id } }))
 
 export const listApiTokens = () => unwrap(sdk.listApiTokens())
 

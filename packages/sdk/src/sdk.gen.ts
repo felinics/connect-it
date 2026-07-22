@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, StartOAuthData, StartOAuthErrors, StartOAuthResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
+import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -67,7 +67,7 @@ export const deleteApiToken = <ThrowOnError extends boolean = false>(options: Op
 };
 
 /**
- * 列出全部 connection（不含 credential）
+ * 列出全部连接（运维视角，不含 credential）
  */
 export const listConnections = <ThrowOnError extends boolean = false>(options?: Options<ListConnectionsData, ThrowOnError>) => {
     return (options?.client ?? client).get<ListConnectionsResponses, unknown, ThrowOnError>({
@@ -77,48 +77,20 @@ export const listConnections = <ThrowOnError extends boolean = false>(options?: 
 };
 
 /**
- * 用 API key / 自定义凭证创建 connection
+ * 删除连接（运维）
  */
-export const createApiKeyConnection = <ThrowOnError extends boolean = false>(options: Options<CreateApiKeyConnectionData, ThrowOnError>) => {
-    return (options.client ?? client).post<CreateApiKeyConnectionResponses, CreateApiKeyConnectionErrors, ThrowOnError>({
-        url: '/admin/connections/api-key',
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        }
-    });
-};
-
-/**
- * 发起 OAuth 授权，返回跳转地址
- */
-export const startOAuth = <ThrowOnError extends boolean = false>(options: Options<StartOAuthData, ThrowOnError>) => {
-    return (options.client ?? client).post<StartOAuthResponses, StartOAuthErrors, ThrowOnError>({
-        url: '/admin/connections/oauth',
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        }
-    });
-};
-
-/**
- * 删除 connection
- */
-export const deleteConnection = <ThrowOnError extends boolean = false>(options: Options<DeleteConnectionData, ThrowOnError>) => {
-    return (options.client ?? client).delete<DeleteConnectionResponses, DeleteConnectionErrors, ThrowOnError>({
+export const adminDeleteConnection = <ThrowOnError extends boolean = false>(options: Options<AdminDeleteConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).delete<AdminDeleteConnectionResponses, AdminDeleteConnectionErrors, ThrowOnError>({
         url: '/admin/connections/{id}',
         ...options
     });
 };
 
 /**
- * 对既有 connection 重新发起授权
+ * 生成重授权链接（运维转交给对应用户打开）
  */
-export const reauthConnection = <ThrowOnError extends boolean = false>(options: Options<ReauthConnectionData, ThrowOnError>) => {
-    return (options.client ?? client).post<ReauthConnectionResponses, ReauthConnectionErrors, ThrowOnError>({
+export const adminReauthConnection = <ThrowOnError extends boolean = false>(options: Options<AdminReauthConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).post<AdminReauthConnectionResponses, AdminReauthConnectionErrors, ThrowOnError>({
         url: '/admin/connections/{id}/reauth',
         ...options
     });
@@ -233,6 +205,98 @@ export const healthz = <ThrowOnError extends boolean = false>(options?: Options<
     return (options?.client ?? client).get<HealthzResponses, unknown, ThrowOnError>({
         url: '/healthz',
         ...options
+    });
+};
+
+/**
+ * 用 API key / 自定义凭证创建连接，返回其持久 ID
+ */
+export const createApiKeyConnection = <ThrowOnError extends boolean = false>(options: Options<CreateApiKeyConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).post<CreateApiKeyConnectionResponses, CreateApiKeyConnectionErrors, ThrowOnError>({
+        security: [
+            {
+                name: 'Authorization',
+                type: 'apiKey'
+            }
+        ],
+        url: '/v1/connections/api-key',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+    });
+};
+
+/**
+ * 发起 OAuth 授权：立即创建 pending 连接并返回其持久 ID 与授权 URL
+ */
+export const beginOAuthConnection = <ThrowOnError extends boolean = false>(options: Options<BeginOAuthConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).post<BeginOAuthConnectionResponses, BeginOAuthConnectionErrors, ThrowOnError>({
+        security: [
+            {
+                name: 'Authorization',
+                type: 'apiKey'
+            }
+        ],
+        url: '/v1/connections/oauth',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+    });
+};
+
+/**
+ * 删除连接
+ */
+export const deleteConnection = <ThrowOnError extends boolean = false>(options: Options<DeleteConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).delete<DeleteConnectionResponses, DeleteConnectionErrors, ThrowOnError>({
+        security: [
+            {
+                name: 'Authorization',
+                type: 'apiKey'
+            }
+        ],
+        url: '/v1/connections/{id}',
+        ...options
+    });
+};
+
+/**
+ * 查询连接状态（pending / active / reauth_required …）
+ */
+export const getConnection = <ThrowOnError extends boolean = false>(options: Options<GetConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).get<GetConnectionResponses, GetConnectionErrors, ThrowOnError>({
+        security: [
+            {
+                name: 'Authorization',
+                type: 'apiKey'
+            }
+        ],
+        url: '/v1/connections/{id}',
+        ...options
+    });
+};
+
+/**
+ * 对既有连接重新发起授权（ID 不变）
+ */
+export const reauthConnection = <ThrowOnError extends boolean = false>(options: Options<ReauthConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).post<ReauthConnectionResponses, ReauthConnectionErrors, ThrowOnError>({
+        security: [
+            {
+                name: 'Authorization',
+                type: 'apiKey'
+            }
+        ],
+        url: '/v1/connections/{id}/reauth',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
     });
 };
 

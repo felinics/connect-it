@@ -25,7 +25,7 @@ RETURNING id, connector_type, alias, auth_method, credential, secret_key_version
 type CreateConnectionParams struct {
 	ID                   uuid.UUID
 	ConnectorType        string
-	Alias                string
+	Alias                *string
 	AuthMethod           string
 	Credential           []byte
 	SecretKeyVersion     int32
@@ -100,30 +100,6 @@ func (q *Queries) GetConnection(ctx context.Context, id uuid.UUID) (Connection, 
 	return i, err
 }
 
-const getConnectionByAlias = `-- name: GetConnectionByAlias :one
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections WHERE alias = $1
-`
-
-func (q *Queries) GetConnectionByAlias(ctx context.Context, alias string) (Connection, error) {
-	row := q.db.QueryRow(ctx, getConnectionByAlias, alias)
-	var i Connection
-	err := row.Scan(
-		&i.ID,
-		&i.ConnectorType,
-		&i.Alias,
-		&i.AuthMethod,
-		&i.Credential,
-		&i.SecretKeyVersion,
-		&i.Profile,
-		&i.Scopes,
-		&i.Status,
-		&i.AccessTokenExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getConnectionForUpdate = `-- name: GetConnectionForUpdate :one
 SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections WHERE id = $1 FOR UPDATE
 `
@@ -149,7 +125,7 @@ func (q *Queries) GetConnectionForUpdate(ctx context.Context, id uuid.UUID) (Con
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections ORDER BY created_at, alias
+SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections ORDER BY created_at DESC
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {

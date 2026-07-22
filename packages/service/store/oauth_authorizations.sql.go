@@ -33,11 +33,11 @@ func (q *Queries) CompleteOAuthAuthorization(ctx context.Context, arg CompleteOA
 const createOAuthAuthorization = `-- name: CreateOAuthAuthorization :one
 INSERT INTO oauth_authorizations (
   id, connector_type, state_hash, pkce_verifier, secret_key_version,
-  auth_method, alias, connection_id, status, expires_at, created_at
+  auth_method, alias, connection_id, redirect_url, status, expires_at, created_at
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()
 )
-RETURNING id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version
+RETURNING id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url
 `
 
 type CreateOAuthAuthorizationParams struct {
@@ -49,6 +49,7 @@ type CreateOAuthAuthorizationParams struct {
 	AuthMethod       string
 	Alias            string
 	ConnectionID     *uuid.UUID
+	RedirectUrl      string
 	Status           string
 	ExpiresAt        time.Time
 }
@@ -63,6 +64,7 @@ func (q *Queries) CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthA
 		arg.AuthMethod,
 		arg.Alias,
 		arg.ConnectionID,
+		arg.RedirectUrl,
 		arg.Status,
 		arg.ExpiresAt,
 	)
@@ -79,6 +81,7 @@ func (q *Queries) CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthA
 		&i.AuthMethod,
 		&i.Alias,
 		&i.SecretKeyVersion,
+		&i.RedirectUrl,
 	)
 	return i, err
 }
@@ -94,7 +97,7 @@ func (q *Queries) DeleteExpiredOAuthAuthorizations(ctx context.Context) error {
 }
 
 const getOAuthAuthorizationByStateHash = `-- name: GetOAuthAuthorizationByStateHash :one
-SELECT id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version FROM oauth_authorizations WHERE state_hash = $1
+SELECT id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url FROM oauth_authorizations WHERE state_hash = $1
 `
 
 func (q *Queries) GetOAuthAuthorizationByStateHash(ctx context.Context, stateHash string) (OauthAuthorization, error) {
@@ -112,6 +115,7 @@ func (q *Queries) GetOAuthAuthorizationByStateHash(ctx context.Context, stateHas
 		&i.AuthMethod,
 		&i.Alias,
 		&i.SecretKeyVersion,
+		&i.RedirectUrl,
 	)
 	return i, err
 }

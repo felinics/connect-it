@@ -1,9 +1,9 @@
 -- name: CreateOAuthAuthorization :one
 INSERT INTO oauth_authorizations (
   id, connector_type, state_hash, pkce_verifier, secret_key_version,
-  auth_method, alias, connection_id, status, expires_at, created_at
+  auth_method, alias, connection_id, redirect_url, status, expires_at, created_at
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()
 )
 RETURNING *;
 

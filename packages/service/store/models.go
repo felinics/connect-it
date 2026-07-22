@@ -28,7 +28,7 @@ type ApiToken struct {
 type Connection struct {
 	ID                   uuid.UUID
 	ConnectorType        string
-	Alias                string
+	Alias                *string
 	AuthMethod           string
 	Credential           []byte
 	SecretKeyVersion     int32
@@ -87,6 +87,7 @@ type OauthAuthorization struct {
 	AuthMethod       string
 	Alias            string
 	SecretKeyVersion int32
+	RedirectUrl      string
 }
 
 type ToolRun struct {

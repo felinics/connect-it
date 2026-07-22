@@ -87,10 +87,22 @@ func TestConnectionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// alias 冲突
-	if _, err := s.CreateAPIKey(ctx, "example_app", "pat", "acct-1",
-		map[string]string{"token": "tok_xyz"}); !errors.Is(err, connsvc.ErrAliasTaken) {
-		t.Fatalf("重复 alias 应 ErrAliasTaken, got %v", err)
+	// alias 不唯一：同名允许；空 alias 也允许
+	dupID, err := s.CreateAPIKey(ctx, "example_app", "pat", "acct-1",
+		map[string]string{"token": "tok_xyz"})
+	if err != nil {
+		t.Fatalf("同名 alias 应允许: %v", err)
+	}
+	noAliasID, err := s.CreateAPIKey(ctx, "example_app", "pat", "",
+		map[string]string{"token": "tok_zzz"})
+	if err != nil {
+		t.Fatalf("空 alias 应允许: %v", err)
+	}
+	if err := s.Delete(ctx, dupID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(ctx, noAliasID); err != nil {
+		t.Fatal(err)
 	}
 
 	list, err := s.List(ctx)

@@ -20,9 +20,22 @@ definitions:
       type:
         type: string
     type: object
-  api.authorizationURLResponse:
+  api.beginOAuthRequest:
+    properties:
+      alias:
+        type: string
+      auth_method:
+        type: string
+      connector_type:
+        type: string
+      redirect_url:
+        type: string
+    type: object
+  api.beginOAuthResponse:
     properties:
       authorization_url:
+        type: string
+      connection_id:
         type: string
     type: object
   api.changePasswordRequest:
@@ -84,7 +97,7 @@ definitions:
     type: object
   api.createConnectionResponse:
     properties:
-      id:
+      connection_id:
         type: string
     type: object
   api.createMCPSessionRequest:
@@ -138,13 +151,9 @@ definitions:
           type: string
         type: object
     type: object
-  api.startOAuthRequest:
+  api.reauthRequest:
     properties:
-      alias:
-        type: string
-      auth_method:
-        type: string
-      connector_type:
+      redirect_url:
         type: string
     type: object
   api.validateConfigRequest:
@@ -315,12 +324,12 @@ paths:
             items:
               $ref: '#/definitions/connsvc.ConnectionView'
             type: array
-      summary: 列出全部 connection（不含 credential）
+      summary: 列出全部连接（运维视角，不含 credential）
       tags:
-      - connections
+      - admin
   /admin/connections/{id}:
     delete:
-      operationId: deleteConnection
+      operationId: adminDeleteConnection
       parameters:
       - description: connection id（uuid）
         in: path
@@ -334,12 +343,12 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
-      summary: 删除 connection
+      summary: 删除连接（运维）
       tags:
-      - connections
+      - admin
   /admin/connections/{id}/reauth:
     post:
-      operationId: reauthConnection
+      operationId: adminReauthConnection
       parameters:
       - description: connection id（uuid）
         in: path
@@ -352,82 +361,14 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.authorizationURLResponse'
+            $ref: '#/definitions/api.beginOAuthResponse'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
-      summary: 对既有 connection 重新发起授权
+      summary: 生成重授权链接（运维转交给对应用户打开）
       tags:
-      - connections
-  /admin/connections/api-key:
-    post:
-      consumes:
-      - application/json
-      operationId: createApiKeyConnection
-      parameters:
-      - description: 凭证字段按 auth method 的 CredentialFields 填写
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/api.createAPIKeyRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.createConnectionResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      summary: 用 API key / 自定义凭证创建 connection
-      tags:
-      - connections
-  /admin/connections/oauth:
-    post:
-      consumes:
-      - application/json
-      operationId: startOAuth
-      parameters:
-      - description: 目标 connector、auth method 与 alias
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/api.startOAuthRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.authorizationURLResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      summary: 发起 OAuth 授权，返回跳转地址
-      tags:
-      - connections
+      - admin
   /admin/connectors:
     get:
       operationId: adminListConnectors
@@ -667,6 +608,147 @@ paths:
       summary: 健康检查
       tags:
       - system
+  /v1/connections/{id}:
+    delete:
+      operationId: deleteConnection
+      parameters:
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 删除连接
+      tags:
+      - connections
+    get:
+      operationId: getConnection
+      parameters:
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/connsvc.ConnectionView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 查询连接状态（pending / active / reauth_required …）
+      tags:
+      - connections
+  /v1/connections/{id}/reauth:
+    post:
+      consumes:
+      - application/json
+      operationId: reauthConnection
+      parameters:
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: redirect_url 可选
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.reauthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.beginOAuthResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 对既有连接重新发起授权（ID 不变）
+      tags:
+      - connections
+  /v1/connections/api-key:
+    post:
+      consumes:
+      - application/json
+      operationId: createApiKeyConnection
+      parameters:
+      - description: 凭证字段按 auth method 的 CredentialFields 填写；alias 可选
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.createAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.createConnectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 用 API key / 自定义凭证创建连接，返回其持久 ID
+      tags:
+      - connections
+  /v1/connections/oauth:
+    post:
+      consumes:
+      - application/json
+      operationId: beginOAuthConnection
+      parameters:
+      - description: alias 为可选展示标签；redirect_url 为授权完成后回跳调用方的地址（可选）
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.beginOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.beginOAuthResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 发起 OAuth 授权：立即创建 pending 连接并返回其持久 ID 与授权 URL
+      tags:
+      - connections
   /v1/connectors:
     get:
       operationId: listConnectors

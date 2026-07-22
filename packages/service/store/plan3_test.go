@@ -20,26 +20,28 @@ func TestConnectionCRUDAndForUpdate(t *testing.T) {
 
 	id := uuid.New()
 	exp := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	alias := "gh-main"
 	row, err := q.CreateConnection(ctx, store.CreateConnectionParams{
-		ID: id, ConnectorType: "github", Alias: "gh-main", AuthMethod: "oauth",
+		ID: id, ConnectorType: "github", Alias: &alias, AuthMethod: "oauth",
 		Credential: []byte{1}, SecretKeyVersion: 1, Scopes: []string{"repo"},
 		Status: "active", AccessTokenExpiresAt: &exp,
 	})
-	if err != nil || row.Alias != "gh-main" || row.AccessTokenExpiresAt == nil {
+	if err != nil || row.Alias == nil || *row.Alias != "gh-main" || row.AccessTokenExpiresAt == nil {
 		t.Fatalf("create: %+v err=%v", row, err)
 	}
 
-	// alias 唯一约束
+	// alias 不再唯一：同名与空 alias 都允许
 	if _, err := q.CreateConnection(ctx, store.CreateConnectionParams{
-		ID: uuid.New(), ConnectorType: "github", Alias: "gh-main", AuthMethod: "oauth",
+		ID: uuid.New(), ConnectorType: "github", Alias: &alias, AuthMethod: "oauth",
 		Credential: []byte{1}, SecretKeyVersion: 1, Scopes: []string{}, Status: "active",
-	}); err == nil {
-		t.Fatal("重复 alias 应违反唯一约束")
+	}); err != nil {
+		t.Fatalf("同名 alias 应允许: %v", err)
 	}
-
-	byAlias, err := q.GetConnectionByAlias(ctx, "gh-main")
-	if err != nil || byAlias.ID != id {
-		t.Fatalf("byAlias: %+v err=%v", byAlias, err)
+	if _, err := q.CreateConnection(ctx, store.CreateConnectionParams{
+		ID: uuid.New(), ConnectorType: "github", Alias: nil, AuthMethod: "oauth",
+		Credential: []byte{1}, SecretKeyVersion: 1, Scopes: []string{}, Status: "pending",
+	}); err != nil {
+		t.Fatalf("空 alias 应允许: %v", err)
 	}
 
 	// BeginTx + FOR UPDATE
@@ -67,6 +69,7 @@ func TestConnectionCRUDAndForUpdate(t *testing.T) {
 	if n, _ := q.DeleteConnection(ctx, id); n != 1 {
 		t.Fatal("删除应影响 1 行")
 	}
+	_ = alias
 	if _, err := q.GetConnection(ctx, id); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("删除后应 ErrNoRows: %v", err)
 	}
@@ -81,9 +84,10 @@ func TestOAuthAuthorizationQueries(t *testing.T) {
 	row, err := q.CreateOAuthAuthorization(ctx, store.CreateOAuthAuthorizationParams{
 		ID: id, ConnectorType: "github", StateHash: "abc", PkceVerifier: []byte{7},
 		SecretKeyVersion: 1, AuthMethod: "oauth", Alias: "gh-main",
-		ConnectionID: nil, Status: "pending", ExpiresAt: time.Now().Add(10 * time.Minute),
+		ConnectionID: nil, RedirectUrl: "https://saas.example/done",
+		Status: "pending", ExpiresAt: time.Now().Add(10 * time.Minute),
 	})
-	if err != nil || row.ConnectionID != nil || row.Alias != "gh-main" {
+	if err != nil || row.ConnectionID != nil || row.Alias != "gh-main" || row.RedirectUrl != "https://saas.example/done" {
 		t.Fatalf("create authz: %+v err=%v", row, err)
 	}
 
