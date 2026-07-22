@@ -76,14 +76,17 @@ type McpSessionConnection struct {
 }
 
 type OauthAuthorization struct {
-	ID            uuid.UUID
-	ConnectorType string
-	StateHash     string
-	PkceVerifier  []byte
-	ConnectionID  *uuid.UUID
-	Status        string
-	ExpiresAt     time.Time
-	CreatedAt     time.Time
+	ID               uuid.UUID
+	ConnectorType    string
+	StateHash        string
+	PkceVerifier     []byte
+	ConnectionID     *uuid.UUID
+	Status           string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	AuthMethod       string
+	Alias            string
+	SecretKeyVersion int32
 }
 
 type ToolRun struct {
