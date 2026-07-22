@@ -1,0 +1,468 @@
+basePath: /
+definitions:
+  api.ErrorResponse:
+    properties:
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  api.changePasswordRequest:
+    properties:
+      password:
+        type: string
+    type: object
+  api.configFieldDTO:
+    properties:
+      default_value:
+        type: string
+      description:
+        type: string
+      input_type:
+        type: string
+      key:
+        type: string
+      label:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      pattern:
+        type: string
+      required:
+        type: boolean
+      secret:
+        type: boolean
+    type: object
+  api.configResponse:
+    properties:
+      connector_type:
+        type: string
+      public:
+        additionalProperties: {}
+        type: object
+      schema_version:
+        type: integer
+      secret_keys_set:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
+  api.createTokenRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  api.createTokenResponse:
+    properties:
+      id:
+        type: string
+      token:
+        type: string
+    type: object
+  api.loginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  api.putConfigRequest:
+    properties:
+      if_match:
+        type: string
+      public:
+        additionalProperties: {}
+        type: object
+      secrets:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  api.validateConfigRequest:
+    properties:
+      public:
+        additionalProperties: {}
+        type: object
+      secrets:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  authsvc.APITokenView:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      revoked_at:
+        type: string
+    type: object
+  catalogsvc.Item:
+    properties:
+      categories:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      homepage_url:
+        type: string
+      icon_url:
+        type: string
+      name:
+        type: string
+      status:
+        $ref: '#/definitions/status.Status'
+      type:
+        type: string
+    type: object
+  status.Status:
+    enum:
+    - catalog_only
+    - needs_config
+    - config_incompatible
+    - ready
+    - degraded
+    - deprecated
+    - definition_missing
+    type: string
+    x-enum-varnames:
+    - CatalogOnly
+    - NeedsConfig
+    - ConfigIncompatible
+    - Ready
+    - Degraded
+    - Deprecated
+    - DefinitionMissing
+info:
+  contact: {}
+  description: 内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。
+  title: connect-it API
+  version: "1.0"
+paths:
+  /admin/account/password:
+    put:
+      consumes:
+      - application/json
+      operationId: changePassword
+      parameters:
+      - description: 新密码（至少 8 个字符）
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.changePasswordRequest'
+      responses:
+        "204":
+          description: No Content
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 修改管理员密码
+      tags:
+      - admin
+  /admin/api-tokens:
+    get:
+      operationId: listApiTokens
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/authsvc.APITokenView'
+            type: array
+      summary: 列出 API token（不含明文）
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      operationId: createApiToken
+      parameters:
+      - description: token 名称
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.createTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.createTokenResponse'
+      summary: 创建 API token（明文仅在响应中出现一次）
+      tags:
+      - admin
+  /admin/api-tokens/{id}:
+    delete:
+      operationId: deleteApiToken
+      parameters:
+      - description: token id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 撤销 API token
+      tags:
+      - admin
+  /admin/connectors:
+    get:
+      operationId: adminListConnectors
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/catalogsvc.Item'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 列出全部 Connector（管理界面，cookie 鉴权）
+      tags:
+      - admin
+  /admin/connectors/{type}/config:
+    delete:
+      operationId: deleteConfig
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 删除 Connector 配置
+      tags:
+      - admin
+    get:
+      operationId: getConfig
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.configResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 读取 Connector 配置（Secret 只回显已设置的 key）
+      tags:
+      - admin
+    put:
+      consumes:
+      - application/json
+      operationId: putConfig
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: 配置内容；if_match 传上次读到的 updated_at（RFC3339），首次创建留空
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.putConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.configResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 写入 Connector 配置（public 全量替换、secrets 增量合并，空串删除）
+      tags:
+      - admin
+  /admin/connectors/{type}/config-schema:
+    get:
+      operationId: getConfigSchema
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.configFieldDTO'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）
+      tags:
+      - admin
+  /admin/connectors/{type}/config:validate:
+    post:
+      consumes:
+      - application/json
+      operationId: validateConfig
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: 待校验配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.validateConfigRequest'
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 仅校验配置不落库
+      tags:
+      - admin
+  /admin/login:
+    post:
+      consumes:
+      - application/json
+      operationId: login
+      parameters:
+      - description: 用户名与密码
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.loginRequest'
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 管理员登录，成功后下发会话 cookie
+      tags:
+      - admin
+  /healthz:
+    get:
+      operationId: healthz
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 健康检查
+      tags:
+      - system
+  /v1/connectors:
+    get:
+      operationId: listConnectors
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/catalogsvc.Item'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 列出全部 Connector（含运行状态）
+      tags:
+      - catalog
+  /v1/connectors/{type}:
+    get:
+      operationId: getConnector
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogsvc.Item'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 查询单个 Connector
+      tags:
+      - catalog
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

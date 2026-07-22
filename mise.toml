@@ -52,3 +52,19 @@ run = "docker rm -f connect-it-pg"
 [tasks.sqlc]
 description = "生成 sqlc store 代码"
 run = "cd packages/service && sqlc generate"
+
+[tasks.swagger]
+description = "由 swag 注释生成 packages/api/docs（swagger.json 供 SDK 消费）"
+run = "cd packages/api && go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/connect-it/main.go --output docs --parseDependency"
+
+[tasks.dev]
+description = "本地开发起 API（先 mise run db-up）"
+run = '''
+cd packages/api && \
+DATABASE_URL='postgres://postgres:postgres@localhost:5433/connect_it?sslmode=disable' \
+CONNECT_IT_SECRET_KEY='1:1111111111111111111111111111111111111111111111111111111111111111' \
+COOKIE_SECRET='dev-cookie-secret' \
+CONNECT_IT_ADMIN_PASSWORD='admin123' \
+CONNECT_IT_BASE_URL='http://localhost:8080' \
+go run ./cmd/connect-it
+'''
