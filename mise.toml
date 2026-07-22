@@ -31,3 +31,19 @@ for d in packages/*/; do
   fi
 done
 '''
+
+[tasks.db-up]
+description = "启动本地测试 postgres:17（host 端口 5433）"
+run = '''
+docker run -d --name connect-it-pg \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=connect_it \
+  -p 5433:5432 \
+  postgres:17
+until docker exec connect-it-pg pg_isready -U postgres >/dev/null 2>&1; do sleep 0.5; done
+echo "postgres ready on :5433"
+'''
+
+[tasks.db-down]
+description = "停止并删除本地测试 postgres"
+run = "docker rm -f connect-it-pg"
