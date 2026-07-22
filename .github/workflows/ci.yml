@@ -51,8 +51,10 @@ jobs:
       - name: Run web unit tests
         run: pnpm --dir packages/web run test
 
-      - name: Build web UI (dist -> packages/api/webdist)
+      - name: Build web UI
         run: mise run build-web
 
-      - name: Docker build smoke test
-        run: docker build -f docker/Dockerfile -t connect-it:ci .
+      - name: Docker build smoke test (server + web images)
+        run: |
+          docker build -f docker/server.Dockerfile -t connect-it-server:ci .
+          docker build -f docker/web.Dockerfile -t connect-it-web:ci .

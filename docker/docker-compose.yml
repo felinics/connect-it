@@ -23,15 +23,12 @@ services:
 
   connect-it:
     build:
-      # Context is the repository root: the Dockerfile copies packages/*
-      # including the checked-out packages/ui submodule.
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/server.Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    # 不对外发布端口：全部流量（含 /v1、/mcp 机器调用）经 web 容器的 nginx 反代。
     # Health status comes from the HEALTHCHECK baked into the image
     # (wget /healthz); `docker compose up --wait` relies on it.
     environment:
@@ -48,9 +45,21 @@ services:
       # Externally reachable base URL; OAuth callbacks are built from it.
       # Change when deploying behind a domain / reverse proxy.
       CONNECT_IT_BASE_URL: "http://localhost:8080"
-      # Listen address inside the container. Keep in sync with `ports`
-      # above and the HEALTHCHECK port baked into the image.
+      # Listen address inside the container. Keep in sync with the nginx
+      # upstream in docker/nginx.conf and the HEALTHCHECK baked into the image.
       LISTEN_ADDR: ":8080"
+
+  web:
+    build:
+      # Context is the repository root: the Dockerfile copies packages/*
+      # including the checked-out packages/ui submodule.
+      context: ..
+      dockerfile: docker/web.Dockerfile
+    depends_on:
+      connect-it:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
 
 volumes:
   postgres-data:

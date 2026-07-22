@@ -34,7 +34,3 @@ go.work.sum
 # Node
 node_modules/
 dist/
-
-# 前端构建产物只保留占位页（真实产物由 mise run build-web 生成）
-packages/api/webdist/*
-!packages/api/webdist/index.html

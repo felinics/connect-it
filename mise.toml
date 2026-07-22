@@ -58,22 +58,20 @@ description = "由 swag 注释生成 packages/api/docs（swagger.json 供 SDK �
 run = "cd packages/api && go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/connect-it/main.go --output docs --parseDependency"
 
 [tasks.build-web]
-description = "构建管理界面并拷入 packages/api/webdist（go:embed）"
-run = '''
-set -e
-pnpm --dir packages/web run build
-rm -rf packages/api/webdist
-mkdir -p packages/api/webdist
-cp -R packages/web/dist/. packages/api/webdist/
-'''
+description = "构建管理界面（产物在 packages/web/dist，由 web 容器的 nginx 托管）"
+run = "pnpm --dir packages/web run build"
 
 [tasks.sdk]
 description = "由 packages/api/docs/swagger.json 重新生成 TypeScript SDK"
 run = "pnpm --dir packages/sdk run generate"
 
 [tasks.docker-build]
-description = "Build the production image (context = repo root)"
-run = "docker build -f docker/Dockerfile -t connect-it:dev ."
+description = "Build the server and web images (context = repo root)"
+run = '''
+set -e
+docker build -f docker/server.Dockerfile -t connect-it-server:dev .
+docker build -f docker/web.Dockerfile -t connect-it-web:dev .
+'''
 
 [tasks.docker-up]
 description = "Build and start the docker compose stack, wait until healthy"

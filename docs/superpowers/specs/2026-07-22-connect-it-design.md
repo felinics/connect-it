@@ -75,7 +75,7 @@ connect-it/
 │   ├── sdk/                  # TypeScript SDK：@hey-api/openapi-ts 由 api 的
 │   │                         #   swagger.json 生成，pnpm workspace 成员
 │   └── api/                  # Go module：Echo handlers、swag 注释与 docs/、
-│                             #   cmd/connect-it、web dist embed
+│                             #   cmd/connect-it（前端由独立 web 容器托管）
 └── docker/
     ├── Dockerfile
     └── docker-compose.yml
@@ -491,12 +491,15 @@ POST /mcp
 - 严格遵守`packages/ui`的`AGENTS.md`与`skills/web/`规范，写前端代码前先读这两处；
 - API 调用一律通过`packages/sdk`（`@hey-api/openapi-ts`从`packages/api/docs/swagger.json`生成，生成产物提交进仓库），web 内禁止手写 fetch 端点；OpenAPI 由 api 模块的 swag 注释生成，改路由必须`mise run swagger && mise run sdk`同步；
 - Tailwind 配置扫描`../ui/src`；
-- 构建产物`go:embed`进服务二进制；开发模式 Vite proxy 到本地 server。
+- **前端独立容器部署**（2026-07-22 用户裁定，替代原 go:embed 方案）：构建产物由
+  web 容器的 nginx 托管（SPA 回退），API 路径反代到 server 容器；开发模式 Vite
+  proxy 到本地 server。
 
 ## 15. Docker
 
-- `docker/Dockerfile`多阶段：node＋pnpm 构建`packages/web`→产物拷入`packages/api`的静态资源目录→在`packages/api`内`go build`（replace 解析本地依赖）→精简运行镜像；
-- `docker/docker-compose.yml`：`postgres:17`＋`connect-it`两个服务；环境变量`DATABASE_URL`、`CONNECT_IT_SECRET_KEY`、`COOKIE_SECRET`；
+- `docker/server.Dockerfile`：在`packages/api`内`go build`（replace 解析本地依赖）→精简运行镜像；
+- `docker/web.Dockerfile`：node＋pnpm 构建`packages/web`→nginx 镜像托管静态产物，`docker/nginx.conf`做 SPA 回退与 API 反代（`/mcp`关闭缓冲以支持 SSE）；
+- `docker/docker-compose.yml`：`postgres:17`＋`connect-it`（server，不对外发布端口）＋`web`（对外 8080）三个服务；环境变量`DATABASE_URL`、`CONNECT_IT_SECRET_KEY`、`COOKIE_SECRET`等；
 - 构建上下文为仓库根（需 submodule 已检出）。
 
 ## 16. 首批 Connector
