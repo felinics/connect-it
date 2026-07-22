@@ -74,6 +74,26 @@ definitions:
       id:
         type: string
     type: object
+  api.createMCPSessionRequest:
+    properties:
+      connections:
+        additionalProperties:
+          type: string
+        type: object
+      tool_allowlist:
+        items:
+          type: string
+        type: array
+      ttl_seconds:
+        type: integer
+    type: object
+  api.createMCPSessionResponse:
+    properties:
+      expires_at:
+        type: string
+      token:
+        type: string
+    type: object
   api.createTokenRequest:
     properties:
       name:
@@ -655,6 +675,34 @@ paths:
       summary: 查询单个 Connector
       tags:
       - catalog
+  /v1/mcp-sessions:
+    post:
+      consumes:
+      - application/json
+      operationId: createMcpSession
+      parameters:
+      - description: 绑定与 allowlist；ttl_seconds 默认 3600、上限 86400
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.createMCPSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.createMCPSessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+      tags:
+      - mcp
   /v1/oauth/callback:
     get:
       operationId: oauthCallback

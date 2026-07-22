@@ -2,20 +2,31 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	echoSwagger "github.com/swaggo/echo-swagger"
 
 	_ "github.com/memohai/connect-it/packages/api/docs"
+	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/connsvc"
-	"github.com/memohai/connect-it/packages/service/exec"
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
+	"github.com/memohai/connect-it/packages/service/sessions"
 	"github.com/memohai/connect-it/packages/service/store"
 )
+
+// ToolExecutor 抽象 exec.Engine，便于 /mcp 测试注入假执行器；
+// *exec.Engine 的方法集恰好满足本接口。
+type ToolExecutor interface {
+	Execute(ctx context.Context, connectionID uuid.UUID, toolID string, args json.RawMessage) (connector.ToolResultData, error)
+}
 
 type Deps struct {
 	Registry     *registry.Registry
@@ -25,8 +36,9 @@ type Deps struct {
 	Auth         *authsvc.Service
 	OAuth        *oauthsvc.Service
 	Conns        *connsvc.Service
-	Exec         *exec.Engine
+	Exec         ToolExecutor
 	MCPTools     MCPToolLister
+	Sessions     *sessions.Service
 	CookieSecret []byte
 }
 
@@ -47,6 +59,8 @@ func New(deps Deps) *echo.Echo {
 	v1 := e.Group("/v1", RequireAPIToken(deps.Auth))
 	v1.GET("/connectors", h.listConnectors)
 	v1.GET("/connectors/:type", h.getConnector)
+	registerMCPSessions(v1, deps)
+	registerMCP(e, deps)
 
 	admin := e.Group("/admin", RequireAdminSession(deps.CookieSecret))
 	admin.GET("/connections", h.listConnections)

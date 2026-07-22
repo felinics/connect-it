@@ -30,6 +30,7 @@ import (
 	"github.com/memohai/connect-it/packages/service/exec"
 	"github.com/memohai/connect-it/packages/service/mcpclient"
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
+	"github.com/memohai/connect-it/packages/service/sessions"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/tokens"
 )
@@ -88,6 +89,7 @@ func main() {
 		Conns:        connSvc,
 		Exec:         engine,
 		MCPTools:     mcpclient.Client{},
+		Sessions:     sessions.New(queries),
 		CookieSecret: []byte(cookieSecret),
 	})
 	log.Printf("connect-it 监听 %s", addr)
