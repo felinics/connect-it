@@ -1,3 +1,8 @@
+[settings]
+# 本机若有系统 Go，PATH 上的 go 与 mise 注入的 GOROOT 会错配（driver/toolchain
+# version mismatch）。关闭注入让每个 go 二进制使用自身 GOROOT。
+go_set_goroot = false
+
 [tools]
 go = "1.25"
 node = "22"
