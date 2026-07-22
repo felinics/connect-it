@@ -71,6 +71,18 @@ cp -R packages/web/dist/. packages/api/webdist/
 description = "由 packages/api/docs/swagger.json 重新生成 TypeScript SDK"
 run = "pnpm --dir packages/sdk run generate"
 
+[tasks.docker-build]
+description = "Build the production image (context = repo root)"
+run = "docker build -f docker/Dockerfile -t connect-it:dev ."
+
+[tasks.docker-up]
+description = "Build and start the docker compose stack, wait until healthy"
+run = "docker compose -f docker/docker-compose.yml up --build --wait"
+
+[tasks.docker-down]
+description = "Stop the docker compose stack (postgres volume is kept)"
+run = "docker compose -f docker/docker-compose.yml down"
+
 [tasks.dev]
 description = "本地开发起 API（先 mise run db-up）"
 run = '''

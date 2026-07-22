@@ -1,0 +1,58 @@
+# Versions verified 2026-07-22:
+#   actions/checkout v7 (latest v7.0.1)  https://github.com/actions/checkout/releases
+#   jdx/mise-action  v4 (latest v4.2.1)  https://github.com/jdx/mise-action/releases
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: connect_it
+          POSTGRES_PASSWORD: connect_it
+          POSTGRES_DB: connect_it_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U connect_it -d connect_it_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      # NOTE: if the memohai/ui submodule is (or becomes) private, the default
+      # GITHUB_TOKEN cannot fetch it; provide a deploy key via the `ssh-key`
+      # input or a PAT via the `token` input of actions/checkout.
+      - name: Check out repository (with ui submodule)
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install toolchain (go/node/pnpm) via mise
+        uses: jdx/mise-action@v4
+
+      - name: Vet Go modules
+        run: mise run vet
+
+      - name: Test Go modules (unit + DB integration)
+        run: mise run test
+        env:
+          TEST_DATABASE_URL: postgres://connect_it:connect_it@localhost:5432/connect_it_test?sslmode=disable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run web unit tests
+        run: pnpm --dir packages/web run test
+
+      - name: Build web UI (dist -> packages/api/webdist)
+        run: mise run build-web
+
+      - name: Docker build smoke test
+        run: docker build -f docker/Dockerfile -t connect-it:ci .
