@@ -114,7 +114,15 @@ func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID) (stri
 }
 
 func (s *Service) begin(ctx context.Context, t connector.Type, method connector.AuthMethod, alias string, connectionID *uuid.UUID) (string, error) {
-	clientID, _, err := ClientCredentials(ctx, s.cfg, t)
+	resolved, err := s.cfg.Resolved(ctx, t)
+	if err != nil {
+		return "", err
+	}
+	clientID, _ := resolved["client_id"].(string)
+	if clientID == "" {
+		return "", ErrMissingClient
+	}
+	authEndpoint, err := ExpandEndpoint(method.OAuth.AuthorizationEndpoint, resolved)
 	if err != nil {
 		return "", err
 	}
@@ -166,10 +174,10 @@ func (s *Service) begin(ctx context.Context, t connector.Type, method connector.
 		params.Set(k, v)
 	}
 	sep := "?"
-	if strings.Contains(method.OAuth.AuthorizationEndpoint, "?") {
+	if strings.Contains(authEndpoint, "?") {
 		sep = "&"
 	}
-	return method.OAuth.AuthorizationEndpoint + sep + params.Encode(), nil
+	return authEndpoint + sep + params.Encode(), nil
 }
 
 // HandleCallback 核对 state hash、用授权码换 token，创建或更新 connection 并置 active。
@@ -194,9 +202,14 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (uuid.
 	if err != nil {
 		return uuid.Nil, err
 	}
-	clientID, clientSecret, err := ClientCredentials(ctx, s.cfg, t)
+	resolved, err := s.cfg.Resolved(ctx, t)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	clientID, _ := resolved["client_id"].(string)
+	clientSecret, _ := resolved["client_secret"].(string)
+	if clientID == "" {
+		return uuid.Nil, ErrMissingClient
 	}
 	verifier, err := s.kr.Decrypt(authz.PkceVerifier, int(authz.SecretKeyVersion), []byte(authz.ID.String()))
 	if err != nil {
@@ -210,7 +223,12 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (uuid.
 	if method.OAuth.UsePKCE {
 		form.Set("code_verifier", string(verifier))
 	}
-	tok, err := ExchangeToken(ctx, s.hc, method.OAuth, clientID, clientSecret, form)
+	// {tenant} 类占位符在调用前展开；OAuthConfig 本身保持纯数据。
+	oc := *method.OAuth
+	if oc.TokenEndpoint, err = ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
+		return uuid.Nil, err
+	}
+	tok, err := ExchangeToken(ctx, s.hc, &oc, clientID, clientSecret, form)
 	if err != nil {
 		return uuid.Nil, err
 	}

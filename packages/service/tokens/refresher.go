@@ -144,14 +144,24 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 		return cred.AccessToken, nil
 	}
 
-	clientID, clientSecret, err := oauthsvc.ClientCredentials(ctx, r.cfg, t)
+	resolved, err := r.cfg.Resolved(ctx, t)
 	if err != nil {
 		return "", err
+	}
+	clientID, _ := resolved["client_id"].(string)
+	clientSecret, _ := resolved["client_secret"].(string)
+	if clientID == "" {
+		return "", oauthsvc.ErrMissingClient
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", cred.RefreshToken)
-	tok, err := oauthsvc.ExchangeToken(ctx, r.hc, method.OAuth, clientID, clientSecret, form)
+	// 刷新路径同样要展开 {tenant} 类占位符（OneDrive token endpoint）。
+	oc := *method.OAuth
+	if oc.TokenEndpoint, err = oauthsvc.ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
+		return "", err
+	}
+	tok, err := oauthsvc.ExchangeToken(ctx, r.hc, &oc, clientID, clientSecret, form)
 	if err != nil {
 		// 网络瞬断也会标记 reauth_required——第一期接受的粗粒度行为。
 		if uerr := qtx.UpdateConnectionStatus(ctx, store.UpdateConnectionStatusParams{
