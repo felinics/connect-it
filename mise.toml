@@ -7,6 +7,7 @@ go_set_goroot = false
 go = "1.25"
 node = "22"
 pnpm = "10"
+sqlc = "1.29.0"
 
 [tasks.test]
 description = "逐 Go module 运行测试"
@@ -47,3 +48,7 @@ echo "postgres ready on :5433"
 [tasks.db-down]
 description = "停止并删除本地测试 postgres"
 run = "docker rm -f connect-it-pg"
+
+[tasks.sqlc]
+description = "生成 sqlc store 代码"
+run = "cd packages/service && sqlc generate"
