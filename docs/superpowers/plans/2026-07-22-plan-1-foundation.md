@@ -97,8 +97,11 @@ done
 ```yaml
 packages:
   - packages/ui
+  - packages/sdk
   - packages/web
 ```
+
+（`packages/sdk`是计划 7 建立的 TypeScript SDK 包，workspace 先行声明，目录不存在时 pnpm 忽略。）
 
 - [ ] **Step 3: 追加 .gitignore**
 

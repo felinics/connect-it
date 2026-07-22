@@ -37,6 +37,8 @@ Connection           完成授权后的连接实例（数据库）
 | 数据库 | PostgreSQL，驱动`pgx/v5`，查询由 sqlc 生成 |
 | Migration | golang-migrate，`go:embed`进二进制，启动时自动执行 |
 | MCP | 官方`github.com/modelcontextprotocol/go-sdk`（客户端与聚合服务端均用它） |
+| API 文档 | swaggo/swag 注释生成 OpenAPI（swagger.json 提交进仓库），echo-swagger 暴露`/swagger/*` |
+| TS SDK | `packages/sdk`：`@hey-api/openapi-ts`由 swagger.json 生成 TypeScript 客户端，web 经 workspace 依赖使用 |
 | 前端 | Vite＋Vue 3＋Vue Router＋Tailwind |
 | UI 库 | `memohai/ui`，git submodule 挂载于`packages/ui` |
 | 包管理 | pnpm workspace |
@@ -58,7 +60,7 @@ Go 侧拆为四个 module，与前端包一起统一放在`packages/`下。不�
 ```text
 connect-it/
 ├── package.json              # pnpm workspace 根
-├── pnpm-workspace.yaml       # packages/ui、packages/web
+├── pnpm-workspace.yaml       # packages/ui、packages/sdk、packages/web
 ├── mise.toml                 # 工具链版本（go/node/pnpm）＋任务定义
 ├── packages/
 │   ├── ui/                   # git submodule → github.com/memohai/ui
@@ -70,7 +72,10 @@ connect-it/
 │   │   └── all.go            # 显式注册
 │   ├── service/              # Go module：sqlc store、migrations/、sqlc.yaml、
 │   │                         #   OAuth、token 刷新、Tool 执行、聚合 MCP
-│   └── api/                  # Go module：Echo handlers、cmd/connect-it、web dist embed
+│   ├── sdk/                  # TypeScript SDK：@hey-api/openapi-ts 由 api 的
+│   │                         #   swagger.json 生成，pnpm workspace 成员
+│   └── api/                  # Go module：Echo handlers、swag 注释与 docs/、
+│                             #   cmd/connect-it、web dist embed
 └── docker/
     ├── Dockerfile
     └── docker-compose.yml
@@ -79,7 +84,7 @@ connect-it/
 - 依赖方向单向：`connectors→core`；`service→core＋connectors`；`api→service`。反向依赖视为架构违规。
 - 仓库远端为`https://github.com/memohai/connect-it`，module 路径固定为`github.com/memohai/connect-it/packages/<name>`。
 - `replace`只在被构建 module 的 go.mod 中生效，因此每个 module 须列出其**全部**本地依赖（含间接）：`connectors`replace `core`；`service`replace `core`、`connectors`；`api`replace `core`、`connectors`、`service`。
-- 工具链与任务统一由根目录`mise.toml`管理：`[tools]`钉住 go／node／pnpm 版本（本地与 CI 都走`mise install`对齐）；`[tasks]`定义`build`／`test`／`lint`／`dev`／`sqlc`／`migrate`等任务。没有 workspace 后`go build ./...`不能跨 module，这些任务内部逐 module 执行，CI 直接调用同一组 mise 任务。
+- 工具链与任务统一由根目录`mise.toml`管理：`[tools]`钉住 go／node／pnpm 版本（本地与 CI 都走`mise install`对齐）；`[tasks]`定义`build`／`test`／`lint`／`dev`／`sqlc`／`swagger`（swag 生成 swagger.json）／`sdk`（openapi-ts 重新生成 TS SDK）等任务。没有 workspace 后`go build ./...`不能跨 module，这些任务内部逐 module 执行，CI 直接调用同一组 mise 任务。
 - `packages/ui`按其自身文档的消费方式使用：pnpm 按路径解析、不 build 不 publish、Tailwind 直接扫描其源码；Vue 3 为 peer dependency，版本由宿主 lockfile 决定。
 - clone 与 CI 必须带`--recursive`／`submodules: true`。
 
@@ -484,6 +489,7 @@ POST /mcp
 规范约束：
 
 - 严格遵守`packages/ui`的`AGENTS.md`与`skills/web/`规范，写前端代码前先读这两处；
+- API 调用一律通过`packages/sdk`（`@hey-api/openapi-ts`从`packages/api/docs/swagger.json`生成，生成产物提交进仓库），web 内禁止手写 fetch 端点；OpenAPI 由 api 模块的 swag 注释生成，改路由必须`mise run swagger && mise run sdk`同步；
 - Tailwind 配置扫描`../ui/src`；
 - 构建产物`go:embed`进服务二进制；开发模式 Vite proxy 到本地 server。
 
