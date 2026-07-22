@@ -8,6 +8,8 @@ import (
 
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/memohai/connect-it/packages/service/connsvc"
+	"github.com/memohai/connect-it/packages/service/oauthsvc"
 )
 
 // ErrorResponse 是统一错误响应体。
@@ -27,12 +29,25 @@ func mapServiceError(c echo.Context, err error) error {
 	switch {
 	case errors.Is(err, configsvc.ErrUnknownConnector),
 		errors.Is(err, configsvc.ErrNotFound),
-		errors.Is(err, authsvc.ErrNotFound):
+		errors.Is(err, authsvc.ErrNotFound),
+		errors.Is(err, connsvc.ErrNotFound),
+		errors.Is(err, connsvc.ErrUnknownConnector),
+		errors.Is(err, oauthsvc.ErrUnknownConnector):
 		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
 	case errors.Is(err, configsvc.ErrConflict):
 		return writeError(c, http.StatusConflict, "conflict", "配置已被修改，请刷新后重试")
 	case errors.Is(err, configsvc.ErrIncompatible):
 		return writeError(c, http.StatusConflict, "config_incompatible", "数据库配置版本比当前代码新")
+	case errors.Is(err, connsvc.ErrAliasTaken), errors.Is(err, oauthsvc.ErrAliasTaken):
+		return writeError(c, http.StatusConflict, "conflict", err.Error())
+	case errors.Is(err, connsvc.ErrInvalidAlias),
+		errors.Is(err, connsvc.ErrUnknownAuthMethod),
+		errors.Is(err, connsvc.ErrWrongAuthType),
+		errors.Is(err, connsvc.ErrInvalidFields),
+		errors.Is(err, oauthsvc.ErrUnknownAuthMethod),
+		errors.Is(err, oauthsvc.ErrNotOAuth),
+		errors.Is(err, oauthsvc.ErrMissingClient):
+		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", err.Error())
 	case errors.As(err, &ve):
 		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", ve.Error())
 	default:

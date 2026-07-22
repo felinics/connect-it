@@ -133,6 +133,197 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connections": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "列出全部 connection（不含 credential）",
+                "operationId": "listConnections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/connsvc.ConnectionView"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/api-key": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "用 API key / 自定义凭证创建 connection",
+                "operationId": "createApiKeyConnection",
+                "parameters": [
+                    {
+                        "description": "凭证字段按 auth method 的 CredentialFields 填写",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.createAPIKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.createConnectionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/oauth": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "发起 OAuth 授权，返回跳转地址",
+                "operationId": "startOAuth",
+                "parameters": [
+                    {
+                        "description": "目标 connector、auth method 与 alias",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.startOAuthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.authorizationURLResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/{id}": {
+            "delete": {
+                "tags": [
+                    "connections"
+                ],
+                "summary": "删除 connection",
+                "operationId": "deleteConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/{id}/reauth": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "对既有 connection 重新发起授权",
+                "operationId": "reauthConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.authorizationURLResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connectors": {
             "get": {
                 "produces": [
@@ -496,6 +687,40 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/oauth/callback": {
+            "get": {
+                "tags": [
+                    "connections"
+                ],
+                "summary": "OAuth 回调（provider 跳转回来，无鉴权，靠一次性 state）",
+                "operationId": "oauthCallback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "授权发起时生成的 state",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "授权码",
+                        "name": "code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "provider 返回的错误码",
+                        "name": "error",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -506,6 +731,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.authorizationURLResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
                     "type": "string"
                 }
             }
@@ -577,6 +810,34 @@ const docTemplate = `{
                 }
             }
         },
+        "api.createAPIKeyRequest": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "auth_method": {
+                    "type": "string"
+                },
+                "connector_type": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.createConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "api.createTokenRequest": {
             "type": "object",
             "properties": {
@@ -622,6 +883,20 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "api.startOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "auth_method": {
+                    "type": "string"
+                },
+                "connector_type": {
+                    "type": "string"
                 }
             }
         },
@@ -682,6 +957,29 @@ const docTemplate = `{
                     "$ref": "#/definitions/status.Status"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "connsvc.ConnectionView": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "auth_method": {
+                    "type": "string"
+                },
+                "connector_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 }
             }

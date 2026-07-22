@@ -11,6 +11,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/memohai/connect-it/packages/service/connsvc"
+	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
@@ -20,6 +22,8 @@ type Deps struct {
 	Config       *configsvc.Service
 	Catalog      *catalogsvc.Service
 	Auth         *authsvc.Service
+	OAuth        *oauthsvc.Service
+	Conns        *connsvc.Service
 	CookieSecret []byte
 }
 
@@ -34,12 +38,19 @@ func New(deps Deps) *echo.Echo {
 	e.GET("/healthz", h.healthz)
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 	e.POST("/admin/login", h.login)
+	// 回调不走 Bearer 门禁，安全性由一次性 state 保证。
+	e.GET("/v1/oauth/callback", h.oauthCallback)
 
 	v1 := e.Group("/v1", RequireAPIToken(deps.Auth))
 	v1.GET("/connectors", h.listConnectors)
 	v1.GET("/connectors/:type", h.getConnector)
 
 	admin := e.Group("/admin", RequireAdminSession(deps.CookieSecret))
+	admin.GET("/connections", h.listConnections)
+	admin.POST("/connections/oauth", h.startOAuthConnection)
+	admin.POST("/connections/api-key", h.createAPIKeyConnection)
+	admin.POST("/connections/:id/reauth", h.reauthConnection)
+	admin.DELETE("/connections/:id", h.deleteConnection)
 	admin.GET("/connectors", h.adminListConnectors)
 	admin.GET("/connectors/:type/config-schema", h.getConfigSchema)
 	admin.GET("/connectors/:type/config", h.getConfig)

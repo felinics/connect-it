@@ -15,6 +15,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/memohai/connect-it/packages/service/connsvc"
+	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
@@ -43,6 +45,8 @@ func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 	cfg := configsvc.New(q, reg, kr)
 	auth := authsvc.New(q)
 	cat := catalogsvc.New(q, reg, cfg)
+	oauth := oauthsvc.New(q, reg, cfg, kr, http.DefaultClient, "http://connect.test")
+	conns := connsvc.New(q, reg, kr)
 
 	t.Setenv(authsvc.EnvAdminPassword, adminPassword)
 	if err := auth.EnsureAdminFromEnv(t.Context()); err != nil {
@@ -51,6 +55,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 
 	e := api.New(api.Deps{
 		Registry: reg, Store: q, Config: cfg, Catalog: cat, Auth: auth,
+		OAuth: oauth, Conns: conns,
 		CookieSecret: []byte("test-cookie-secret"),
 	})
 	srv := httptest.NewServer(e)

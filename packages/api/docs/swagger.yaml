@@ -7,6 +7,11 @@ definitions:
       message:
         type: string
     type: object
+  api.authorizationURLResponse:
+    properties:
+      authorization_url:
+        type: string
+    type: object
   api.changePasswordRequest:
     properties:
       password:
@@ -51,6 +56,24 @@ definitions:
       updated_at:
         type: string
     type: object
+  api.createAPIKeyRequest:
+    properties:
+      alias:
+        type: string
+      auth_method:
+        type: string
+      connector_type:
+        type: string
+      fields:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  api.createConnectionResponse:
+    properties:
+      id:
+        type: string
+    type: object
   api.createTokenRequest:
     properties:
       name:
@@ -81,6 +104,15 @@ definitions:
         additionalProperties:
           type: string
         type: object
+    type: object
+  api.startOAuthRequest:
+    properties:
+      alias:
+        type: string
+      auth_method:
+        type: string
+      connector_type:
+        type: string
     type: object
   api.validateConfigRequest:
     properties:
@@ -120,6 +152,21 @@ definitions:
       status:
         $ref: '#/definitions/status.Status'
       type:
+        type: string
+    type: object
+  connsvc.ConnectionView:
+    properties:
+      alias:
+        type: string
+      auth_method:
+        type: string
+      connector_type:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      status:
         type: string
     type: object
   status.Status:
@@ -223,6 +270,131 @@ paths:
       summary: 撤销 API token
       tags:
       - admin
+  /admin/connections:
+    get:
+      operationId: listConnections
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/connsvc.ConnectionView'
+            type: array
+      summary: 列出全部 connection（不含 credential）
+      tags:
+      - connections
+  /admin/connections/{id}:
+    delete:
+      operationId: deleteConnection
+      parameters:
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 删除 connection
+      tags:
+      - connections
+  /admin/connections/{id}/reauth:
+    post:
+      operationId: reauthConnection
+      parameters:
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.authorizationURLResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 对既有 connection 重新发起授权
+      tags:
+      - connections
+  /admin/connections/api-key:
+    post:
+      consumes:
+      - application/json
+      operationId: createApiKeyConnection
+      parameters:
+      - description: 凭证字段按 auth method 的 CredentialFields 填写
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.createAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.createConnectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 用 API key / 自定义凭证创建 connection
+      tags:
+      - connections
+  /admin/connections/oauth:
+    post:
+      consumes:
+      - application/json
+      operationId: startOAuth
+      parameters:
+      - description: 目标 connector、auth method 与 alias
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.startOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.authorizationURLResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 发起 OAuth 授权，返回跳转地址
+      tags:
+      - connections
   /admin/connectors:
     get:
       operationId: adminListConnectors
@@ -460,6 +632,28 @@ paths:
       summary: 查询单个 Connector
       tags:
       - catalog
+  /v1/oauth/callback:
+    get:
+      operationId: oauthCallback
+      parameters:
+      - description: 授权发起时生成的 state
+        in: query
+        name: state
+        type: string
+      - description: 授权码
+        in: query
+        name: code
+        type: string
+      - description: provider 返回的错误码
+        in: query
+        name: error
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: OAuth 回调（provider 跳转回来，无鉴权，靠一次性 state）
+      tags:
+      - connections
 securityDefinitions:
   BearerAuth:
     in: header

@@ -12,7 +12,9 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -24,6 +26,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/memohai/connect-it/packages/service/connsvc"
+	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
@@ -33,6 +37,7 @@ func main() {
 	dbURL := mustEnv("DATABASE_URL")
 	keySpec := mustEnv(crypto.EnvSecretKey)
 	cookieSecret := mustEnv("COOKIE_SECRET")
+	baseURL := mustEnv("CONNECT_IT_BASE_URL")
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -60,6 +65,9 @@ func main() {
 	configSvc := configsvc.New(queries, reg, keyring)
 	authSvc := authsvc.New(queries)
 	catalogSvc := catalogsvc.New(queries, reg, configSvc)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	oauthSvc := oauthsvc.New(queries, reg, configSvc, keyring, httpClient, baseURL)
+	connSvc := connsvc.New(queries, reg, keyring)
 
 	if err := authSvc.EnsureAdminFromEnv(ctx); err != nil {
 		log.Fatalf("初始化 admin 账号: %v", err)
@@ -71,6 +79,8 @@ func main() {
 		Config:       configSvc,
 		Catalog:      catalogSvc,
 		Auth:         authSvc,
+		OAuth:        oauthSvc,
+		Conns:        connSvc,
 		CookieSecret: []byte(cookieSecret),
 	})
 	log.Printf("connect-it 监听 %s", addr)
