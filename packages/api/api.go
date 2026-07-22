@@ -61,6 +61,7 @@ func New(deps Deps) *echo.Echo {
 	v1.GET("/connectors/:type", h.getConnector)
 	registerMCPSessions(v1, deps)
 	registerMCP(e, deps)
+	registerWeb(e)
 
 	admin := e.Group("/admin", RequireAdminSession(deps.CookieSecret))
 	admin.GET("/connections", h.listConnections)
