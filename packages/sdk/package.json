@@ -1,0 +1,13 @@
+{
+  "name": "@connect-it/sdk",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "scripts": {
+    "generate": "openapi-ts"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.84.4"
+  }
+}
