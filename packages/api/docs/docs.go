@@ -353,6 +353,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connectors/{type}/auth-methods": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Connector 的认证方式与凭证字段（供创建 connection 的表单）",
+                "operationId": "listAuthMethods",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connector_type",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.authMethodDTO"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connectors/{type}/config": {
             "get": {
                 "produces": [
@@ -811,6 +849,26 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.authMethodDTO": {
+            "type": "object",
+            "properties": {
+                "credential_fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.configFieldDTO"
+                    }
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
                     "type": "string"
                 }
             }

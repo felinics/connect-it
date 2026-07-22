@@ -9,6 +9,13 @@ export type ApiErrorResponse = {
     message?: string;
 };
 
+export type ApiAuthMethodDto = {
+    credential_fields?: Array<ApiConfigFieldDto>;
+    key?: string;
+    label?: string;
+    type?: string;
+};
+
 export type ApiAuthorizationUrlResponse = {
     authorization_url?: string;
 };
@@ -391,6 +398,36 @@ export type AdminListConnectorsResponses = {
 };
 
 export type AdminListConnectorsResponse = AdminListConnectorsResponses[keyof AdminListConnectorsResponses];
+
+export type ListAuthMethodsData = {
+    body?: never;
+    path: {
+        /**
+         * connector_type
+         */
+        type: string;
+    };
+    query?: never;
+    url: '/admin/connectors/{type}/auth-methods';
+};
+
+export type ListAuthMethodsErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+};
+
+export type ListAuthMethodsError = ListAuthMethodsErrors[keyof ListAuthMethodsErrors];
+
+export type ListAuthMethodsResponses = {
+    /**
+     * OK
+     */
+    200: Array<ApiAuthMethodDto>;
+};
+
+export type ListAuthMethodsResponse = ListAuthMethodsResponses[keyof ListAuthMethodsResponses];
 
 export type DeleteConfigData = {
     body?: never;

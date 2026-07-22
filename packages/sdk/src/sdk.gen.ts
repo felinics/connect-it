@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, StartOAuthData, StartOAuthErrors, StartOAuthResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
+import type { AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, StartOAuthData, StartOAuthErrors, StartOAuthResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -130,6 +130,16 @@ export const reauthConnection = <ThrowOnError extends boolean = false>(options: 
 export const adminListConnectors = <ThrowOnError extends boolean = false>(options?: Options<AdminListConnectorsData, ThrowOnError>) => {
     return (options?.client ?? client).get<AdminListConnectorsResponses, AdminListConnectorsErrors, ThrowOnError>({
         url: '/admin/connectors',
+        ...options
+    });
+};
+
+/**
+ * Connector 的认证方式与凭证字段（供创建 connection 的表单）
+ */
+export const listAuthMethods = <ThrowOnError extends boolean = false>(options: Options<ListAuthMethodsData, ThrowOnError>) => {
+    return (options.client ?? client).get<ListAuthMethodsResponses, ListAuthMethodsErrors, ThrowOnError>({
+        url: '/admin/connectors/{type}/auth-methods',
         ...options
     });
 };

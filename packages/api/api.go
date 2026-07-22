@@ -71,6 +71,7 @@ func New(deps Deps) *echo.Echo {
 	admin.DELETE("/connections/:id", h.deleteConnection)
 	admin.GET("/connectors", h.adminListConnectors)
 	admin.GET("/connectors/:type/config-schema", h.getConfigSchema)
+	admin.GET("/connectors/:type/auth-methods", h.listAuthMethods)
 	admin.GET("/connectors/:type/config", h.getConfig)
 	admin.PUT("/connectors/:type/config", h.putConfig)
 	admin.DELETE("/connectors/:type/config", h.deleteConfig)

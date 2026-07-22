@@ -40,6 +40,49 @@ type validateConfigRequest struct {
 	Secrets map[string]string `json:"secrets"`
 }
 
+type authMethodDTO struct {
+	Key              string           `json:"key"`
+	Label            string           `json:"label"`
+	Type             string           `json:"type"`
+	CredentialFields []configFieldDTO `json:"credential_fields"`
+}
+
+// listAuthMethods godoc
+//
+//	@Summary	Connector 的认证方式与凭证字段（供创建 connection 的表单）
+//	@ID			listAuthMethods
+//	@Tags		admin
+//	@Produce	json
+//	@Param		type	path		string	true	"connector_type"
+//	@Success	200		{array}		api.authMethodDTO
+//	@Failure	404		{object}	api.ErrorResponse
+//	@Router		/admin/connectors/{type}/auth-methods [get]
+func (h *handlers) listAuthMethods(c echo.Context) error {
+	def, ok := h.deps.Registry.Get(connector.Type(c.Param("type")))
+	if !ok {
+		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+	}
+	out := make([]authMethodDTO, 0, len(def.AuthMethods))
+	for _, m := range def.AuthMethods {
+		fields := make([]configFieldDTO, 0, len(m.CredentialFields))
+		for _, f := range m.CredentialFields {
+			options := f.Validation.Options
+			if options == nil {
+				options = []string{}
+			}
+			fields = append(fields, configFieldDTO{
+				Key: f.Key, Label: f.Label, InputType: string(f.InputType),
+				Required: f.Required, Secret: f.Secret, DefaultValue: f.DefaultValue,
+				Description: f.Description, Pattern: f.Validation.Pattern, Options: options,
+			})
+		}
+		out = append(out, authMethodDTO{
+			Key: m.Key, Label: m.Label, Type: string(m.Type), CredentialFields: fields,
+		})
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
 // getConfigSchema godoc
 //
 //	@Summary	Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）

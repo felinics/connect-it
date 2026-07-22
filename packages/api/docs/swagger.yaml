@@ -7,6 +7,19 @@ definitions:
       message:
         type: string
     type: object
+  api.authMethodDTO:
+    properties:
+      credential_fields:
+        items:
+          $ref: '#/definitions/api.configFieldDTO'
+        type: array
+      key:
+        type: string
+      label:
+        type: string
+      type:
+        type: string
+    type: object
   api.authorizationURLResponse:
     properties:
       authorization_url:
@@ -432,6 +445,31 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       summary: 列出全部 Connector（管理界面，cookie 鉴权）
+      tags:
+      - admin
+  /admin/connectors/{type}/auth-methods:
+    get:
+      operationId: listAuthMethods
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.authMethodDTO'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Connector 的认证方式与凭证字段（供创建 connection 的表单）
       tags:
       - admin
   /admin/connectors/{type}/config:
