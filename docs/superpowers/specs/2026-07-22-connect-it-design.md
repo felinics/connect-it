@@ -59,7 +59,7 @@ Go 侧拆为四个 module，与前端包一起统一放在`packages/`下。不�
 connect-it/
 ├── package.json              # pnpm workspace 根
 ├── pnpm-workspace.yaml       # packages/ui、packages/web
-├── Makefile                  # 逐 module 执行 build/test/lint
+├── mise.toml                 # 工具链版本（go/node/pnpm）＋任务定义
 ├── packages/
 │   ├── ui/                   # git submodule → github.com/memohai/ui
 │   ├── web/                  # Vite＋Vue 3＋Vue Router 管理界面
@@ -79,7 +79,7 @@ connect-it/
 - 依赖方向单向：`connectors→core`；`service→core＋connectors`；`api→service`。反向依赖视为架构违规。
 - 仓库远端为`https://github.com/memohai/connect-it`，module 路径固定为`github.com/memohai/connect-it/packages/<name>`。
 - `replace`只在被构建 module 的 go.mod 中生效，因此每个 module 须列出其**全部**本地依赖（含间接）：`connectors`replace `core`；`service`replace `core`、`connectors`；`api`replace `core`、`connectors`、`service`。
-- 没有 workspace 后`go build ./...`不能跨 module，构建、测试、lint 由根目录 Makefile 逐 module 执行；CI 同样按 module 循环。
+- 工具链与任务统一由根目录`mise.toml`管理：`[tools]`钉住 go／node／pnpm 版本（本地与 CI 都走`mise install`对齐）；`[tasks]`定义`build`／`test`／`lint`／`dev`／`sqlc`／`migrate`等任务。没有 workspace 后`go build ./...`不能跨 module，这些任务内部逐 module 执行，CI 直接调用同一组 mise 任务。
 - `packages/ui`按其自身文档的消费方式使用：pnpm 按路径解析、不 build 不 publish、Tailwind 直接扫描其源码；Vue 3 为 peer dependency，版本由宿主 lockfile 决定。
 - clone 与 CI 必须带`--recursive`／`submodules: true`。
 
