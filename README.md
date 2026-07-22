@@ -85,8 +85,99 @@ server 容器不对外发布端口，全部流量（含内部应用的 `/v1`、`
 | `dev` | 本地起 API |
 | `docker-build` / `docker-up` / `docker-down` | 镜像构建与 compose 起停 |
 
+## 接入指南（内部应用 / SaaS 后端）
+
+完整链路四步。第 1 步在管理台做一次，其余全部是机器 API。
+
+### 1. 拿 API Token
+
+管理台「API Token」页创建，明文只显示一次（`cit_` 前缀）。它是你们后端调
+`/v1/*` 的凭证。
+
+### 2. 为终端用户创建连接（拿到 connection_id）
+
+```bash
+# OAuth 类：立即返回持久 connection_id（pending）＋授权 URL
+curl -X POST $BASE/v1/connections/oauth \
+  -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"connector_type":"github","auth_method":"oauth",
+       "redirect_url":"https://your-app.example/oauth/done"}'
+# => {"connection_id":"…","authorization_url":"…"}
+```
+
+把 `authorization_url` 跳给终端用户；用户同意后回调把连接置 `active`，并
+302 到你的 `redirect_url?status=connected&connection_id=…`（也可轮询
+`GET /v1/connections/{id}`）。**connection_id 就是句柄**——它属于哪个用户，
+由你们自己的库来记。api_key 类走 `POST /v1/connections/api-key`，同样直接
+返回 connection_id。
+
+### 3. 签发 MCP session
+
+```bash
+curl -X POST $BASE/v1/mcp-sessions \
+  -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"connections":{"gh":"<connection_id>"},
+       "tool_allowlist":["gh__list_issues"],   # 可省略＝放行全部
+       "ttl_seconds":3600}'
+# => {"token":"<session_token>","expires_at":"…"}
+```
+
+`connections` 的 key 是你临时起的绑定名，决定这个 session 里工具名的前缀
+（`gh__list_issues`）。session 是短期的（默认 1h，上限 24h），给一次对话/任务
+签一个。
+
+### 4. 用 session token 连接 /mcp
+
+`/mcp` 是标准 **MCP Streamable HTTP** 端点。任何支持该传输的 MCP 客户端都能
+连，唯一要求：**每个请求带 `Authorization: Bearer <session_token>`**。
+
+TypeScript（官方 `@modelcontextprotocol/sdk`）：
+
+```ts
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+
+const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
+  requestInit: { headers: { Authorization: `Bearer ${sessionToken}` } },
+})
+const client = new Client({ name: 'your-app', version: '1.0.0' })
+await client.connect(transport)
+
+const { tools } = await client.listTools()          // [{ name: "gh__list_issues", … }]
+const result = await client.callTool({
+  name: 'gh__list_issues',
+  arguments: { owner: 'memohai', repo: 'connect-it' },
+})
+```
+
+Claude Code 等支持 HTTP MCP 的客户端：
+
+```bash
+claude mcp add --transport http connect-it $BASE/mcp \
+  --header "Authorization: Bearer $SESSION_TOKEN"
+```
+
+裸 JSON-RPC（调试用）：
+
+```bash
+curl -X POST $BASE/mcp \
+  -H "Authorization: Bearer $SESSION_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion":"2025-06-18","capabilities":{},
+        "clientInfo":{"name":"debug","version":"0"}}}'
+# 然后同样方式发 {"method":"tools/list"} / {"method":"tools/call", …}
+```
+
+错误约定：session 缺失/过期/吊销 → HTTP 401（`invalid_session`），重新签发即可；
+工具已被 Definition 下线 → 工具级错误 `tool_unavailable`；连接凭证失效 →
+执行结果报错，同时 `GET /v1/connections/{id}` 会显示 `reauth_required`，用
+`POST /v1/connections/{id}/reauth` 生成新授权链接给用户。
+
 ## 文档
 
 - 设计 spec：`docs/superpowers/specs/2026-07-22-connect-it-design.md`
 - 实施计划：`docs/superpowers/plans/`
-- API 文档：服务启动后访问 `/swagger/index.html`
+- REST API 文档：服务启动后访问 `/swagger/index.html`（`/mcp` 是 MCP 协议
+  端点，不在 swagger 内，见上方接入指南）
