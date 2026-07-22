@@ -27,8 +27,11 @@ import (
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/connsvc"
+	"github.com/memohai/connect-it/packages/service/exec"
+	"github.com/memohai/connect-it/packages/service/mcpclient"
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/memohai/connect-it/packages/service/tokens"
 )
 
 func main() {
@@ -68,6 +71,8 @@ func main() {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	oauthSvc := oauthsvc.New(queries, reg, configSvc, keyring, httpClient, baseURL)
 	connSvc := connsvc.New(queries, reg, keyring)
+	refresher := tokens.New(queries, reg, configSvc, keyring, httpClient)
+	engine := exec.New(queries, reg, configSvc, refresher, keyring, connectors.AllHandlers(), mcpclient.Client{})
 
 	if err := authSvc.EnsureAdminFromEnv(ctx); err != nil {
 		log.Fatalf("初始化 admin 账号: %v", err)
@@ -81,6 +86,8 @@ func main() {
 		Auth:         authSvc,
 		OAuth:        oauthSvc,
 		Conns:        connSvc,
+		Exec:         engine,
+		MCPTools:     mcpclient.Client{},
 		CookieSecret: []byte(cookieSecret),
 	})
 	log.Printf("connect-it 监听 %s", addr)

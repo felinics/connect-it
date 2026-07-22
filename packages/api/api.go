@@ -12,6 +12,7 @@ import (
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/connsvc"
+	"github.com/memohai/connect-it/packages/service/exec"
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/store"
 )
@@ -24,6 +25,8 @@ type Deps struct {
 	Auth         *authsvc.Service
 	OAuth        *oauthsvc.Service
 	Conns        *connsvc.Service
+	Exec         *exec.Engine
+	MCPTools     MCPToolLister
 	CookieSecret []byte
 }
 
@@ -57,6 +60,7 @@ func New(deps Deps) *echo.Echo {
 	admin.PUT("/connectors/:type/config", h.putConfig)
 	admin.DELETE("/connectors/:type/config", h.deleteConfig)
 	admin.POST("/connectors/:type/config\\:validate", h.validateConfig)
+	admin.POST("/connectors/:type/mcp\\:verify", h.verifyMCP)
 	admin.GET("/api-tokens", h.listAPITokens)
 	admin.POST("/api-tokens", h.createAPIToken)
 	admin.DELETE("/api-tokens/:id", h.deleteAPIToken)

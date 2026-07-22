@@ -557,6 +557,41 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connectors/{type}/mcp:verify": {
+            "post": {
+                "tags": [
+                    "admin"
+                ],
+                "summary": "实测 Connector 的全部 Remote MCP server 并比对 tool 映射",
+                "operationId": "verifyMcp",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connector_type",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/login": {
             "post": {
                 "consumes": [
