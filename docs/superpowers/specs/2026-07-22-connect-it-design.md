@@ -53,13 +53,13 @@ Migration 文件命名（golang-migrate 要求 up／down 成对）：
 
 ## 4. 仓库结构（MonoRepo，多 Go module）
 
-Go 侧拆为四个 module，与前端包一起统一放在`packages/`下；根目录`go.work`编排 Go module，pnpm workspace 编排 JS 包：
+Go 侧拆为四个 module，与前端包一起统一放在`packages/`下。不使用 go.work：module 间通过 go.mod 的`replace`指令按相对路径互相引用，replace 提交进仓库，clone 即可构建：
 
 ```text
 connect-it/
-├── go.work                   # use：packages/core、connectors、service、api
 ├── package.json              # pnpm workspace 根
 ├── pnpm-workspace.yaml       # packages/ui、packages/web
+├── Makefile                  # 逐 module 执行 build/test/lint
 ├── packages/
 │   ├── ui/                   # git submodule → github.com/memohai/ui
 │   ├── web/                  # Vite＋Vue 3＋Vue Router 管理界面
@@ -77,7 +77,9 @@ connect-it/
 ```
 
 - 依赖方向单向：`connectors→core`；`service→core＋connectors`；`api→service`。反向依赖视为架构违规。
-- module 路径前缀`github.com/memohai/connect-it/packages/<name>`（仓库远端确定后如有出入统一调整）。
+- 仓库远端为`https://github.com/memohai/connect-it`，module 路径固定为`github.com/memohai/connect-it/packages/<name>`。
+- `replace`只在被构建 module 的 go.mod 中生效，因此每个 module 须列出其**全部**本地依赖（含间接）：`connectors`replace `core`；`service`replace `core`、`connectors`；`api`replace `core`、`connectors`、`service`。
+- 没有 workspace 后`go build ./...`不能跨 module，构建、测试、lint 由根目录 Makefile 逐 module 执行；CI 同样按 module 循环。
 - `packages/ui`按其自身文档的消费方式使用：pnpm 按路径解析、不 build 不 publish、Tailwind 直接扫描其源码；Vue 3 为 peer dependency，版本由宿主 lockfile 决定。
 - clone 与 CI 必须带`--recursive`／`submodules: true`。
 
@@ -487,7 +489,7 @@ POST /mcp
 
 ## 15. Docker
 
-- `docker/Dockerfile`多阶段：node＋pnpm 构建`packages/web`→产物拷入`packages/api`的静态资源目录→`go build`（go.work 编排四个 module）→精简运行镜像；
+- `docker/Dockerfile`多阶段：node＋pnpm 构建`packages/web`→产物拷入`packages/api`的静态资源目录→在`packages/api`内`go build`（replace 解析本地依赖）→精简运行镜像；
 - `docker/docker-compose.yml`：`postgres:17`＋`connect-it`两个服务；环境变量`DATABASE_URL`、`CONNECT_IT_SECRET_KEY`、`COOKIE_SECRET`；
 - 构建上下文为仓库根（需 submodule 已检出）。
 
