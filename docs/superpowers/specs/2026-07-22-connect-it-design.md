@@ -51,50 +51,50 @@ Migration 文件命名（golang-migrate 要求 up／down 成对）：
 0002_具体描述.down.sql
 ```
 
-## 4. 仓库结构（MonoRepo）
+## 4. 仓库结构（MonoRepo，多 Go module）
+
+Go 侧拆为四个 module，与前端包一起统一放在`packages/`下；根目录`go.work`编排 Go module，pnpm workspace 编排 JS 包：
 
 ```text
 connect-it/
-├── go.work
+├── go.work                   # use：packages/core、connectors、service、api
 ├── package.json              # pnpm workspace 根
-├── pnpm-workspace.yaml
-├── server/                   # Go 服务（单 module）
-│   ├── go.mod
-│   ├── cmd/connect-it/
-│   ├── internal/
-│   │   ├── connectors/       # github/ gmail/ onedrive/ googleads/ ＋ all.go
-│   │   ├── registry/         # 注册与校验
-│   │   ├── api/              # Echo handlers（含前端静态资源 embed）
-│   │   ├── store/            # sqlc 生成代码＋queries
-│   │   ├── crypto/           # secret 加解密
-│   │   └── mcp/              # 聚合 /mcp 服务端＋上游 MCP 客户端
-│   ├── migrations/
-│   └── sqlc.yaml
+├── pnpm-workspace.yaml       # packages/ui、packages/web
 ├── packages/
 │   ├── ui/                   # git submodule → github.com/memohai/ui
-│   └── web/                  # 管理界面
+│   ├── web/                  # Vite＋Vue 3＋Vue Router 管理界面
+│   ├── core/                 # Go module：Definition 类型、Registry、加密、状态机
+│   │                         #   纯库，不依赖 Echo／pgx
+│   ├── connectors/           # Go module：providers
+│   │   ├── github/  gmail/  onedrive/  googleads/
+│   │   └── all.go            # 显式注册
+│   ├── service/              # Go module：sqlc store、migrations/、sqlc.yaml、
+│   │                         #   OAuth、token 刷新、Tool 执行、聚合 MCP
+│   └── api/                  # Go module：Echo handlers、cmd/connect-it、web dist embed
 └── docker/
     ├── Dockerfile
     └── docker-compose.yml
 ```
 
+- 依赖方向单向：`connectors→core`；`service→core＋connectors`；`api→service`。反向依赖视为架构违规。
+- module 路径前缀`github.com/memohai/connect-it/packages/<name>`（仓库远端确定后如有出入统一调整）。
 - `packages/ui`按其自身文档的消费方式使用：pnpm 按路径解析、不 build 不 publish、Tailwind 直接扫描其源码；Vue 3 为 peer dependency，版本由宿主 lockfile 决定。
 - clone 与 CI 必须带`--recursive`／`submodules: true`。
 
 ## 5. Definition 组织与 Registry
 
-每个 Connector 一个独立 package：
+每个 Connector 一个独立 package，全部位于`packages/connectors` module 内：
 
 ```text
-internal/connectors/github/definition.go
-internal/connectors/github/managed.go     # 仅存在 Managed Tool 时出现
+packages/connectors/github/definition.go
+packages/connectors/github/managed.go     # 仅存在 Managed Tool 时出现
 ```
 
 约定：
 
 - `definition.go`只声明固定数据，不访问数据库或网络；
 - `connector_type`用 snake_case（`one_drive`、`google_ads`），包目录名用去掉下划线的形式（`onedrive`、`googleads`），映射关系在注册处显式声明，由单元测试校验目录与注册一一对应；
-- 不使用`go generate`，不生成 catalog JSON。Registry 由手写的`internal/connectors/all.go`显式注册：
+- 不使用`go generate`，不生成 catalog JSON。Registry 类型定义在`packages/core`，实例由手写的`packages/connectors/all.go`显式注册：
 
 ```go
 func RegisterAll(r *registry.Registry) {
@@ -487,7 +487,7 @@ POST /mcp
 
 ## 15. Docker
 
-- `docker/Dockerfile`多阶段：node＋pnpm 构建`packages/web`→产物拷入 server 静态目录→`go build`→精简运行镜像；
+- `docker/Dockerfile`多阶段：node＋pnpm 构建`packages/web`→产物拷入`packages/api`的静态资源目录→`go build`（go.work 编排四个 module）→精简运行镜像；
 - `docker/docker-compose.yml`：`postgres:17`＋`connect-it`两个服务；环境变量`DATABASE_URL`、`CONNECT_IT_SECRET_KEY`、`COOKIE_SECRET`；
 - 构建上下文为仓库根（需 submodule 已检出）。
 
