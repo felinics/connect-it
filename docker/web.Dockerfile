@@ -4,6 +4,8 @@
 # Build context MUST be the repository root (packages/ui submodule checked out):
 #   docker build -f docker/web.Dockerfile -t connect-it-web:dev .
 
+ARG CONNECT_IT_BUILD_REVISION=unknown
+
 # ---------- Stage 1: build the Vue admin UI ----------
 FROM node:22 AS web-builder
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -19,6 +21,8 @@ RUN pnpm --dir packages/web run build
 
 # ---------- Stage 2: nginx runtime ----------
 FROM nginx:1.29-alpine
+ARG CONNECT_IT_BUILD_REVISION
+LABEL org.opencontainers.image.revision="${CONNECT_IT_BUILD_REVISION}"
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-builder /src/packages/web/dist /usr/share/nginx/html
 EXPOSE 8080

@@ -1,0 +1,37 @@
+# Production/release override for docker-compose.yml.
+#
+# This file deliberately has no fallback image tags or application secrets.
+# Release operators must supply immutable image references of the form
+# registry.example/name@sha256:<64 lowercase hex characters> and load the
+# target environment from the approved secret source. Always invoke Compose
+# with --no-build when this override is used.
+services:
+  postgres:
+    image: "${CONNECT_IT_POSTGRES_IMAGE:?set CONNECT_IT_POSTGRES_IMAGE to an immutable @sha256 digest}"
+    pull_policy: always
+
+  connect-it:
+    # Remove the development build context from the merged release model.
+    # The release artifact must be the exact image digest supplied below.
+    build: !reset null
+    image: "${CONNECT_IT_SERVER_IMAGE:?set CONNECT_IT_SERVER_IMAGE to an immutable @sha256 digest}"
+    pull_policy: always
+    environment:
+      DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL to the reviewed target database}"
+      CONNECT_IT_SECRET_KEY: "${CONNECT_IT_SECRET_KEY:?load CONNECT_IT_SECRET_KEY from the approved secret source}"
+      COOKIE_SECRET: "${COOKIE_SECRET:?load COOKIE_SECRET from the approved secret source}"
+      CONNECT_IT_ADMIN_PASSWORD: "${CONNECT_IT_ADMIN_PASSWORD:?load CONNECT_IT_ADMIN_PASSWORD from the approved secret source}"
+      CONNECT_IT_BASE_URL: "${CONNECT_IT_BASE_URL:?set CONNECT_IT_BASE_URL to the reviewed public origin}"
+      CONNECT_IT_EXPECTED_DATABASE_NAME: "${CONNECT_IT_EXPECTED_DATABASE_NAME:?set CONNECT_IT_EXPECTED_DATABASE_NAME to the approved target database}"
+      CONNECT_IT_EXPECTED_DATABASE_SCHEMA: "${CONNECT_IT_EXPECTED_DATABASE_SCHEMA:?set CONNECT_IT_EXPECTED_DATABASE_SCHEMA to the approved target schema}"
+      CONNECT_IT_EXPECTED_DATABASE_SYSTEM_IDENTIFIER: "${CONNECT_IT_EXPECTED_DATABASE_SYSTEM_IDENTIFIER:?set CONNECT_IT_EXPECTED_DATABASE_SYSTEM_IDENTIFIER to the approved PostgreSQL system identifier}"
+      CONNECT_IT_EXPECTED_DATABASE_APPLICATION_ROLE: "${CONNECT_IT_EXPECTED_DATABASE_APPLICATION_ROLE:?set CONNECT_IT_EXPECTED_DATABASE_APPLICATION_ROLE to the approved runtime role}"
+      CONNECT_IT_EXPECTED_DATABASE_OWNER_ROLE: "${CONNECT_IT_EXPECTED_DATABASE_OWNER_ROLE:?set CONNECT_IT_EXPECTED_DATABASE_OWNER_ROLE to the approved database/schema owner}"
+      CONNECT_IT_ALLOW_PRIVATE_PROVIDER_NETWORK: "${CONNECT_IT_ALLOW_PRIVATE_PROVIDER_NETWORK:-false}"
+      CONNECT_IT_ALLOW_INSECURE_PROVIDER_HTTP: "${CONNECT_IT_ALLOW_INSECURE_PROVIDER_HTTP:-false}"
+      LISTEN_ADDR: ":8080"
+
+  web:
+    build: !reset null
+    image: "${CONNECT_IT_WEB_IMAGE:?set CONNECT_IT_WEB_IMAGE to an immutable @sha256 digest}"
+    pull_policy: always

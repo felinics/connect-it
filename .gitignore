@@ -34,3 +34,7 @@ go.work.sum
 # Node
 node_modules/
 dist/
+
+# Deterministic developer-tool staging output. Nothing under this directory is
+# production source or a build input.
+.tmp/

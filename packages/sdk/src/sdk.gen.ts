@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
+import type { AdminBeginOAuthConnectionData, AdminBeginOAuthConnectionErrors, AdminBeginOAuthConnectionResponses, AdminCreateApiKeyConnectionData, AdminCreateApiKeyConnectionErrors, AdminCreateApiKeyConnectionResponses, AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, AdminRecredentialConnectionData, AdminRecredentialConnectionErrors, AdminRecredentialConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenErrors, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, RecredentialConnectionData, RecredentialConnectionErrors, RecredentialConnectionResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -46,7 +46,7 @@ export const listApiTokens = <ThrowOnError extends boolean = false>(options?: Op
  * 创建 API token（明文仅在响应中出现一次）
  */
 export const createApiToken = <ThrowOnError extends boolean = false>(options: Options<CreateApiTokenData, ThrowOnError>) => {
-    return (options.client ?? client).post<CreateApiTokenResponses, unknown, ThrowOnError>({
+    return (options.client ?? client).post<CreateApiTokenResponses, CreateApiTokenErrors, ThrowOnError>({
         url: '/admin/api-tokens',
         ...options,
         headers: {
@@ -77,12 +77,54 @@ export const listConnections = <ThrowOnError extends boolean = false>(options?: 
 };
 
 /**
+ * 从管理台用 API key / 自定义凭证创建连接
+ */
+export const adminCreateApiKeyConnection = <ThrowOnError extends boolean = false>(options: Options<AdminCreateApiKeyConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).post<AdminCreateApiKeyConnectionResponses, AdminCreateApiKeyConnectionErrors, ThrowOnError>({
+        url: '/admin/connections/api-key',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+    });
+};
+
+/**
+ * 从管理台发起 OAuth 授权，返回持久连接 ID 与授权 URL
+ */
+export const adminBeginOAuthConnection = <ThrowOnError extends boolean = false>(options: Options<AdminBeginOAuthConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).post<AdminBeginOAuthConnectionResponses, AdminBeginOAuthConnectionErrors, ThrowOnError>({
+        url: '/admin/connections/oauth',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+    });
+};
+
+/**
  * 删除连接（运维）
  */
 export const adminDeleteConnection = <ThrowOnError extends boolean = false>(options: Options<AdminDeleteConnectionData, ThrowOnError>) => {
     return (options.client ?? client).delete<AdminDeleteConnectionResponses, AdminDeleteConnectionErrors, ThrowOnError>({
         url: '/admin/connections/{id}',
         ...options
+    });
+};
+
+/**
+ * 从管理台验证并整组替换 API key / 自定义凭证
+ */
+export const adminRecredentialConnection = <ThrowOnError extends boolean = false>(options: Options<AdminRecredentialConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).put<AdminRecredentialConnectionResponses, AdminRecredentialConnectionErrors, ThrowOnError>({
+        url: '/admin/connections/{id}/credential',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
     });
 };
 
@@ -281,6 +323,26 @@ export const getConnection = <ThrowOnError extends boolean = false>(options: Opt
 };
 
 /**
+ * 验证并整组替换 API key / 自定义凭证；并发旧请求按版本冲突拒绝
+ */
+export const recredentialConnection = <ThrowOnError extends boolean = false>(options: Options<RecredentialConnectionData, ThrowOnError>) => {
+    return (options.client ?? client).put<RecredentialConnectionResponses, RecredentialConnectionErrors, ThrowOnError>({
+        security: [
+            {
+                name: 'Authorization',
+                type: 'apiKey'
+            }
+        ],
+        url: '/v1/connections/{id}/credential',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
+    });
+};
+
+/**
  * 对既有连接重新发起授权（ID 不变）
  */
 export const reauthConnection = <ThrowOnError extends boolean = false>(options: Options<ReauthConnectionData, ThrowOnError>) => {
@@ -333,7 +395,7 @@ export const getConnector = <ThrowOnError extends boolean = false>(options: Opti
 };
 
 /**
- * 签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+ * 签发短期 MCP session token（固化 alias、Tool grant 与授权代际）
  */
 export const createMcpSession = <ThrowOnError extends boolean = false>(options: Options<CreateMcpSessionData, ThrowOnError>) => {
     return (options.client ?? client).post<CreateMcpSessionResponses, CreateMcpSessionErrors, ThrowOnError>({

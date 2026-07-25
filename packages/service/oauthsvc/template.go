@@ -1,31 +1,68 @@
 package oauthsvc
 
 import (
+	"errors"
 	"fmt"
-	"regexp"
+	"strings"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/memohai/connect-it/packages/core/providerkit"
 )
 
-var endpointPlaceholder = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
-
-// ExpandEndpoint 把 OAuth endpoint 中的 {config_key} 占位符替换为管理员配置值
-// （config 是运行时装配、合并默认值之后的公开配置）。
-// OAuthConfig 是纯数据，模板替换是 oauthsvc 的运行时职责；
-// 不含占位符的 endpoint 原样返回。占位符缺少对应的非空字符串值时报错。
-func ExpandEndpoint(endpoint string, config map[string]any) (string, error) {
-	var firstErr error
-	out := endpointPlaceholder.ReplaceAllStringFunc(endpoint, func(m string) string {
-		key := m[1 : len(m)-1]
-		v, ok := config[key].(string)
-		if !ok || v == "" {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("oauth endpoint 占位符 {%s} 缺少对应配置值", key)
-			}
-			return m
+// ExpandEndpoints 就地展开 OAuth 配置里的全部 endpoint 占位符。可选的
+// RefreshTokenEndpoint 为空时跳过；其余 endpoint 由 Registry 保证非空。
+func ExpandEndpoints(oc *connector.OAuthConfig, config map[string]any) error {
+	if oc == nil {
+		return errors.New("oauthsvc: OAuth config is missing")
+	}
+	for _, endpoint := range []*string{
+		&oc.AuthorizationEndpoint,
+		&oc.TokenEndpoint,
+		&oc.RefreshTokenEndpoint,
+	} {
+		if *endpoint == "" {
+			continue
 		}
-		return v
-	})
-	if firstErr != nil {
-		return "", firstErr
+		expanded, err := expandEndpoint(*endpoint, config)
+		if err != nil {
+			return err
+		}
+		*endpoint = expanded
+	}
+	return nil
+}
+
+// expandEndpoint replaces OAuth endpoint placeholders with escaped public
+// configuration. Placeholders may affect only path/query data; scheme,
+// hostname and port are always fixed by the reviewed Definition.
+func expandEndpoint(endpoint string, config map[string]any) (string, error) {
+	authorityEnd := len(endpoint)
+	if scheme := strings.Index(endpoint, "://"); scheme >= 0 {
+		if relative := strings.IndexAny(endpoint[scheme+3:], "/?#"); relative >= 0 {
+			authorityEnd = scheme + 3 + relative
+		}
+	}
+	if len(providerkit.EndpointPlaceholders(endpoint[:authorityEnd])) > 0 {
+		return "", fmt.Errorf(
+			"oauth endpoint placeholder 不得改变 scheme、hostname 或 port",
+		)
+	}
+
+	out, missing := providerkit.ExpandEndpoint(
+		endpoint,
+		func(key string) string {
+			v, _ := config[key].(string)
+			return v
+		},
+	)
+	if len(missing) > 0 {
+		return "", fmt.Errorf(
+			"oauth endpoint 占位符 {%s} 缺少对应配置值",
+			missing[0],
+		)
+	}
+	if _, err := providerkit.ParseAndValidateURL(out); err != nil {
+		return "", fmt.Errorf("oauth endpoint 展开后非法")
 	}
 	return out, nil
 }

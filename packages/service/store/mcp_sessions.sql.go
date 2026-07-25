@@ -12,74 +12,107 @@ import (
 	"github.com/google/uuid"
 )
 
-const addMCPSessionConnection = `-- name: AddMCPSessionConnection :exec
-INSERT INTO mcp_session_connections (session_id, alias, connection_id)
-VALUES ($1, $2, $3)
-`
-
-type AddMCPSessionConnectionParams struct {
-	SessionID    uuid.UUID
-	Alias        string
-	ConnectionID uuid.UUID
-}
-
-func (q *Queries) AddMCPSessionConnection(ctx context.Context, arg AddMCPSessionConnectionParams) error {
-	_, err := q.db.Exec(ctx, addMCPSessionConnection, arg.SessionID, arg.Alias, arg.ConnectionID)
-	return err
-}
-
-const connectionExistsByID = `-- name: ConnectionExistsByID :one
-SELECT EXISTS (SELECT 1 FROM connections WHERE id = $1) AS found
-`
-
-func (q *Queries) ConnectionExistsByID(ctx context.Context, id uuid.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, connectionExistsByID, id)
-	var found bool
-	err := row.Scan(&found)
-	return found, err
-}
-
-const createMCPSession = `-- name: CreateMCPSession :exec
-INSERT INTO mcp_sessions (id, token_hash, tool_allowlist, status, expires_at, created_at)
-VALUES ($1, $2, $3, 'active', $4, now())
+const createMCPSession = `-- name: CreateMCPSession :one
+WITH checked_input AS (
+  SELECT
+    $1::uuid AS id,
+    $2::text AS token_hash,
+    $3::jsonb AS tool_allowlist,
+    $4::bigint AS ttl_seconds,
+    $5::jsonb AS bindings
+  WHERE $4::bigint > 0
+    AND $4::bigint <= 86400
+    AND jsonb_typeof($5::jsonb) = 'array'
+    AND jsonb_array_length($5::jsonb) > 0
+),
+inserted_session AS (
+  INSERT INTO mcp_sessions (
+    id, token_hash, tool_allowlist, status, expires_at, created_at
+  )
+  SELECT
+    id,
+    token_hash,
+    tool_allowlist,
+    'active',
+    CURRENT_TIMESTAMP + make_interval(secs => ttl_seconds::double precision),
+    CURRENT_TIMESTAMP
+  FROM checked_input
+  RETURNING id, expires_at
+),
+inserted_bindings AS (
+  INSERT INTO mcp_session_connections (
+    session_id, alias, connection_id, authorization_generation
+  )
+  SELECT
+    inserted_session.id,
+    binding.alias,
+    binding.connection_id,
+    binding.authorization_generation
+  FROM inserted_session
+  CROSS JOIN checked_input
+  CROSS JOIN jsonb_to_recordset(checked_input.bindings) AS binding(
+    alias text,
+    connection_id uuid,
+    authorization_generation bigint
+  )
+  RETURNING session_id
+)
+SELECT inserted_session.expires_at
+FROM inserted_session
+WHERE EXISTS (SELECT 1 FROM inserted_bindings)
 `
 
 type CreateMCPSessionParams struct {
 	ID            uuid.UUID
 	TokenHash     string
 	ToolAllowlist []byte
-	ExpiresAt     time.Time
+	TtlSeconds    int64
+	Bindings      []byte
 }
 
-func (q *Queries) CreateMCPSession(ctx context.Context, arg CreateMCPSessionParams) error {
-	_, err := q.db.Exec(ctx, createMCPSession,
+func (q *Queries) CreateMCPSession(ctx context.Context, arg CreateMCPSessionParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, createMCPSession,
 		arg.ID,
 		arg.TokenHash,
 		arg.ToolAllowlist,
-		arg.ExpiresAt,
+		arg.TtlSeconds,
+		arg.Bindings,
 	)
-	return err
+	var expires_at time.Time
+	err := row.Scan(&expires_at)
+	return expires_at, err
 }
 
-const getConnectionConnectorTypes = `-- name: GetConnectionConnectorTypes :many
-SELECT id, connector_type FROM connections WHERE id = ANY($1::uuid[])
+const getConnectionsForMCPSession = `-- name: GetConnectionsForMCPSession :many
+SELECT id, connector_type, status, authorization_generation
+FROM connections
+WHERE id = ANY($1::uuid[])
+ORDER BY id
+FOR SHARE
 `
 
-type GetConnectionConnectorTypesRow struct {
-	ID            uuid.UUID
-	ConnectorType string
+type GetConnectionsForMCPSessionRow struct {
+	ID                      uuid.UUID
+	ConnectorType           string
+	Status                  string
+	AuthorizationGeneration int64
 }
 
-func (q *Queries) GetConnectionConnectorTypes(ctx context.Context, ids []uuid.UUID) ([]GetConnectionConnectorTypesRow, error) {
-	rows, err := q.db.Query(ctx, getConnectionConnectorTypes, ids)
+func (q *Queries) GetConnectionsForMCPSession(ctx context.Context, ids []uuid.UUID) ([]GetConnectionsForMCPSessionRow, error) {
+	rows, err := q.db.Query(ctx, getConnectionsForMCPSession, ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetConnectionConnectorTypesRow
+	var items []GetConnectionsForMCPSessionRow
 	for rows.Next() {
-		var i GetConnectionConnectorTypesRow
-		if err := rows.Scan(&i.ID, &i.ConnectorType); err != nil {
+		var i GetConnectionsForMCPSessionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConnectorType,
+			&i.Status,
+			&i.AuthorizationGeneration,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -90,38 +123,122 @@ func (q *Queries) GetConnectionConnectorTypes(ctx context.Context, ids []uuid.UU
 	return items, nil
 }
 
-const getMCPSessionByTokenHash = `-- name: GetMCPSessionByTokenHash :one
-SELECT id, token_hash, tool_allowlist, status, expires_at, created_at FROM mcp_sessions WHERE token_hash = $1
+const getMCPExecutionAuthorization = `-- name: GetMCPExecutionAuthorization :one
+SELECT
+  s.status AS session_status,
+  s.expires_at > now() AS session_unexpired,
+  s.tool_allowlist,
+  b.connection_id,
+  b.authorization_generation AS binding_authorization_generation,
+  c.status AS connection_status,
+  c.authorization_generation AS current_authorization_generation
+FROM mcp_sessions AS s
+JOIN mcp_session_connections AS b ON b.session_id = s.id
+JOIN connections AS c ON c.id = b.connection_id
+WHERE s.id = $1
+  AND b.alias = $2
 `
 
-func (q *Queries) GetMCPSessionByTokenHash(ctx context.Context, tokenHash string) (McpSession, error) {
+type GetMCPExecutionAuthorizationParams struct {
+	SessionID uuid.UUID
+	Alias     string
+}
+
+type GetMCPExecutionAuthorizationRow struct {
+	SessionStatus                  string
+	SessionUnexpired               bool
+	ToolAllowlist                  []byte
+	ConnectionID                   uuid.UUID
+	BindingAuthorizationGeneration int64
+	ConnectionStatus               string
+	CurrentAuthorizationGeneration int64
+}
+
+func (q *Queries) GetMCPExecutionAuthorization(ctx context.Context, arg GetMCPExecutionAuthorizationParams) (GetMCPExecutionAuthorizationRow, error) {
+	row := q.db.QueryRow(ctx, getMCPExecutionAuthorization, arg.SessionID, arg.Alias)
+	var i GetMCPExecutionAuthorizationRow
+	err := row.Scan(
+		&i.SessionStatus,
+		&i.SessionUnexpired,
+		&i.ToolAllowlist,
+		&i.ConnectionID,
+		&i.BindingAuthorizationGeneration,
+		&i.ConnectionStatus,
+		&i.CurrentAuthorizationGeneration,
+	)
+	return i, err
+}
+
+const getMCPSessionByTokenHash = `-- name: GetMCPSessionByTokenHash :one
+SELECT
+  id,
+  tool_allowlist,
+  status,
+  expires_at,
+  expires_at > now() AS unexpired
+FROM mcp_sessions
+WHERE token_hash = $1
+`
+
+type GetMCPSessionByTokenHashRow struct {
+	ID            uuid.UUID
+	ToolAllowlist []byte
+	Status        string
+	ExpiresAt     time.Time
+	Unexpired     bool
+}
+
+func (q *Queries) GetMCPSessionByTokenHash(ctx context.Context, tokenHash string) (GetMCPSessionByTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, getMCPSessionByTokenHash, tokenHash)
-	var i McpSession
+	var i GetMCPSessionByTokenHashRow
 	err := row.Scan(
 		&i.ID,
-		&i.TokenHash,
 		&i.ToolAllowlist,
 		&i.Status,
 		&i.ExpiresAt,
-		&i.CreatedAt,
+		&i.Unexpired,
 	)
 	return i, err
 }
 
 const listMCPSessionConnections = `-- name: ListMCPSessionConnections :many
-SELECT session_id, alias, connection_id FROM mcp_session_connections WHERE session_id = $1
+SELECT
+  binding.session_id,
+  binding.alias,
+  binding.connection_id,
+  binding.authorization_generation,
+  coalesce(connection.connector_type, '') AS active_connector_type
+FROM mcp_session_connections AS binding
+LEFT JOIN connections AS connection
+  ON connection.id = binding.connection_id
+ AND connection.status = 'active'
+WHERE binding.session_id = $1
 `
 
-func (q *Queries) ListMCPSessionConnections(ctx context.Context, sessionID uuid.UUID) ([]McpSessionConnection, error) {
+type ListMCPSessionConnectionsRow struct {
+	SessionID               uuid.UUID
+	Alias                   string
+	ConnectionID            uuid.UUID
+	AuthorizationGeneration int64
+	ActiveConnectorType     string
+}
+
+func (q *Queries) ListMCPSessionConnections(ctx context.Context, sessionID uuid.UUID) ([]ListMCPSessionConnectionsRow, error) {
 	rows, err := q.db.Query(ctx, listMCPSessionConnections, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []McpSessionConnection
+	var items []ListMCPSessionConnectionsRow
 	for rows.Next() {
-		var i McpSessionConnection
-		if err := rows.Scan(&i.SessionID, &i.Alias, &i.ConnectionID); err != nil {
+		var i ListMCPSessionConnectionsRow
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.Alias,
+			&i.ConnectionID,
+			&i.AuthorizationGeneration,
+			&i.ActiveConnectorType,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/memohai/connect-it/packages/service/mcpclient"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
@@ -26,12 +28,17 @@ type fakeLister struct {
 	names     []string
 	err       error
 	endpoints []string
+	requests  []mcpclient.ListRequest
 }
 
-func (f *fakeLister) ListTools(ctx context.Context, endpoint, bearerToken string, timeout time.Duration) ([]string, error) {
+func (f *fakeLister) ListTools(
+	_ context.Context,
+	request mcpclient.ListRequest,
+) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.endpoints = append(f.endpoints, endpoint)
+	f.endpoints = append(f.endpoints, request.Endpoint)
+	f.requests = append(f.requests, request)
 	return f.names, f.err
 }
 
@@ -43,10 +50,20 @@ func newVerifyServer(t *testing.T) (*httptest.Server, *fakeLister, *store.Querie
 		t.Fatal(err)
 	}
 	reg := registry.New()
+	defaultFalse := "false"
 	reg.MustRegister(connector.Definition{
 		Type: "self_app", Name: "SelfHosted", ConfigSchemaVersion: 1,
 		ConfigFields: []connector.ConfigField{
 			{Key: "mcp_url", Label: "MCP URL", InputType: connector.InputURL, Required: true},
+			{
+				Key:          "allow_insecure_http",
+				Label:        "Allow insecure HTTP",
+				InputType:    connector.InputSelect,
+				DefaultValue: &defaultFalse,
+				Validation: connector.FieldValidation{
+					Options: []string{"false", "true"},
+				},
+			},
 		},
 		RemoteMCPServers: []connector.RemoteMCPServer{
 			{Key: "self",
@@ -55,12 +72,16 @@ func newVerifyServer(t *testing.T) (*httptest.Server, *fakeLister, *store.Querie
 		},
 		Tools: []connector.Tool{
 			{ID: "search", Name: "Search", Risk: connector.RiskRead,
-				Backend: connector.RemoteMCPBackend{ServerKey: "self", RemoteToolName: "upstream_search"}},
+				InputSchema: json.RawMessage(`{"type":"object","additionalProperties":true}`),
+				Backend:     connector.RemoteMCPBackend{ServerKey: "self", RemoteToolName: "upstream_search"}},
 		},
 	})
 
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
+	if _, err := cfg.ReconcilePolicyIdentities(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	auth := authsvc.New(q)
 	cat := catalogsvc.New(q, reg, cfg)
 	lister := &fakeLister{names: []string{"upstream_search", "other"}}
@@ -70,7 +91,7 @@ func newVerifyServer(t *testing.T) (*httptest.Server, *fakeLister, *store.Querie
 		t.Fatal(err)
 	}
 	e := api.New(api.Deps{
-		Registry: reg, Store: q, Config: cfg, Catalog: cat, Auth: auth,
+		Registry: reg, Config: cfg, Catalog: cat, Auth: auth,
 		MCPTools:     lister,
 		CookieSecret: []byte("test-cookie-secret"),
 	})
@@ -101,7 +122,7 @@ func TestVerifySelfHostedFlow(t *testing.T) {
 	lister.names = []string{"unrelated"}
 	lister.mu.Unlock()
 	resp, body = doReq(t, http.MethodPost, srv.URL+"/admin/connectors/self_app/mcp:verify", "", h)
-	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "upstream_search") {
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "映射缺失") {
 		t.Fatalf("缺 tool 应 422: %d %s", resp.StatusCode, body)
 	}
 	if hrow, err := q.GetConnectorHealth(ctx, "self_app"); err != nil || hrow.ConsecutiveFailures != 1 {
@@ -118,14 +139,24 @@ func TestVerifySelfHostedFlow(t *testing.T) {
 	}
 	v, err := q.GetConnectorConfigVerification(ctx, "self_app")
 	if err != nil || v.McpVerifiedAt == nil || v.McpVerifiedEndpoint == nil ||
-		*v.McpVerifiedEndpoint != "https://self.internal/mcp" {
+		*v.McpVerifiedEndpoint != "https://self.internal:443/mcp" {
 		t.Fatalf("verified 未落库: %+v err=%v", v, err)
 	}
 	if hrow, _ := q.GetConnectorHealth(ctx, "self_app"); hrow.ConsecutiveFailures != 0 {
 		t.Fatalf("verify 成功应清零 health: %+v", hrow)
 	}
-	if lister.endpoints[len(lister.endpoints)-1] != "https://self.internal/mcp" {
+	if lister.endpoints[len(lister.endpoints)-1] !=
+		"https://self.internal:443/mcp" {
 		t.Fatalf("应探测配置的 endpoint: %v", lister.endpoints)
+	}
+	lastRequest := lister.requests[len(lister.requests)-1]
+	if lastRequest.ConnectorType != "self_app" ||
+		lastRequest.Operation != mcpclient.OperationVerify ||
+		lastRequest.AuthorizationID == "" ||
+		lastRequest.Server.Key != "self" ||
+		lastRequest.AllowInsecureHTTP != "false" ||
+		lastRequest.BearerToken != "" {
+		t.Fatalf("verify request identity incomplete: %+v", lastRequest)
 	}
 }
 
@@ -138,18 +169,32 @@ func TestVerifyUnknownConnector(t *testing.T) {
 	}
 }
 
-func TestVerifyListerError(t *testing.T) {
-	srv, lister, _, cfg := newVerifyServer(t)
+func TestVerifyListerErrorIsRedactedFromResponseAndHealth(t *testing.T) {
+	srv, lister, q, cfg := newVerifyServer(t)
 	h := adminLogin(t, srv)
 	if _, err := cfg.Put(context.Background(), "self_app",
 		map[string]any{"mcp_url": "https://self.internal/mcp"}, nil, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
+	const poison = "poison-client-secret"
 	lister.mu.Lock()
-	lister.err = errors.New("connection refused")
+	lister.err = errors.New(
+		"connection refused: https://provider.example/mcp?token=" + poison,
+	)
 	lister.mu.Unlock()
 	resp, body := doReq(t, http.MethodPost, srv.URL+"/admin/connectors/self_app/mcp:verify", "", h)
-	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "握手失败") {
+	if resp.StatusCode != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "握手失败") ||
+		strings.Contains(body, poison) {
 		t.Fatalf("握手失败应 422: %d %s", resp.StatusCode, body)
+	}
+	health, err := q.GetConnectorHealth(t.Context(), "self_app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.LastError == nil ||
+		*health.LastError != `{"code":"mcp_probe_failed"}` ||
+		strings.Contains(*health.LastError, poison) {
+		t.Fatalf("unsafe connector health error = %#v", health.LastError)
 	}
 }

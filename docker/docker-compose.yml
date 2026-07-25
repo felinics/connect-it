@@ -33,7 +33,7 @@ services:
     # (wget /healthz); `docker compose up --wait` relies on it.
     environment:
       # Must match the postgres service credentials above.
-      DATABASE_URL: "postgres://connect_it:connect_it_dev_password@postgres:5432/connect_it?sslmode=disable"
+      DATABASE_URL: "postgres://connect_it_app:connect_it_app_dev_password@postgres:5432/connect_it?sslmode=disable"
       # CHANGE ME: AES-256-GCM keyring, format "1:<64-char-hex>".
       # Generate: echo "1:$(openssl rand -hex 32)"
       CONNECT_IT_SECRET_KEY: "1:000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
@@ -42,9 +42,20 @@ services:
       COOKIE_SECRET: "change-me-cookie-secret"
       # CHANGE ME: initial password for POST /admin/login.
       CONNECT_IT_ADMIN_PASSWORD: "change-me-admin-password"
-      # Externally reachable base URL; OAuth callbacks are built from it.
-      # Change when deploying behind a domain / reverse proxy.
+      # The production Server requires an independently supplied database
+      # identity. `mise run docker-up` and the isolated ingress runner append
+      # a protected, dev-only Compose override after bootstrapping postgres.
+      # This base file intentionally omits CONNECT_IT_EXPECTED_DATABASE_* so a
+      # direct Server start fails closed instead of trusting DATABASE_URL.
+      # Externally reachable base URL; OAuth callbacks and the admin Cookie
+      # Secure policy are derived from it. Use https:// behind a TLS
+      # terminator; the app intentionally does not trust forwarded scheme
+      # headers for this security decision.
       CONNECT_IT_BASE_URL: "http://localhost:8080"
+      # Provider egress is public HTTPS only by default. Keep both false unless
+      # an administrator deliberately enables a reviewed self-hosted Provider.
+      CONNECT_IT_ALLOW_PRIVATE_PROVIDER_NETWORK: "false"
+      CONNECT_IT_ALLOW_INSECURE_PROVIDER_HTTP: "false"
       # Listen address inside the container. Keep in sync with the nginx
       # upstream in docker/nginx.conf and the HEALTHCHECK baked into the image.
       LISTEN_ADDR: ":8080"

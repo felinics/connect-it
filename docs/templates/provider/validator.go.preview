@@ -1,0 +1,98 @@
+// TEMPLATE v1 — validator must use the same guarded client and credential
+// presentation as Managed handlers.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/memohai/connect-it/packages/connectors/internal/credentialvalidator"
+	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/memohai/connect-it/packages/core/providerkit"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+func NewCredentialValidators(
+	factory *providerkit.Factory,
+) (map[string]connector.CredentialValidator, error) {
+	source, err := newClientSource(factory)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]connector.CredentialValidator{
+		TODO_AUTH_METHOD_KEY: func(
+			ctx context.Context,
+			input connector.CredentialValidationInput,
+		) (connector.CredentialValidationResult, error) {
+			fields, err := credentialvalidator.FieldsInput(
+				input,
+				Definition.Type,
+				TODO_AUTH_METHOD_KEY,
+				TODO_AUTH_METHOD_TYPE,
+				TODO_EXACT_CREDENTIAL_FIELD_KEYS...,
+			)
+			if err != nil {
+				return connector.CredentialValidationResult{}, err
+			}
+			credentials, code := TODO_NORMALIZE_EXACT_STRING_FIELDS(fields)
+			if code != "" {
+				return connector.CredentialValidationResult{},
+					credentialvalidator.Error(code, 0, 0)
+			}
+			return validateCredential(ctx, source, credentials)
+		},
+	}, nil
+}
+
+func validateCredential(
+	ctx context.Context,
+	source *clientSource,
+	credentials providerCredentials,
+) (connector.CredentialValidationResult, error) {
+	authorizer, code := credentials.authorizer()
+	if code != "" {
+		return connector.CredentialValidationResult{},
+			credentialvalidator.Error(code, 0, 0)
+	}
+	response, err := source.client.Do(ctx, providerkit.Request{
+		Method:     http.MethodGet,
+		URL:        TODO_MINIMAL_READ_ONLY_IDENTITY_PATH,
+		Authorizer: authorizer,
+		Headers: http.Header{
+			"Accept": {"application/json"},
+		},
+		Labels: providerkit.RequestLabels{
+			ConnectorType: string(Definition.Type),
+			Operation:     "credential_validate",
+		},
+	})
+	if err != nil {
+		return connector.CredentialValidationResult{},
+			credentialvalidator.ProviderError(err)
+	}
+	var upstream TODO_DOCUMENTED_IDENTITY_RESPONSE
+	if response == nil || response.DecodeJSON(&upstream) != nil {
+		return connector.CredentialValidationResult{},
+			credentialvalidator.Error(
+				connector.FailureInvalidResponse,
+				responseStatus(response),
+				0,
+			)
+	}
+	profile, scopes, scopesKnown, ok :=
+		TODO_STRICT_PROFILE_AND_SCOPE_NORMALIZATION(upstream, response.Header)
+	if !ok {
+		return connector.CredentialValidationResult{},
+			credentialvalidator.Error(
+				connector.FailureInvalidResponse,
+				response.StatusCode,
+				0,
+			)
+	}
+	return connector.CredentialValidationResult{
+		Profile:       profile,
+		GrantedScopes: scopes,
+		ScopesKnown:   scopesKnown,
+	}, nil
+}

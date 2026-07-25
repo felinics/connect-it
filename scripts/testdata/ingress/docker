@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${FAKE_DOCKER_LOG:?FAKE_DOCKER_LOG is required}"
+
+{
+  first=1
+  for argument in "$@"; do
+    if ((first == 0)); then
+      printf '\t'
+    fi
+    printf '%s' "${argument}"
+    first=0
+  done
+  printf '\n'
+} >>"${FAKE_DOCKER_LOG}"
+
+case "${1:-}" in
+  ps)
+    if [[ "${FAKE_DOCKER_EXISTING_RESOURCES:-0}" == "1" ]]; then
+      printf 'existing-container\n'
+    fi
+    ;;
+  network | volume)
+    if [[ "${FAKE_DOCKER_EXISTING_RESOURCES:-0}" == "1" ]]; then
+      printf 'existing-resource\n'
+    fi
+    ;;
+  compose)
+    compose_action=""
+    for argument in "$@"; do
+      case "${argument}" in
+        up | down | exec)
+          compose_action="${argument}"
+          break
+          ;;
+      esac
+    done
+    case "${compose_action}" in
+      up)
+        if [[ -n "${FAKE_DOCKER_IDENTITY_CAPTURE_FILE:-}" ]]; then
+          for argument in "$@"; do
+            if [[ -f "${argument}" ]] &&
+              grep -q 'CONNECT_IT_EXPECTED_DATABASE_SYSTEM_IDENTIFIER' \
+                "${argument}"; then
+              cp "${argument}" "${FAKE_DOCKER_IDENTITY_CAPTURE_FILE}"
+            fi
+          done
+        fi
+        if [[ -n "${FAKE_DOCKER_UP_SEQUENCE_FILE:-}" ]]; then
+          up_count=0
+          if [[ -s "${FAKE_DOCKER_UP_SEQUENCE_FILE}" ]]; then
+            up_count="$(cat "${FAKE_DOCKER_UP_SEQUENCE_FILE}")"
+          fi
+          up_count=$((up_count + 1))
+          printf '%s\n' "${up_count}" >"${FAKE_DOCKER_UP_SEQUENCE_FILE}"
+          if ((up_count == 1)); then
+            exit "${FAKE_DOCKER_FIRST_UP_STATUS:-0}"
+          fi
+          exit "${FAKE_DOCKER_SECOND_UP_STATUS:-42}"
+        fi
+        exit "${FAKE_DOCKER_UP_STATUS:-42}"
+        ;;
+      down)
+        exit "${FAKE_DOCKER_DOWN_STATUS:-0}"
+        ;;
+      exec)
+        command_text="$*"
+        if [[ "${command_text}" == *"--set=connect_it_dev_configuration=1"* ]]; then
+          configuration_input="$(command cat)"
+          for required_fragment in \
+            "alter role connect_it_owner" \
+            "alter role connect_it_app" \
+            "noinherit nosuperuser nocreatedb nocreaterole" \
+            "alter database connect_it owner to connect_it_owner" \
+            "alter schema public owner to connect_it_owner" \
+            "alter table public.schema_migrations owner to connect_it_owner" \
+            "revoke connect on database postgres from public" \
+            "revoke connect on database template1 from public" \
+            "set role connect_it_owner" \
+            "revoke connect, temporary on database connect_it from public" \
+            "revoke usage, create on schema public from public" \
+            "alter default privileges" \
+            "revoke execute on functions from public" \
+            "revoke usage on types from public" \
+            "grant connect on database connect_it to connect_it_app" \
+            "grant usage on schema public to connect_it_app" \
+            "on public.admin_account, public.api_tokens to connect_it_app" \
+            "on public.connector_configs, public.connections," \
+            "on public.mcp_sessions, public.mcp_session_connections" \
+            "on public.connector_health, public.connector_policy_identities" \
+            "grant insert on public.tool_runs to connect_it_app" \
+            "grant select on public.schema_migrations to connect_it_app" \
+            "revoke all privileges on function pg_catalog.pg_control_system()" \
+            "grant execute on function pg_catalog.pg_control_system()"; do
+            if [[ "${configuration_input}" != *"${required_fragment}"* ]]; then
+              echo "fake docker: dev configuration omitted ${required_fragment}" >&2
+              exit 65
+            fi
+          done
+          if [[ "${configuration_input}" == *"aclexplode"* ||
+            "${configuration_input}" == *"target_acl"* ||
+            "${configuration_input}" == *"target_database record"* ]]; then
+            echo "fake docker: dev configuration retained legacy ACL scrub" >&2
+            exit 65
+          fi
+          exit "${FAKE_DOCKER_BOOTSTRAP_CONFIG_STATUS:-0}"
+        elif [[ "${command_text}" == *"pg_control_system"* &&
+          "${command_text}" == *"current_database"* ]]; then
+          printf '%s\n' \
+            "${FAKE_DOCKER_BOOTSTRAP_IDENTITY:-connect_it|public|7234567890123456789}"
+        elif [[ "${command_text}" == *"dev_bootstrap_schema_shape"* ]]; then
+          for expected_shape_fragment in \
+            "('oauth_authorizations')" \
+            "column_name = 'context_ciphertext'" \
+            "column_name = 'dirty'"; do
+            if [[ "${command_text}" != *"${expected_shape_fragment}"* ]]; then
+              echo "fake docker: schema shape fixture is missing ${expected_shape_fragment}" >&2
+              exit 64
+            fi
+          done
+          printf '%s\n' "${FAKE_DOCKER_BOOTSTRAP_SCHEMA_SHAPE:-t}"
+        elif [[ "${command_text}" == *"to_regclass('public.schema_migrations')"* ]]; then
+          if [[ -n "${FAKE_DOCKER_BOOTSTRAP_STATE_FILE:-}" &&
+            -s "${FAKE_DOCKER_BOOTSTRAP_STATE_FILE}" ]]; then
+            printf '1|t\n'
+          else
+            printf '%s\n' "${FAKE_DOCKER_BOOTSTRAP_CATALOG_STATE:-1|f}"
+          fi
+        elif [[ "${command_text}" == *"from public.schema_migrations"* ]]; then
+          printf '%s\n' "${FAKE_DOCKER_BOOTSTRAP_SCHEMA_STATE:-1|1|f}"
+        elif [[ "${command_text}" == *"--set=connect_it_baseline=1"* ]]; then
+          bootstrap_input="$(command cat)"
+          if [[ -n "${FAKE_DOCKER_BOOTSTRAP_INPUT_FILE:-}" ]]; then
+            printf '%s' "${bootstrap_input}" \
+              >"${FAKE_DOCKER_BOOTSTRAP_INPUT_FILE}"
+          fi
+          bootstrap_status="${FAKE_DOCKER_BOOTSTRAP_APPLY_STATUS:-0}"
+          if ((bootstrap_status == 0)) &&
+            [[ -n "${FAKE_DOCKER_BOOTSTRAP_STATE_FILE:-}" ]]; then
+            printf 'bootstrapped\n' \
+              >"${FAKE_DOCKER_BOOTSTRAP_STATE_FILE}"
+          fi
+          exit "${bootstrap_status}"
+        fi
+        ;;
+    esac
+    ;;
+esac

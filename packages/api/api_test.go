@@ -11,6 +11,7 @@ import (
 	"github.com/memohai/connect-it/packages/api"
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
+	"github.com/memohai/connect-it/packages/core/providerkit"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
@@ -26,6 +27,14 @@ const adminPassword = "test-admin-pass"
 // newTestServer 装配真实 service 栈（真库）＋Echo，返回 base URL 与 authsvc。
 func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 	t.Helper()
+	return newTestServerWithCookieSecure(t, false)
+}
+
+func newTestServerWithCookieSecure(
+	t *testing.T,
+	cookieSecure bool,
+) (*httptest.Server, *authsvc.Service) {
+	t.Helper()
 	pool := testutil.NewDB(t)
 	kr, err := crypto.ParseKeyring("1:" + strings.Repeat("cd", 32))
 	if err != nil {
@@ -38,15 +47,28 @@ func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 			{Key: "client_id", Label: "Client ID", InputType: connector.InputText, Required: true},
 			{Key: "client_secret", Label: "Client Secret", InputType: connector.InputText, Required: true, Secret: true},
 		},
-		Tools: []connector.Tool{{ID: "t", Backend: connector.ManagedBackend{HandlerKey: "t"}}},
+		Tools: []connector.Tool{{
+			ID:          "t",
+			Risk:        connector.RiskRead,
+			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":true}`),
+			Backend:     connector.ManagedBackend{HandlerKey: "t"},
+		}},
 	}, "t")
 
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
 	auth := authsvc.New(q)
 	cat := catalogsvc.New(q, reg, cfg)
-	oauth := oauthsvc.New(q, reg, cfg, kr, http.DefaultClient, "http://connect.test")
-	conns := connsvc.New(q, reg, kr)
+	oauth := oauthsvc.New(
+		q,
+		reg,
+		cfg,
+		kr,
+		providerkit.NewFactory(),
+		"http://connect.test",
+		connector.AuthorizationRuntime{},
+	)
+	conns := connsvc.New(q, reg, kr, cfg, nil, nil)
 
 	t.Setenv(authsvc.EnvAdminPassword, adminPassword)
 	if err := auth.EnsureAdminFromEnv(t.Context()); err != nil {
@@ -54,9 +76,10 @@ func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 	}
 
 	e := api.New(api.Deps{
-		Registry: reg, Store: q, Config: cfg, Catalog: cat, Auth: auth,
+		Registry: reg, Config: cfg, Catalog: cat, Auth: auth,
 		OAuth: oauth, Conns: conns,
 		CookieSecret: []byte("test-cookie-secret"),
+		CookieSecure: cookieSecure,
 	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
@@ -105,8 +128,16 @@ func adminLogin(t *testing.T, srv *httptest.Server) http.Header {
 	if len(cookies) == 0 {
 		t.Fatal("登录未下发 cookie")
 	}
+	sessionCookies := resp.Cookies()
+	if len(sessionCookies) != 1 ||
+		!sessionCookies[0].HttpOnly ||
+		sessionCookies[0].SameSite != http.SameSiteStrictMode ||
+		sessionCookies[0].Secure {
+		t.Fatalf("本地 HTTP session cookie 属性不安全或不可用: %+v", sessionCookies)
+	}
 	h := http.Header{}
 	h.Set("Cookie", strings.Split(cookies[0], ";")[0])
+	h.Set("X-Connect-It-CSRF", "1")
 	return h
 }
 
@@ -139,6 +170,51 @@ func TestLoginWrongPassword(t *testing.T) {
 		`{"username":"admin","password":"wrong"}`, nil)
 	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(body, "invalid_credentials") {
 		t.Fatalf("错误密码应 401: %d %s", resp.StatusCode, body)
+	}
+}
+
+func TestLoginCookiePolicyUsesTrustedPublicBaseURLSetting(t *testing.T) {
+	srv, _ := newTestServerWithCookieSecure(t, true)
+	// The direct request is plain HTTP and deliberately supplies a conflicting
+	// proxy header. Cookie security must come from validated deployment
+	// configuration, not the last hop's mutable X-Forwarded-Proto value.
+	header := http.Header{"X-Forwarded-Proto": {"http"}}
+	resp, body := doReq(
+		t,
+		http.MethodPost,
+		srv.URL+"/admin/login",
+		`{"username":"admin","password":"`+adminPassword+`"}`,
+		header,
+	)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("登录失败: %d %s", resp.StatusCode, body)
+	}
+	cookies := resp.Cookies()
+	if len(cookies) != 1 || !cookies[0].Secure ||
+		!cookies[0].HttpOnly ||
+		cookies[0].SameSite != http.SameSiteStrictMode {
+		t.Fatalf("HTTPS public-base session cookie 属性 = %+v", cookies)
+	}
+}
+
+func TestLoginCookiePolicyIgnoresForwardedProtoSpoof(t *testing.T) {
+	srv, _ := newTestServerWithCookieSecure(t, false)
+	header := http.Header{"X-Forwarded-Proto": {"https"}}
+	resp, body := doReq(
+		t,
+		http.MethodPost,
+		srv.URL+"/admin/login",
+		`{"username":"admin","password":"`+adminPassword+`"}`,
+		header,
+	)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("登录失败: %d %s", resp.StatusCode, body)
+	}
+	cookies := resp.Cookies()
+	if len(cookies) != 1 || cookies[0].Secure ||
+		!cookies[0].HttpOnly ||
+		cookies[0].SameSite != http.SameSiteStrictMode {
+		t.Fatalf("HTTP public-base session cookie 属性 = %+v", cookies)
 	}
 }
 

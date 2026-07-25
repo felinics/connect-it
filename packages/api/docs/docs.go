@@ -27,6 +27,13 @@ const docTemplate = `{
                 "operationId": "changePassword",
                 "parameters": [
                     {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
                         "description": "新密码（至少 8 个字符）",
                         "name": "body",
                         "in": "body",
@@ -39,6 +46,24 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     },
                     "422": {
                         "description": "Unprocessable Entity",
@@ -85,6 +110,13 @@ const docTemplate = `{
                 "operationId": "createApiToken",
                 "parameters": [
                     {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
                         "description": "token 名称",
                         "name": "body",
                         "in": "body",
@@ -100,6 +132,30 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.createTokenResponse"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     }
                 }
             }
@@ -114,6 +170,13 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "token id（uuid）",
                         "name": "id",
                         "in": "path",
@@ -123,6 +186,18 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -156,6 +231,178 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connections/api-key": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "从管理台用 API key / 自定义凭证创建连接",
+                "operationId": "adminCreateApiKeyConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "完整凭证字段组按 auth method 的 CredentialFields 填写；alias 可选",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.createAPIKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.createConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "408": {
+                        "description": "Request Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connections/oauth": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "从管理台发起 OAuth 授权，返回持久连接 ID 与授权 URL",
+                "operationId": "adminBeginOAuthConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "alias 为可选展示标签；管理台授权固定回到 connect-it 完成页",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.adminBeginOAuthRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.beginOAuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connections/{id}": {
             "delete": {
                 "tags": [
@@ -164,6 +411,13 @@ const docTemplate = `{
                 "summary": "删除连接（运维）",
                 "operationId": "adminDeleteConnection",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "connection id（uuid）",
@@ -176,6 +430,18 @@ const docTemplate = `{
                     "204": {
                         "description": "No Content"
                     },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -185,8 +451,125 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connections/{id}/credential": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "从管理台验证并整组替换 API key / 自定义凭证",
+                "operationId": "adminRecredentialConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "完整 credential 字段组；不是局部 PATCH",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.recredentialRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/connsvc.ConnectionView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "408": {
+                        "description": "Request Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connections/{id}/reauth": {
             "post": {
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -196,6 +579,13 @@ const docTemplate = `{
                 "summary": "生成重授权链接（运维转交给对应用户打开）",
                 "operationId": "adminReauthConnection",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
                     {
                         "type": "string",
                         "description": "connection id（uuid）",
@@ -211,8 +601,38 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.beginOAuthResponse"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -336,6 +756,13 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "connector_type",
                         "name": "type",
                         "in": "path",
@@ -356,6 +783,24 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/api.configResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "404": {
@@ -387,6 +832,13 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "connector_type",
                         "name": "type",
                         "in": "path",
@@ -396,6 +848,18 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -457,6 +921,13 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "connector_type",
                         "name": "type",
                         "in": "path",
@@ -475,6 +946,24 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -501,6 +990,13 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
+                        "description": "管理台同源写请求固定值 1",
+                        "name": "X-Connect-It-CSRF",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
                         "description": "connector_type",
                         "name": "type",
                         "in": "path",
@@ -510,6 +1006,18 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -619,14 +1127,62 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.createConnectionResponse"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
+                    "408": {
+                        "description": "Request Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -668,6 +1224,18 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/api.beginOAuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "404": {
@@ -757,6 +1325,118 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/connections/{id}/credential": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connections"
+                ],
+                "summary": "验证并整组替换 API key / 自定义凭证；并发旧请求按版本冲突拒绝",
+                "operationId": "recredentialConnection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connection id（uuid）",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "完整 credential 字段组；不是局部 PATCH",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.recredentialRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/connsvc.ConnectionView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "408": {
+                        "description": "Request Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/connections/{id}/reauth": {
             "post": {
                 "security": [
@@ -799,8 +1479,32 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.beginOAuthResponse"
                         }
                     },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -898,11 +1602,11 @@ const docTemplate = `{
                 "tags": [
                     "mcp"
                 ],
-                "summary": "签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）",
+                "summary": "签发短期 MCP session token（固化 alias、Tool grant 与授权代际）",
                 "operationId": "createMcpSession",
                 "parameters": [
                     {
-                        "description": "绑定与 allowlist；ttl_seconds 默认 3600、上限 86400",
+                        "description": "连接绑定与不可变 grant 快照；省略 allowlist 默认当前 read，[] 为零 Tool，null 拒绝；write/destructive 必须显式列出；ttl_seconds 默认 3600、上限 86400",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -967,9 +1671,37 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "error": {
+                    "description": "Error 是稳定、机器可读的错误码。",
                     "type": "string"
                 },
                 "message": {
+                    "description": "Message 可安全返回调用方，不含 Provider 原始响应或 credential 值。",
+                    "type": "string"
+                },
+                "retry_after_seconds": {
+                    "description": "RetryAfterSeconds 仅在已知正数重试延迟时出现。",
+                    "type": "integer"
+                },
+                "temporary": {
+                    "description": "Temporary 表示稍后重试是否可能成功。",
+                    "type": "boolean"
+                }
+            }
+        },
+        "api.adminBeginOAuthRequest": {
+            "type": "object",
+            "required": [
+                "auth_method",
+                "connector_type"
+            ],
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "auth_method": {
+                    "type": "string"
+                },
+                "connector_type": {
                     "type": "string"
                 }
             }
@@ -996,6 +1728,10 @@ const docTemplate = `{
         },
         "api.beginOAuthRequest": {
             "type": "object",
+            "required": [
+                "auth_method",
+                "connector_type"
+            ],
             "properties": {
                 "alias": {
                     "type": "string"
@@ -1091,6 +1827,11 @@ const docTemplate = `{
         },
         "api.createAPIKeyRequest": {
             "type": "object",
+            "required": [
+                "auth_method",
+                "connector_type",
+                "fields"
+            ],
             "properties": {
                 "alias": {
                     "type": "string"
@@ -1121,19 +1862,24 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "connections": {
+                    "description": "Connections 将 Session-local alias 映射到持久 Connection UUID。",
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
                     }
                 },
                 "tool_allowlist": {
+                    "description": "ToolAllowlist 区分三态：省略时固化当前 read Tool，[] 授权零 Tool，null\n非法；write/destructive Tool 必须显式列出。",
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
                 "ttl_seconds": {
-                    "type": "integer"
+                    "description": "TTLSeconds 是 Session 有效期；0 使用默认 3600 秒，上限 86400 秒。",
+                    "type": "integer",
+                    "maximum": 86400,
+                    "minimum": 0
                 }
             }
         },
@@ -1201,6 +1947,21 @@ const docTemplate = `{
             "properties": {
                 "redirect_url": {
                     "type": "string"
+                }
+            }
+        },
+        "api.recredentialRequest": {
+            "type": "object",
+            "required": [
+                "fields"
+            ],
+            "properties": {
+                "fields": {
+                    "description": "Fields 是完整 API-key/custom-credential 字段组；缺少 required 字段会被\n拒绝，本端点不是局部 PATCH。",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -1326,7 +2087,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "connect-it API",
-	Description:      "内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。",
+	Description:      "内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。\n管理端 /admin 使用 HttpOnly SameSite=Strict Cookie；CONNECT_IT_BASE_URL 为 HTTPS 时固定设置 Secure。浏览器客户端须启用 credentials=include，且写请求须携带 X-Connect-It-CSRF: 1。Swagger 2 无法形式化表达 Cookie 鉴权。",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

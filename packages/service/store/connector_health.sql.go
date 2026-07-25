@@ -25,33 +25,3 @@ func (q *Queries) GetConnectorHealth(ctx context.Context, connectorType string) 
 	)
 	return i, err
 }
-
-const listConnectorHealth = `-- name: ListConnectorHealth :many
-SELECT connector_type, last_ok_at, last_error_at, consecutive_failures, last_error FROM connector_health
-`
-
-func (q *Queries) ListConnectorHealth(ctx context.Context) ([]ConnectorHealth, error) {
-	rows, err := q.db.Query(ctx, listConnectorHealth)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ConnectorHealth
-	for rows.Next() {
-		var i ConnectorHealth
-		if err := rows.Scan(
-			&i.ConnectorType,
-			&i.LastOkAt,
-			&i.LastErrorAt,
-			&i.ConsecutiveFailures,
-			&i.LastError,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}

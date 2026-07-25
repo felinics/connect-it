@@ -51,6 +51,10 @@ var Definition = connector.Definition{
 			OAuth: &connector.OAuthConfig{
 				AuthorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
 				TokenEndpoint:         "https://oauth2.googleapis.com/token",
+				Egress: connector.OAuthEgressConfig{
+					AuthorizationOrigins: []string{"https://accounts.google.com:443"},
+					TokenOrigins:         []string{"https://oauth2.googleapis.com:443"},
+				},
 				// readonly 覆盖 search_threads / list_messages，
 				// compose 覆盖 create_draft / send_message（messages.send 接受 compose）。
 				Scopes: []string{
@@ -78,19 +82,15 @@ var Definition = connector.Definition{
 			AuthBinding: connector.MCPAuthBinding{Scheme: "bearer"},
 			Provenance: connector.Provenance{
 				Kind:             connector.ProvenanceOfficial,
-				Publisher:        "Google",
-				DocsURL:          "https://developers.google.com/workspace/gmail/api/reference/mcp",
-				ReviewedAt:       "2026-07-22",
 				AllowedHostnames: []string{"gmailmcp.googleapis.com"},
-				// Google Workspace Developer Preview。
-				Stability: connector.StabilityPreview,
 			},
 			RequestTimeout: 30 * time.Second,
 		},
 	},
 
 	Tools: []connector.Tool{
-		// —— Remote MCP tool（schema 为宽松近似，以 mcp:verify 对照 tools/list 为准）——
+		// —— Remote MCP tool（schema 为宽松近似，待 mcp-probe 校准；
+		// mcp:verify 只核对 tool 名，不读 schema）——
 		{
 			ID:          "search_threads",
 			Name:        "Search threads",
@@ -192,7 +192,7 @@ var Definition = connector.Definition{
   }
 }`),
 			RequiredScopes: []string{"https://www.googleapis.com/auth/gmail.compose"},
-			Risk:           connector.RiskWrite,
+			Risk:           connector.RiskDestructive,
 			Backend:        connector.ManagedBackend{HandlerKey: "send_message"},
 		},
 	},

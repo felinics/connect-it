@@ -1,0 +1,17 @@
+# Test-only overrides for the real MCP ingress contract. Use together with
+# docker-compose.yml; the production images and nginx.conf remain unchanged.
+services:
+  connect-it:
+    image: ${CONNECT_IT_INGRESS_SERVER_IMAGE:-connect-it-ingress-server:dev}
+    environment:
+      # Exercise the production Cookie policy through the actual shipped
+      # HTTP nginx hop. Secure must come from this trusted public URL even
+      # though nginx reports its inner hop as X-Forwarded-Proto: http.
+      CONNECT_IT_BASE_URL: "https://connect-it.ingress.test"
+    ports: !override
+      - "127.0.0.1:${CONNECT_IT_INGRESS_GO_PORT:-18081}:8080"
+
+  web:
+    image: ${CONNECT_IT_INGRESS_WEB_IMAGE:-connect-it-ingress-web:dev}
+    ports: !override
+      - "127.0.0.1:${CONNECT_IT_INGRESS_NGINX_PORT:-18080}:8080"

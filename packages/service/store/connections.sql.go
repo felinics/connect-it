@@ -12,39 +12,68 @@ import (
 	"github.com/google/uuid"
 )
 
-const createConnection = `-- name: CreateConnection :one
+const createConnectionAtPolicyIdentity = `-- name: CreateConnectionAtPolicyIdentity :one
+WITH matched_policy AS (
+  SELECT policy.connector_type
+  FROM connector_policy_identities AS policy
+  WHERE policy.connector_type = $2
+    AND policy.initialized
+    AND policy.identity_version = $12
+    AND policy.identity_digest = $13
+    AND policy.definition_digest = $14
+  FOR SHARE
+)
 INSERT INTO connections (
   id, connector_type, alias, auth_method, credential, secret_key_version,
-  profile, scopes, status, access_token_expires_at, created_at, updated_at
-) VALUES (
-  $1, $2, $3, $4, $5, $6, '{}', $7, $8, $9, now(), now()
+  profile, scopes, scopes_known, status, access_token_expires_at,
+  created_at, updated_at
 )
-RETURNING id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at
+SELECT
+  $1, $2, $3, $4, $5,
+  $6, $7, $8, $9, $10,
+  $11, now(), now()
+FROM matched_policy
+RETURNING id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at, authorization_generation, scopes_known, credential_version, authorization_attempt_version, refresh_owner, refresh_lease_until, refresh_state
 `
 
-type CreateConnectionParams struct {
-	ID                   uuid.UUID
-	ConnectorType        string
-	Alias                *string
-	AuthMethod           string
-	Credential           []byte
-	SecretKeyVersion     int32
-	Scopes               []string
-	Status               string
-	AccessTokenExpiresAt *time.Time
+type CreateConnectionAtPolicyIdentityParams struct {
+	ID                       uuid.UUID
+	ConnectorType            string
+	Alias                    *string
+	AuthMethod               string
+	Credential               []byte
+	SecretKeyVersion         int32
+	Profile                  []byte
+	Scopes                   []string
+	ScopesKnown              bool
+	Status                   string
+	AccessTokenExpiresAt     *time.Time
+	ExpectedIdentityVersion  int32
+	ExpectedIdentityDigest   []byte
+	ExpectedDefinitionDigest []byte
 }
 
-func (q *Queries) CreateConnection(ctx context.Context, arg CreateConnectionParams) (Connection, error) {
-	row := q.db.QueryRow(ctx, createConnection,
+// Create only if the connector-wide policy still exactly matches the
+// configuration used by the slow credential validator. FOR SHARE linearizes
+// this INSERT against configsvc's FOR UPDATE writer: a writer that commits
+// first makes the snapshot mismatch; a writer that commits second sees and
+// bumps this newly inserted Connection.
+func (q *Queries) CreateConnectionAtPolicyIdentity(ctx context.Context, arg CreateConnectionAtPolicyIdentityParams) (Connection, error) {
+	row := q.db.QueryRow(ctx, createConnectionAtPolicyIdentity,
 		arg.ID,
 		arg.ConnectorType,
 		arg.Alias,
 		arg.AuthMethod,
 		arg.Credential,
 		arg.SecretKeyVersion,
+		arg.Profile,
 		arg.Scopes,
+		arg.ScopesKnown,
 		arg.Status,
 		arg.AccessTokenExpiresAt,
+		arg.ExpectedIdentityVersion,
+		arg.ExpectedIdentityDigest,
+		arg.ExpectedDefinitionDigest,
 	)
 	var i Connection
 	err := row.Scan(
@@ -60,6 +89,13 @@ func (q *Queries) CreateConnection(ctx context.Context, arg CreateConnectionPara
 		&i.AccessTokenExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AuthorizationGeneration,
+		&i.ScopesKnown,
+		&i.CredentialVersion,
+		&i.AuthorizationAttemptVersion,
+		&i.RefreshOwner,
+		&i.RefreshLeaseUntil,
+		&i.RefreshState,
 	)
 	return i, err
 }
@@ -77,7 +113,7 @@ func (q *Queries) DeleteConnection(ctx context.Context, id uuid.UUID) (int64, er
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections WHERE id = $1
+SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at, authorization_generation, scopes_known, credential_version, authorization_attempt_version, refresh_owner, refresh_lease_until, refresh_state FROM connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id uuid.UUID) (Connection, error) {
@@ -96,36 +132,19 @@ func (q *Queries) GetConnection(ctx context.Context, id uuid.UUID) (Connection, 
 		&i.AccessTokenExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getConnectionForUpdate = `-- name: GetConnectionForUpdate :one
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections WHERE id = $1 FOR UPDATE
-`
-
-func (q *Queries) GetConnectionForUpdate(ctx context.Context, id uuid.UUID) (Connection, error) {
-	row := q.db.QueryRow(ctx, getConnectionForUpdate, id)
-	var i Connection
-	err := row.Scan(
-		&i.ID,
-		&i.ConnectorType,
-		&i.Alias,
-		&i.AuthMethod,
-		&i.Credential,
-		&i.SecretKeyVersion,
-		&i.Profile,
-		&i.Scopes,
-		&i.Status,
-		&i.AccessTokenExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.AuthorizationGeneration,
+		&i.ScopesKnown,
+		&i.CredentialVersion,
+		&i.AuthorizationAttemptVersion,
+		&i.RefreshOwner,
+		&i.RefreshLeaseUntil,
+		&i.RefreshState,
 	)
 	return i, err
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections ORDER BY created_at DESC
+SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at, authorization_generation, scopes_known, credential_version, authorization_attempt_version, refresh_owner, refresh_lease_until, refresh_state FROM connections ORDER BY created_at DESC
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -150,6 +169,13 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.AccessTokenExpiresAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AuthorizationGeneration,
+			&i.ScopesKnown,
+			&i.CredentialVersion,
+			&i.AuthorizationAttemptVersion,
+			&i.RefreshOwner,
+			&i.RefreshLeaseUntil,
+			&i.RefreshState,
 		); err != nil {
 			return nil, err
 		}
@@ -159,50 +185,4 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateConnectionCredential = `-- name: UpdateConnectionCredential :exec
-UPDATE connections
-SET credential = $2,
-    secret_key_version = $3,
-    status = $4,
-    access_token_expires_at = $5,
-    updated_at = now()
-WHERE id = $1
-`
-
-type UpdateConnectionCredentialParams struct {
-	ID                   uuid.UUID
-	Credential           []byte
-	SecretKeyVersion     int32
-	Status               string
-	AccessTokenExpiresAt *time.Time
-}
-
-func (q *Queries) UpdateConnectionCredential(ctx context.Context, arg UpdateConnectionCredentialParams) error {
-	_, err := q.db.Exec(ctx, updateConnectionCredential,
-		arg.ID,
-		arg.Credential,
-		arg.SecretKeyVersion,
-		arg.Status,
-		arg.AccessTokenExpiresAt,
-	)
-	return err
-}
-
-const updateConnectionStatus = `-- name: UpdateConnectionStatus :exec
-UPDATE connections
-SET status = $2,
-    updated_at = now()
-WHERE id = $1
-`
-
-type UpdateConnectionStatusParams struct {
-	ID     uuid.UUID
-	Status string
-}
-
-func (q *Queries) UpdateConnectionStatus(ctx context.Context, arg UpdateConnectionStatusParams) error {
-	_, err := q.db.Exec(ctx, updateConnectionStatus, arg.ID, arg.Status)
-	return err
 }

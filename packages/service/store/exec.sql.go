@@ -33,25 +33,29 @@ func (q *Queries) GetConnectorConfigVerification(ctx context.Context, connectorT
 const insertToolRun = `-- name: InsertToolRun :exec
 insert into tool_runs (
   id, connector_type, connection_id, tool_id, session_id,
-  status, error, input, output_summary, duration_ms, created_at
+  status, error, error_code, upstream_status, input, output_summary,
+  duration_ms, created_at
 ) values (
   $1, $2, $3, $4,
   $5, $6, $7,
-  $8, $9, $10, now()
+  $8, $9, $10,
+  $11, $12, now()
 )
 `
 
 type InsertToolRunParams struct {
-	ID            uuid.UUID
-	ConnectorType string
-	ConnectionID  *uuid.UUID
-	ToolID        string
-	SessionID     *uuid.UUID
-	Status        string
-	Error         *string
-	Input         []byte
-	OutputSummary *string
-	DurationMs    *int32
+	ID             uuid.UUID
+	ConnectorType  string
+	ConnectionID   *uuid.UUID
+	ToolID         string
+	SessionID      *uuid.UUID
+	Status         string
+	Error          *string
+	ErrorCode      *string
+	UpstreamStatus *int32
+	Input          []byte
+	OutputSummary  *string
+	DurationMs     *int32
 }
 
 func (q *Queries) InsertToolRun(ctx context.Context, arg InsertToolRunParams) error {
@@ -63,6 +67,8 @@ func (q *Queries) InsertToolRun(ctx context.Context, arg InsertToolRunParams) er
 		arg.SessionID,
 		arg.Status,
 		arg.Error,
+		arg.ErrorCode,
+		arg.UpstreamStatus,
 		arg.Input,
 		arg.OutputSummary,
 		arg.DurationMs,

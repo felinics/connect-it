@@ -13,12 +13,12 @@ import (
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
 
-func TestConnectorConfigCRUD(t *testing.T) {
+func TestConnectorConfigCreateReadDeleteCAS(t *testing.T) {
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
 	ctx := context.Background()
 
-	first, err := q.UpsertConnectorConfig(ctx, store.UpsertConnectorConfigParams{
+	first, err := q.CreateConnectorConfig(ctx, store.CreateConnectorConfigParams{
 		ConnectorType:       "github",
 		ConfigSchemaVersion: 1,
 		PublicConfig:        []byte(`{"client_id":"abc"}`),
@@ -47,27 +47,25 @@ func TestConnectorConfigCRUD(t *testing.T) {
 		t.Fatal("verify 字段应为 NULL")
 	}
 
-	// upsert 更新已有行
-	second, err := q.UpsertConnectorConfig(ctx, store.UpsertConnectorConfigParams{
-		ConnectorType:       "github",
-		ConfigSchemaVersion: 2,
-		PublicConfig:        []byte(`{}`),
-		SecretConfig:        []byte{},
-		SecretKeyVersion:    1,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.ConfigSchemaVersion != 2 || !second.CreatedAt.Equal(first.CreatedAt) {
-		t.Fatalf("upsert 应更新版本且保留 created_at: %+v", second)
-	}
-
-	n, err := q.DeleteConnectorConfig(ctx, "github")
+	n, err := q.DeleteConnectorConfigIfMatch(
+		ctx,
+		store.DeleteConnectorConfigIfMatchParams{
+			ConnectorType: "github",
+			UpdatedAt:     first.UpdatedAt,
+		},
+	)
 	if err != nil || n != 1 {
-		t.Fatalf("删除应影响 1 行: n=%d err=%v", n, err)
+		t.Fatalf("匹配的删除应影响 1 行: n=%d err=%v", n, err)
 	}
-	if n, _ := q.DeleteConnectorConfig(ctx, "github"); n != 0 {
-		t.Fatal("重复删除应影响 0 行")
+	n, err = q.DeleteConnectorConfigIfMatch(
+		ctx,
+		store.DeleteConnectorConfigIfMatchParams{
+			ConnectorType: "github",
+			UpdatedAt:     first.UpdatedAt,
+		},
+	)
+	if err != nil || n != 0 {
+		t.Fatalf("重复删除应影响 0 行: n=%d err=%v", n, err)
 	}
 	if _, err := q.GetConnectorConfig(ctx, "github"); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("删除后应 ErrNoRows, got %v", err)
@@ -79,7 +77,7 @@ func TestUpdateConnectorConfigIfMatch(t *testing.T) {
 	q := store.New(pool)
 	ctx := context.Background()
 
-	row, err := q.UpsertConnectorConfig(ctx, store.UpsertConnectorConfigParams{
+	row, err := q.CreateConnectorConfig(ctx, store.CreateConnectorConfigParams{
 		ConnectorType:       "gmail",
 		ConfigSchemaVersion: 1,
 		PublicConfig:        []byte(`{}`),
@@ -187,5 +185,36 @@ func TestGetConnectorHealthNoRows(t *testing.T) {
 	q := store.New(pool)
 	if _, err := q.GetConnectorHealth(context.Background(), "github"); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("无行应 ErrNoRows, got %v", err)
+	}
+}
+
+// alias 是展示名，不是句柄：Connection ID 才是唯一标识。
+func TestConnectionAliasDoesNotImposeUniqueness(t *testing.T) {
+	pool := testutil.NewDB(t)
+	alias := "gh-main"
+	insertConnection(t, pool, connectionFixture{Alias: &alias, ScopesKnown: true})
+	insertConnection(t, pool, connectionFixture{Alias: &alias, ScopesKnown: true})
+	insertConnection(t, pool, connectionFixture{ScopesKnown: true})
+
+	var count int
+	if err := pool.QueryRow(
+		t.Context(),
+		`select count(*) from connections where alias = $1`,
+		alias,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("同名 alias connections = %d, want 2", count)
+	}
+}
+
+func TestBeginTxWithoutPool(t *testing.T) {
+	q := store.New(nil)
+	if _, _, err := q.BeginTx(context.Background()); !errors.Is(
+		err,
+		store.ErrNoTransactions,
+	) {
+		t.Fatalf("应 ErrNoTransactions, got %v", err)
 	}
 }

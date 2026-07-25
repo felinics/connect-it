@@ -29,7 +29,7 @@ type changePasswordRequest struct {
 func (h *handlers) login(c echo.Context) error {
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return badRequest(c)
 	}
 	ok, err := h.deps.Auth.VerifyAdminPassword(c.Request().Context(), req.Username, req.Password)
 	if err != nil {
@@ -45,7 +45,8 @@ func (h *handlers) login(c echo.Context) error {
 		Path:     "/",
 		Expires:  expires,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   h.deps.CookieSecure,
+		SameSite: http.SameSiteStrictMode,
 	})
 	return c.NoContent(http.StatusNoContent)
 }
@@ -56,14 +57,18 @@ func (h *handlers) login(c echo.Context) error {
 //	@ID			changePassword
 //	@Tags		admin
 //	@Accept		json
+//	@Param		X-Connect-It-CSRF	header	string						true	"管理台同源写请求固定值 1"
 //	@Param		body	body	api.changePasswordRequest	true	"新密码（至少 8 个字符）"
 //	@Success	204
+//	@Failure	400	{object}	api.ErrorResponse
+//	@Failure	401	{object}	api.ErrorResponse
+//	@Failure	403	{object}	api.ErrorResponse
 //	@Failure	422	{object}	api.ErrorResponse
 //	@Router		/admin/account/password [put]
 func (h *handlers) changePassword(c echo.Context) error {
 	var req changePasswordRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return badRequest(c)
 	}
 	if len(req.Password) < 8 {
 		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "密码至少 8 个字符")

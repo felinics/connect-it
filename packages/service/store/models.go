@@ -26,18 +26,25 @@ type ApiToken struct {
 }
 
 type Connection struct {
-	ID                   uuid.UUID
-	ConnectorType        string
-	Alias                *string
-	AuthMethod           string
-	Credential           []byte
-	SecretKeyVersion     int32
-	Profile              []byte
-	Scopes               []string
-	Status               string
-	AccessTokenExpiresAt *time.Time
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                          uuid.UUID
+	ConnectorType               string
+	Alias                       *string
+	AuthMethod                  string
+	Credential                  []byte
+	SecretKeyVersion            int32
+	Profile                     []byte
+	Scopes                      []string
+	Status                      string
+	AccessTokenExpiresAt        *time.Time
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	AuthorizationGeneration     int64
+	ScopesKnown                 bool
+	CredentialVersion           int64
+	AuthorizationAttemptVersion int64
+	RefreshOwner                *uuid.UUID
+	RefreshLeaseUntil           *time.Time
+	RefreshState                *string
 }
 
 type ConnectorConfig struct {
@@ -60,6 +67,16 @@ type ConnectorHealth struct {
 	LastError           *string
 }
 
+type ConnectorPolicyIdentity struct {
+	ConnectorType    string
+	IdentityVersion  int32
+	IdentityDigest   []byte
+	DefinitionDigest []byte
+	Initialized      bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type McpSession struct {
 	ID            uuid.UUID
 	TokenHash     string
@@ -70,36 +87,49 @@ type McpSession struct {
 }
 
 type McpSessionConnection struct {
-	SessionID    uuid.UUID
-	Alias        string
-	ConnectionID uuid.UUID
+	SessionID               uuid.UUID
+	Alias                   string
+	ConnectionID            uuid.UUID
+	AuthorizationGeneration int64
 }
 
 type OauthAuthorization struct {
-	ID               uuid.UUID
-	ConnectorType    string
-	StateHash        string
-	PkceVerifier     []byte
-	ConnectionID     *uuid.UUID
-	Status           string
-	ExpiresAt        time.Time
-	CreatedAt        time.Time
-	AuthMethod       string
-	Alias            string
-	SecretKeyVersion int32
-	RedirectUrl      string
+	ID                              uuid.UUID
+	ConnectorType                   string
+	StateHash                       string
+	ContextCiphertext               []byte
+	ConnectionID                    uuid.UUID
+	Status                          string
+	ExpiresAt                       time.Time
+	CreatedAt                       time.Time
+	AuthMethod                      string
+	Alias                           string
+	SecretKeyVersion                int32
+	RedirectUrl                     string
+	AttemptVersion                  int64
+	ExpectedAuthorizationGeneration int64
+	FlowKind                        string
+	RequestedScopes                 []string
+	ContextVersion                  int16
+}
+
+type SchemaMigration struct {
+	Version int64
+	Dirty   bool
 }
 
 type ToolRun struct {
-	ID            uuid.UUID
-	ConnectorType string
-	ConnectionID  *uuid.UUID
-	ToolID        string
-	SessionID     *uuid.UUID
-	Status        string
-	Error         *string
-	Input         []byte
-	OutputSummary *string
-	DurationMs    *int32
-	CreatedAt     time.Time
+	ID             uuid.UUID
+	ConnectorType  string
+	ConnectionID   *uuid.UUID
+	ToolID         string
+	SessionID      *uuid.UUID
+	Status         string
+	Error          *string
+	ErrorCode      *string
+	UpstreamStatus *int32
+	Input          []byte
+	OutputSummary  *string
+	DurationMs     *int32
+	CreatedAt      time.Time
 }

@@ -4,6 +4,8 @@ import * as sdk from '@connect-it/sdk'
 import { ApiError, unwrap } from './client'
 import type { ConnectorConfig } from './types'
 
+const adminWriteHeaders = { 'X-Connect-It-CSRF': '1' }
+
 export const healthz = () => unwrap(sdk.healthz())
 
 export const login = (username: string, password: string) =>
@@ -30,30 +32,61 @@ export async function getConfig(type: string): Promise<ConnectorConfig | null> {
 export const putConfig = (
   type: string,
   body: { public: Record<string, unknown>; secrets: Record<string, string>; if_match?: string },
-) => unwrap(sdk.putConfig({ path: { type }, body }))
+) => unwrap(sdk.putConfig({ path: { type }, body, headers: adminWriteHeaders }))
 
-export const deleteConfig = (type: string) => unwrap(sdk.deleteConfig({ path: { type } }))
+export const deleteConfig = (type: string) =>
+  unwrap(sdk.deleteConfig({ path: { type }, headers: adminWriteHeaders }))
 
 export const validateConfig = (
   type: string,
   body: { public: Record<string, unknown>; secrets: Record<string, string> },
-) => unwrap(sdk.validateConfig({ path: { type }, body }))
+) => unwrap(sdk.validateConfig({ path: { type }, body, headers: adminWriteHeaders }))
 
-export const verifyMcp = (type: string) => unwrap(sdk.verifyMcp({ path: { type } }))
+export const verifyMcp = (type: string) =>
+  unwrap(sdk.verifyMcp({ path: { type }, headers: adminWriteHeaders }))
 
 export const listConnections = () => unwrap(sdk.listConnections())
 
+export const adminBeginOAuthConnection = (body: {
+  connector_type: string
+  auth_method: string
+  alias?: string
+}) => unwrap(sdk.adminBeginOAuthConnection({ body, headers: adminWriteHeaders }))
+
+export const adminCreateApiKeyConnection = (body: {
+  connector_type: string
+  auth_method: string
+  alias?: string
+  fields: Record<string, string>
+}) => unwrap(sdk.adminCreateApiKeyConnection({ body, headers: adminWriteHeaders }))
+
+export const adminRecredentialConnection = (id: string, fields: Record<string, string>) =>
+  unwrap(
+    sdk.adminRecredentialConnection({
+      path: { id },
+      body: { fields },
+      headers: adminWriteHeaders,
+    }),
+  )
+
 export const adminDeleteConnection = (id: string) =>
-  unwrap(sdk.adminDeleteConnection({ path: { id } }))
+  unwrap(sdk.adminDeleteConnection({ path: { id }, headers: adminWriteHeaders }))
 
 export const adminReauthConnection = (id: string) =>
-  unwrap(sdk.adminReauthConnection({ path: { id } }))
+  unwrap(
+    sdk.adminReauthConnection({
+      path: { id },
+      headers: adminWriteHeaders,
+    }),
+  )
 
 export const listApiTokens = () => unwrap(sdk.listApiTokens())
 
-export const createApiToken = (name: string) => unwrap(sdk.createApiToken({ body: { name } }))
+export const createApiToken = (name: string) =>
+  unwrap(sdk.createApiToken({ body: { name }, headers: adminWriteHeaders }))
 
-export const deleteApiToken = (id: string) => unwrap(sdk.deleteApiToken({ path: { id } }))
+export const deleteApiToken = (id: string) =>
+  unwrap(sdk.deleteApiToken({ path: { id }, headers: adminWriteHeaders }))
 
 export const changePassword = (password: string) =>
-  unwrap(sdk.changePassword({ body: { password } }))
+  unwrap(sdk.changePassword({ body: { password }, headers: adminWriteHeaders }))

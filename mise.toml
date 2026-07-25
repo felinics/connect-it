@@ -49,6 +49,20 @@ echo "postgres ready on :5433"
 description = "停止并删除本地测试 postgres"
 run = "docker rm -f connect-it-pg"
 
+[tasks.dev-db-init]
+description = "显式初始化 mise db-up 创建的本地开发数据库（不进入生产镜像）"
+run = '''
+cd packages/api
+DATABASE_URL='postgres://postgres:postgres@localhost:5433/connect_it?sslmode=disable' \
+  go run ./cmd/connect-it-db init
+'''
+
+[tasks.mcp-probe]
+description = "对一个 Remote MCP endpoint 调 tools/list，拿到上游 tool 名与 InputSchema（迁移 Provider 前必跑）"
+run = '''
+cd packages/api && go run ./cmd/connect-it-mcp-probe "$@"
+'''
+
 [tasks.sqlc]
 description = "生成 sqlc store 代码"
 run = "cd packages/service && sqlc generate"
@@ -65,6 +79,16 @@ run = "pnpm --dir packages/web run build"
 description = "由 packages/api/docs/swagger.json 重新生成 TypeScript SDK"
 run = "pnpm --dir packages/sdk run generate"
 
+[tasks.check-release-compose]
+description = "Validate the digest-only production Compose model"
+run = '''
+CONNECT_IT_POSTGRES_IMAGE=registry.example/postgres@sha256:2222222222222222222222222222222222222222222222222222222222222222 \
+CONNECT_IT_SERVER_IMAGE=registry.example/connect-it-server@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+CONNECT_IT_WEB_IMAGE=registry.example/connect-it-web@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  node scripts/check-release-compose.mjs
+node --test scripts/check-release-compose.test.mjs
+'''
+
 [tasks.docker-build]
 description = "Build the server and web images (context = repo root)"
 run = '''
@@ -74,18 +98,99 @@ docker build -f docker/web.Dockerfile -t connect-it-web:dev .
 '''
 
 [tasks.docker-up]
-description = "Build and start the docker compose stack, wait until healthy"
-run = "docker compose -f docker/docker-compose.yml up --build --wait"
+description = "Bootstrap a fresh dev DB, then build and start the compose stack"
+run = '''
+set -e
+connect_it_identity_dir="$(
+  mktemp -d "${TMPDIR:-/tmp}/connect-it-dev-compose-identity.XXXXXX"
+)"
+connect_it_identity_override="${connect_it_identity_dir}/identity.yml"
+connect_it_cleanup_identity() {
+  connect_it_status=$?
+  trap - EXIT
+  rm -f -- "${connect_it_identity_override}"
+  rmdir "${connect_it_identity_dir}"
+  exit "${connect_it_status}"
+}
+trap connect_it_cleanup_identity EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+docker compose \
+  --project-name connect-it \
+  -f docker/docker-compose.yml \
+  up --detach postgres --wait
+bash scripts/bootstrap-dev-compose-db.sh \
+  --scope dev \
+  --file docker/docker-compose.yml \
+  --write-identity-override "${connect_it_identity_override}"
+docker compose \
+  --project-name connect-it \
+  -f docker/docker-compose.yml \
+  -f "${connect_it_identity_override}" \
+  up --build --wait
+'''
 
 [tasks.docker-down]
 description = "Stop the docker compose stack (postgres volume is kept)"
-run = "docker compose -f docker/docker-compose.yml down"
+run = "docker compose --project-name connect-it -f docker/docker-compose.yml down"
+
+[tasks.docker-ingress-test]
+description = "Real Docker/Nginx MCP body-boundary and streaming contract"
+run = "bash scripts/test-mcp-ingress-docker.sh"
+
+[tasks.test-docker-ingress-runner]
+description = "Deterministic isolation and cleanup tests for the Docker ingress runner"
+run = "bash scripts/test-mcp-ingress-docker-unit.sh"
+
+[tasks.provider-real-smoke]
+description = "Run one commit-bound, fail-closed Provider real-account smoke gate"
+run = "bash scripts/run-provider-real-smoke.sh"
+
+[tasks.test-provider-real-smoke-gate]
+description = "Test the Provider real-smoke gate with fake Git and Go boundaries"
+run = "bash scripts/test-provider-real-smoke-gate.sh"
 
 [tasks.dev]
-description = "本地开发起 API（先 mise run db-up）"
+description = "初始化 fresh 本地库、应用共享开发权限，再启动 API"
 run = '''
-cd packages/api && \
-DATABASE_URL='postgres://postgres:postgres@localhost:5433/connect_it?sslmode=disable' \
+set -e
+export LC_ALL=C
+mise run dev-db-init
+docker exec -i connect-it-pg \
+  psql -X --no-psqlrc --set ON_ERROR_STOP=1 \
+    --username postgres --dbname connect_it \
+    --single-transaction --file - \
+  < scripts/configure-dev-database.sql
+connect_it_dev_identity="$(
+  docker exec connect-it-pg \
+    psql -X --no-psqlrc --tuples-only --no-align \
+      --field-separator '|' \
+      --username postgres --dbname connect_it \
+      --command "
+        select pg_catalog.current_database(), pg_catalog.current_schema(),
+               (pg_catalog.pg_control_system()).system_identifier::text;
+      "
+)"
+IFS='|' read -r connect_it_dev_database connect_it_dev_schema \
+  connect_it_dev_system_identifier connect_it_dev_extra \
+  <<<"${connect_it_dev_identity}"
+[[ "${connect_it_dev_database}" == "connect_it" &&
+  "${connect_it_dev_schema}" == "public" &&
+  -z "${connect_it_dev_extra}" &&
+  "${connect_it_dev_system_identifier}" =~ ^[1-9][0-9]{0,19}$ ]] ||
+  { echo "invalid local database identity" >&2; exit 1; }
+if ((${#connect_it_dev_system_identifier} == 20)) &&
+  [[ "${connect_it_dev_system_identifier}" > "18446744073709551615" ]]; then
+  echo "invalid local database system identifier" >&2
+  exit 1
+fi
+cd packages/api
+DATABASE_URL='postgres://connect_it_app:connect_it_app_dev_password@localhost:5433/connect_it?sslmode=disable' \
+CONNECT_IT_EXPECTED_DATABASE_NAME='connect_it' \
+CONNECT_IT_EXPECTED_DATABASE_SCHEMA='public' \
+CONNECT_IT_EXPECTED_DATABASE_SYSTEM_IDENTIFIER="${connect_it_dev_system_identifier}" \
+CONNECT_IT_EXPECTED_DATABASE_APPLICATION_ROLE='connect_it_app' \
+CONNECT_IT_EXPECTED_DATABASE_OWNER_ROLE='connect_it_owner' \
 CONNECT_IT_SECRET_KEY='1:1111111111111111111111111111111111111111111111111111111111111111' \
 COOKIE_SECRET='dev-cookie-secret' \
 CONNECT_IT_ADMIN_PASSWORD='admin123' \

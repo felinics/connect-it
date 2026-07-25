@@ -1,5 +1,16 @@
 // Package onedrive 是 OneDrive Connector 的固定 Definition 与 Managed handler。
-// 验证点（spec §16）：Managed Tools；非 Secret 字段默认值（tenant=common）。
+//
+// 为什么是 Managed 而不是 Remote MCP（2026-07-24 复核，见
+// docs/provider-mcp-decision-table.md §3.10 与 §5.1）：
+// 微软**确实**有第一方的 Work IQ `mcp_OneDriveRemoteServer`，所以理由不是
+// 「没有官方 MCP」。真实原因是三条门槛：
+//  1. 仍是 preview，微软明写 "aren't meant for production use"，tool 名与参数可能变；
+//  2. 所有文件读写硬性限制 ≤5MB —— 对文件连接器是功能天花板；
+//  3. 需要 M365 Copilot 许可证 + Entra 应用注册 + 管理员逐 server 授权。
+//
+// 这三条任意一条解除（尤其是 GA 与 5MB 上限），就应该重新评估迁移到 Remote MCP。
+// 记录真实理由而非假前提，是为了让复查有触发条件。
+// 注意本连接器现有实现只有约 440 行，迁移的行数收益本来就接近零。
 package onedrive
 
 import (
@@ -54,6 +65,10 @@ var Definition = connector.Definition{
 				// 用管理员配置（含默认值 common）替换。
 				AuthorizationEndpoint: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
 				TokenEndpoint:         "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+				Egress: connector.OAuthEgressConfig{
+					AuthorizationOrigins: []string{"https://login.microsoftonline.com:443"},
+					TokenOrigins:         []string{"https://login.microsoftonline.com:443"},
+				},
 				// offline_access 换取 refresh token；Files.ReadWrite 覆盖两个 tool。
 				Scopes:            []string{"offline_access", "User.Read", "Files.ReadWrite"},
 				UsePKCE:           true,
@@ -100,9 +115,10 @@ var Definition = connector.Definition{
 			Backend:        connector.ManagedBackend{HandlerKey: "list_drive_items"},
 		},
 		{
-			ID:          "upload_file",
-			Name:        "Upload file",
-			Description: "上传文本文件到 OneDrive 指定路径（简单上传，上限 4MB）。",
+			ID:            "upload_file",
+			Name:          "Upload file",
+			Description:   "上传文本文件到 OneDrive 指定路径（简单上传，上限 4 MiB）。",
+			MaxInputBytes: connector.AbsoluteMaxInputBytes,
 			InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {

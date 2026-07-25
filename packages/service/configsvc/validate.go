@@ -1,88 +1,78 @@
 package configsvc
 
 import (
-	"fmt"
-	"regexp"
+	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/memohai/connect-it/packages/core/connector"
 )
 
-// Validate 按 Definition 的 ConfigFields 校验一份完整配置：
-// 必填（有默认值的非 Secret 字段除外）、Pattern、Options，拒绝未知 key。
-// 所有字段值都是字符串；secrets 中空串表示删除该 key（可选字段合法，
-// 必填字段会命中必填检查）。
-func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[string]string) error {
+// Validate 是 Put 的试算：复用同一套写入归一化，并且和 Put 一样先合并库中已存的
+// secret，因此校验结论与真正落库的结论不会分叉。public 为全量；secrets 为部分
+// 合并——出现的 key 覆盖，空串表示删除，未出现的保留库中原值。
+//
+// 合并已存 secret 是必要的：secrets 是补丁而非全量，若按“提交的就是全部”来归一
+// 化，一个管理员只改 public 字段、没有重填已存必填 secret 时，试算会报“必填字段
+// 缺失”，而同样的请求体走 PUT 却能成功。
+func (s *Service) Validate(
+	ctx context.Context,
+	t connector.Type,
+	public map[string]any,
+	secrets map[string]string,
+) error {
 	def, ok := s.reg.Get(t)
 	if !ok {
 		return ErrUnknownConnector
 	}
-	fields := map[string]connector.ConfigField{}
-	for _, f := range def.ConfigFields {
-		fields[f.Key] = f
-	}
 
-	for key, val := range public {
-		f, known := fields[key]
-		if !known || f.Secret {
-			return &ValidationError{Field: key, Reason: "未知的公开配置字段"}
-		}
-		str, isStr := val.(string)
-		if !isStr {
-			return &ValidationError{Field: key, Reason: "值必须是字符串"}
-		}
-		if err := checkValue(f, str); err != nil {
-			return err
-		}
+	storedSecrets, err := s.storedSecretsFor(ctx, def, t)
+	if err != nil {
+		return err
 	}
-	for key, val := range secrets {
-		f, known := fields[key]
-		if !known || !f.Secret {
-			return &ValidationError{Field: key, Reason: "未知的 Secret 配置字段"}
-		}
-		if val == "" {
-			continue // 空串＝删除，必填与否由下面的必填检查兜底
-		}
-		if err := checkValue(f, val); err != nil {
-			return err
-		}
-	}
-	for _, f := range def.ConfigFields {
-		if !f.Required {
-			continue
-		}
-		if f.Secret {
-			if secrets[f.Key] == "" {
-				return &ValidationError{Field: f.Key, Reason: "必填 Secret 字段缺失"}
-			}
-			continue
-		}
-		if f.DefaultValue != nil {
-			continue // 默认值兜底，永不缺失
-		}
-		if v, _ := public[f.Key].(string); v == "" {
-			return &ValidationError{Field: f.Key, Reason: "必填字段缺失"}
-		}
-	}
-	return nil
+	_, _, _, err = s.normalizedWriteValues(def, public, storedSecrets, secrets)
+	return err
 }
 
-func checkValue(f connector.ConfigField, val string) error {
-	if f.Validation.Pattern != "" {
-		re, err := regexp.Compile(f.Validation.Pattern)
-		if err != nil {
-			return fmt.Errorf("字段 %q 的 Pattern 非法: %w", f.Key, err)
-		}
-		if !re.MatchString(val) {
-			return &ValidationError{Field: f.Key, Reason: "不匹配 Pattern " + f.Validation.Pattern}
-		}
+// storedSecretsFor 读取并解密当前已存的 secret，顺带把旧 schema 版本升级到
+// Definition 当前版本，与 Put 在事务内所做的一致。配置尚不存在时返回空集合。
+func (s *Service) storedSecretsFor(
+	ctx context.Context,
+	def connector.Definition,
+	t connector.Type,
+) (map[string]string, error) {
+	row, err := s.q.GetConnectorConfig(ctx, string(t))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return map[string]string{}, nil
 	}
-	if len(f.Validation.Options) > 0 {
-		for _, opt := range f.Validation.Options {
-			if val == opt {
-				return nil
-			}
-		}
-		return &ValidationError{Field: f.Key, Reason: "不在可选值范围内"}
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if int(row.ConfigSchemaVersion) > def.ConfigSchemaVersion {
+		return nil, ErrIncompatible
+	}
+
+	storedSecrets, err := s.decryptSecrets(row, t)
+	if err != nil {
+		return nil, err
+	}
+	if int(row.ConfigSchemaVersion) == def.ConfigSchemaVersion {
+		return storedSecrets, nil
+	}
+
+	storedPublic, err := unmarshalPublic(row.PublicConfig)
+	if err != nil {
+		return nil, err
+	}
+	_, storedSecrets, err = upgradeStoredConfig(
+		def,
+		int(row.ConfigSchemaVersion),
+		storedPublic,
+		storedSecrets,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return storedSecrets, nil
 }

@@ -1,101 +1,182 @@
 package gmail
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 
+	"github.com/memohai/connect-it/packages/connectors/internal/restkit"
+	"github.com/memohai/connect-it/packages/connectors/internal/toolargs"
+	"github.com/memohai/connect-it/packages/connectors/internal/toolfail"
 	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/memohai/connect-it/packages/core/providerkit"
 )
 
-// apiBaseURL 指向 Gmail REST API 根地址；测试用 httptest.Server 覆盖后还原。
-var apiBaseURL = "https://gmail.googleapis.com"
+const managedBaseURL = "https://gmail.googleapis.com/"
 
-// Handlers 由 connectors.AllHandlers() 暴露给执行引擎。
-var Handlers = connector.HandlerMap{
-	"list_messages": listMessages,
-	"send_message":  sendMessage,
+type managedHandler struct {
+	transport restkit.Transport[string]
 }
 
-// listMessages 调 GET /gmail/v1/users/me/messages。
-// 参数：q（Gmail 搜索语法，可选）、max_results（1–100，默认 20）。
-func listMessages(ctx context.Context, call connector.ToolCallContext) (connector.ToolResultData, error) {
-	max := 20
-	if v, ok := call.Arguments["max_results"].(float64); ok && v >= 1 && v <= 100 {
-		max = int(v)
+// NewHandlers constructs Gmail's Managed handlers from the process-wide
+// providerkit Factory. The client policy is fixed in reviewed code; access
+// tokens remain request-local and never become part of the client identity.
+func NewHandlers(
+	factory *providerkit.Factory,
+) (connector.HandlerMap, error) {
+	client, err := factory.NewStaticClient(providerkit.Policy{
+		Provider:         string(Definition.Type),
+		BaseURL:          managedBaseURL,
+		AllowedOrigins:   []string{managedBaseURL},
+		RedirectMode:     providerkit.RedirectDenyAll,
+		NetworkMode:      providerkit.PublicOnly,
+		RequestTimeout:   providerkit.DefaultRequestTimeout,
+		MaxResponseBytes: providerkit.DefaultMaxResponseBytes,
+		Retry:            providerkit.DefaultRetryPolicy(),
+	})
+	if err != nil {
+		return nil, err
 	}
-	u := apiBaseURL + "/gmail/v1/users/me/messages?maxResults=" + strconv.Itoa(max)
-	if q, _ := call.Arguments["q"].(string); q != "" {
-		u += "&q=" + url.QueryEscape(q)
-	}
-	return callGmail(ctx, http.MethodGet, u, nil, call.AccessToken)
+	return newHandlers(client), nil
 }
 
-// sendMessage 组装 RFC 2822 纯文本邮件，base64url 编码后
-// 调 POST /gmail/v1/users/me/messages/send。
-func sendMessage(ctx context.Context, call connector.ToolCallContext) (connector.ToolResultData, error) {
-	to, _ := call.Arguments["to"].(string)
-	subject, _ := call.Arguments["subject"].(string)
-	body, _ := call.Arguments["body"].(string)
-	if to == "" || subject == "" || body == "" {
-		return connector.ToolResultData{
-			Text:       "to、subject、body 均为必填参数",
-			Structured: json.RawMessage(`{"error":"to、subject、body 均为必填参数"}`),
-			IsError:    true,
-		}, nil
+func newHandlers(client *providerkit.Client) connector.HandlerMap {
+	handler := &managedHandler{transport: restkit.Transport[string]{
+		Connector: Definition.Type,
+		Credentials: func(
+			call connector.ToolCallContext,
+		) (string, *connector.ToolFailure) {
+			// The OAuth boundary normalizes the scheme; anything else is a
+			// credential this handler must not present upstream.
+			if call.TokenType != "Bearer" {
+				return "", toolfail.New(
+					connector.FailureAuthorizationFailed,
+					0,
+					0,
+				)
+			}
+			return call.AccessToken, nil
+		},
+		Authorizer: func(
+			token string,
+		) (providerkit.Authorizer, *connector.ToolFailure) {
+			authorizer, err := providerkit.Bearer(token)
+			if err != nil {
+				return nil, toolfail.New(
+					connector.FailureAuthorizationFailed,
+					0,
+					0,
+				)
+			}
+			return authorizer, nil
+		},
+		Client: func(string) (restkit.Lease, *connector.ToolFailure) {
+			return restkit.Shared(client), nil
+		},
+	}}
+	return connector.HandlerMap{
+		"list_messages": handler.listMessages,
+		"send_message":  handler.sendMessage,
+	}
+}
+
+// invalidInput is the finished result for every argument rejected before any
+// egress happens.
+func invalidInput() (connector.ToolResultData, error) {
+	return toolfail.Result(connector.FailureInvalidInput, 0, 0), nil
+}
+
+// listMessages calls GET /gmail/v1/users/me/messages.
+func (handler *managedHandler) listMessages(
+	ctx context.Context,
+	call connector.ToolCallContext,
+) (connector.ToolResultData, error) {
+	maxResults, ok := toolargs.OptionalInteger(
+		call.Arguments,
+		"max_results",
+		20,
+		1,
+		100,
+	)
+	if !ok {
+		return invalidInput()
+	}
+	query := url.Values{
+		"maxResults": {strconv.FormatInt(maxResults, 10)},
+	}
+	if value, present := call.Arguments["q"]; present {
+		search, valid := toolargs.String(value, 1024, false)
+		if !valid {
+			return invalidInput()
+		}
+		if search != "" {
+			query.Set("q", search)
+		}
+	}
+	return handler.call(ctx, call, restkit.Request{
+		Method: http.MethodGet,
+		Path:   "/gmail/v1/users/me/messages",
+		Query:  query,
+	})
+}
+
+// sendMessage assembles an RFC 2822 text message and calls Gmail's send API.
+func (handler *managedHandler) sendMessage(
+	ctx context.Context,
+	call connector.ToolCallContext,
+) (connector.ToolResultData, error) {
+	// to and subject become header fields, so they are read as single-line
+	// text: rejecting every control character also rejects the CR/LF header
+	// injection that would smuggle extra recipients into the envelope.
+	to, okTo := toolargs.String(call.Arguments["to"], 512, false)
+	subject, okSubject := toolargs.String(call.Arguments["subject"], 998, false)
+	body, okBody := toolargs.String(call.Arguments["body"], 1<<20, true)
+	if !okTo || !okSubject || !okBody ||
+		to == "" || subject == "" || body == "" {
+		return invalidInput()
 	}
 	rfc822 := fmt.Sprintf(
 		"To: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		to, subject, body)
-	payload, err := json.Marshal(map[string]string{
-		"raw": base64.URLEncoding.EncodeToString([]byte(rfc822)),
+		to,
+		subject,
+		body,
+	)
+	return handler.call(ctx, call, restkit.Request{
+		Method: http.MethodPost,
+		Path:   "/gmail/v1/users/me/messages/send",
+		JSON: map[string]string{
+			"raw": base64.URLEncoding.EncodeToString([]byte(rfc822)),
+		},
 	})
-	if err != nil {
-		return connector.ToolResultData{}, err
-	}
-	return callGmail(ctx, http.MethodPost,
-		apiBaseURL+"/gmail/v1/users/me/messages/send",
-		bytes.NewReader(payload), call.AccessToken)
 }
 
-// callGmail 发送请求并把结果统一转换为 ToolResultData：
-// 传输层失败返回 error；HTTP >= 400 转成 IsError 结果（error 为 nil）。
-// 与 onedrive 包的 callGraph 结构相同：目录映射测试要求 packages/connectors
-// 下只有 provider 目录，因此不抽公共包，接受两份小重复。
-func callGmail(ctx context.Context, method, u string, body io.Reader, token string) (connector.ToolResultData, error) {
-	req, err := http.NewRequestWithContext(ctx, method, u, body)
-	if err != nil {
-		return connector.ToolResultData{}, err
+// call issues one guarded request and passes a successful JSON object through
+// unchanged; the Tool output schema for these two Tools is the Provider's own.
+func (handler *managedHandler) call(
+	ctx context.Context,
+	call connector.ToolCallContext,
+	request restkit.Request,
+) (connector.ToolResultData, error) {
+	response, result, ok := handler.transport.Do(ctx, call, request)
+	if !ok {
+		return result, nil
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	var object map[string]json.RawMessage
+	if err := response.DecodeJSON(&object); err != nil {
+		return handler.transport.Fail(err), nil
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return connector.ToolResultData{}, err
+	if object == nil {
+		return toolfail.Result(
+			connector.FailureInvalidResponse,
+			response.StatusCode,
+			0,
+		), nil
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return connector.ToolResultData{}, err
-	}
-	if resp.StatusCode >= 400 {
-		detail, _ := json.Marshal(map[string]any{
-			"error":  fmt.Sprintf("gmail api 返回 %d", resp.StatusCode),
-			"detail": string(data),
-		})
-		return connector.ToolResultData{
-			Text:       fmt.Sprintf("gmail api 返回 %d", resp.StatusCode),
-			Structured: detail,
-			IsError:    true,
-		}, nil
-	}
-	return connector.ToolResultData{Structured: data}, nil
+	return connector.ToolResultData{
+		Structured: append(json.RawMessage(nil), response.Body...),
+	}, nil
 }

@@ -9,6 +9,8 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 )
 
+const restAPIVersion = "2026-03-10"
+
 var Definition = connector.Definition{
 	Type:                "github",
 	Name:                "GitHub",
@@ -44,9 +46,14 @@ var Definition = connector.Definition{
 			OAuth: &connector.OAuthConfig{
 				AuthorizationEndpoint: "https://github.com/login/oauth/authorize",
 				TokenEndpoint:         "https://github.com/login/oauth/access_token",
-				Scopes:                []string{"repo", "read:user"},
-				UsePKCE:               false,
-				TokenEndpointAuth:     connector.TokenAuthPost,
+				Egress: connector.OAuthEgressConfig{
+					AuthorizationOrigins: []string{"https://github.com:443"},
+					TokenOrigins:         []string{"https://github.com:443"},
+				},
+				Scopes:              []string{"repo", "read:user"},
+				TokenScopeSeparator: connector.OAuthScopeComma,
+				UsePKCE:             false,
+				TokenEndpointAuth:   connector.TokenAuthPost,
 			},
 		},
 		{
@@ -74,15 +81,15 @@ var Definition = connector.Definition{
 				URL:    "https://api.githubcopilot.com/mcp/",
 			},
 			// OAuth access token 与 PAT 都以 Authorization: Bearer 呈递。
-			AuthBinding: connector.MCPAuthBinding{Scheme: "bearer"},
+			AuthBinding: connector.MCPAuthBinding{
+				Scheme: "bearer",
+				CredentialFieldByAuthMethod: map[string]string{
+					"pat": "token",
+				},
+			},
 			Provenance: connector.Provenance{
 				Kind:             connector.ProvenanceOfficial,
-				Publisher:        "GitHub",
-				DocsURL:          "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
-				SourceURL:        "https://github.com/github/github-mcp-server",
-				ReviewedAt:       "2026-07-22",
 				AllowedHostnames: []string{"api.githubcopilot.com"},
-				Stability:        connector.StabilityStable,
 			},
 			RequestTimeout: 30 * time.Second,
 		},

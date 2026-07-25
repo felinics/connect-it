@@ -1,0 +1,79 @@
+// TEMPLATE v1 — fixed-origin Managed REST client only.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/memohai/connect-it/packages/core/providerkit"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+type providerCredentials struct {
+	secret string
+}
+
+type clientSource struct {
+	client *providerkit.Client
+}
+
+func newClientSource(factory *providerkit.Factory) (*clientSource, error) {
+	if factory == nil {
+		return nil, fmt.Errorf("provider: provider client factory is required")
+	}
+	client, err := factory.NewStaticClient(providerkit.Policy{
+		Provider:         string(Definition.Type),
+		BaseURL:          TODO_REVIEWED_CANONICAL_API_BASE_URL,
+		AllowedOrigins:   []string{TODO_REVIEWED_CANONICAL_API_ORIGIN},
+		RedirectMode:     providerkit.RedirectDenyAll,
+		NetworkMode:      providerkit.PublicOnly,
+		RequestTimeout:   providerkit.DefaultRequestTimeout,
+		MaxResponseBytes: TODO_REVIEWED_MAX_RESPONSE_BYTES,
+		Retry:            providerkit.DefaultRetryPolicy(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &clientSource{client: client}, nil
+}
+
+func credentialsFromToolCall(
+	call connector.ToolCallContext,
+) (providerCredentials, connector.FailureCode) {
+	if call.ConnectorType != Definition.Type {
+		return providerCredentials{}, connector.FailureConfigurationError
+	}
+	// Require the exact reviewed field set; never take the first map value.
+	return TODO_NORMALIZE_EXACT_CREDENTIAL_FIELDS(call.Credential)
+}
+
+func (credentials providerCredentials) authorizer() (
+	providerkit.Authorizer,
+	connector.FailureCode,
+) {
+	if TODO_SECRET_IS_INVALID(credentials.secret) {
+		return nil, connector.FailureAuthorizationFailed
+	}
+	// Choose one reviewed providerkit authorizer. Never put a secret in a URL
+	// unless the official contract truly requires query authentication.
+	authorizer, err := TODO_REVIEWED_AUTHORIZER(credentials.secret)
+	if err != nil {
+		return nil, connector.FailureAuthorizationFailed
+	}
+	return authorizer, ""
+}
+
+func mapProviderFailure(
+	response *providerkit.Response,
+	err error,
+) *connector.ToolFailure {
+	// Start from providerkit.AsToolFailure(err), then apply the documented,
+	// status-first Provider mapping. Never copy response.Body or err.Error().
+	// Only a definitive credential-invalid response may use
+	// connector.NewCredentialInvalidFailure.
+	return TODO_REVIEWED_STATUS_AND_ENVELOPE_FAILURE_MAPPING(response, err)
+}
+
+var _ = http.MethodGet // remove after real operations use their reviewed methods

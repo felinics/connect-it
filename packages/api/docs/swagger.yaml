@@ -3,9 +3,29 @@ definitions:
   api.ErrorResponse:
     properties:
       error:
+        description: Error 是稳定、机器可读的错误码。
         type: string
       message:
+        description: Message 可安全返回调用方，不含 Provider 原始响应或 credential 值。
         type: string
+      retry_after_seconds:
+        description: RetryAfterSeconds 仅在已知正数重试延迟时出现。
+        type: integer
+      temporary:
+        description: Temporary 表示稍后重试是否可能成功。
+        type: boolean
+    type: object
+  api.adminBeginOAuthRequest:
+    properties:
+      alias:
+        type: string
+      auth_method:
+        type: string
+      connector_type:
+        type: string
+    required:
+    - auth_method
+    - connector_type
     type: object
   api.authMethodDTO:
     properties:
@@ -30,6 +50,9 @@ definitions:
         type: string
       redirect_url:
         type: string
+    required:
+    - auth_method
+    - connector_type
     type: object
   api.beginOAuthResponse:
     properties:
@@ -94,6 +117,10 @@ definitions:
         additionalProperties:
           type: string
         type: object
+    required:
+    - auth_method
+    - connector_type
+    - fields
     type: object
   api.createConnectionResponse:
     properties:
@@ -105,12 +132,19 @@ definitions:
       connections:
         additionalProperties:
           type: string
+        description: Connections 将 Session-local alias 映射到持久 Connection UUID。
         type: object
       tool_allowlist:
+        description: |-
+          ToolAllowlist 区分三态：省略时固化当前 read Tool，[] 授权零 Tool，null
+          非法；write/destructive Tool 必须显式列出。
         items:
           type: string
         type: array
       ttl_seconds:
+        description: TTLSeconds 是 Session 有效期；0 使用默认 3600 秒，上限 86400 秒。
+        maximum: 86400
+        minimum: 0
         type: integer
     type: object
   api.createMCPSessionResponse:
@@ -155,6 +189,18 @@ definitions:
     properties:
       redirect_url:
         type: string
+    type: object
+  api.recredentialRequest:
+    properties:
+      fields:
+        additionalProperties:
+          type: string
+        description: |-
+          Fields 是完整 API-key/custom-credential 字段组；缺少 required 字段会被
+          拒绝，本端点不是局部 PATCH。
+        type: object
+    required:
+    - fields
     type: object
   api.validateConfigRequest:
     properties:
@@ -231,7 +277,9 @@ definitions:
     - DefinitionMissing
 info:
   contact: {}
-  description: 内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。
+  description: |-
+    内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。
+    管理端 /admin 使用 HttpOnly SameSite=Strict Cookie；CONNECT_IT_BASE_URL 为 HTTPS 时固定设置 Secure。浏览器客户端须启用 credentials=include，且写请求须携带 X-Connect-It-CSRF: 1。Swagger 2 无法形式化表达 Cookie 鉴权。
   title: connect-it API
   version: "1.0"
 paths:
@@ -241,6 +289,11 @@ paths:
       - application/json
       operationId: changePassword
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: 新密码（至少 8 个字符）
         in: body
         name: body
@@ -250,6 +303,18 @@ paths:
       responses:
         "204":
           description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "422":
           description: Unprocessable Entity
           schema:
@@ -277,6 +342,11 @@ paths:
       - application/json
       operationId: createApiToken
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: token 名称
         in: body
         name: body
@@ -290,6 +360,22 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/api.createTokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       summary: 创建 API token（明文仅在响应中出现一次）
       tags:
       - admin
@@ -297,6 +383,11 @@ paths:
     delete:
       operationId: deleteApiToken
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: token id（uuid）
         in: path
         name: id
@@ -305,6 +396,14 @@ paths:
       responses:
         "204":
           description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -331,6 +430,11 @@ paths:
     delete:
       operationId: adminDeleteConnection
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: connection id（uuid）
         in: path
         name: id
@@ -339,6 +443,14 @@ paths:
       responses:
         "204":
           description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -346,10 +458,93 @@ paths:
       summary: 删除连接（运维）
       tags:
       - admin
+  /admin/connections/{id}/credential:
+    put:
+      consumes:
+      - application/json
+      operationId: adminRecredentialConnection
+      parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 完整 credential 字段组；不是局部 PATCH
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.recredentialRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/connsvc.ConnectionView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "408":
+          description: Request Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 从管理台验证并整组替换 API key / 自定义凭证
+      tags:
+      - admin
   /admin/connections/{id}/reauth:
     post:
+      consumes:
+      - application/json
       operationId: adminReauthConnection
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: connection id（uuid）
         in: path
         name: id
@@ -362,11 +557,145 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/api.beginOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       summary: 生成重授权链接（运维转交给对应用户打开）
+      tags:
+      - admin
+  /admin/connections/api-key:
+    post:
+      consumes:
+      - application/json
+      operationId: adminCreateApiKeyConnection
+      parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
+      - description: 完整凭证字段组按 auth method 的 CredentialFields 填写；alias 可选
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.createAPIKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.createConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "408":
+          description: Request Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 从管理台用 API key / 自定义凭证创建连接
+      tags:
+      - admin
+  /admin/connections/oauth:
+    post:
+      consumes:
+      - application/json
+      operationId: adminBeginOAuthConnection
+      parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
+      - description: alias 为可选展示标签；管理台授权固定回到 connect-it 完成页
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.adminBeginOAuthRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.beginOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: 从管理台发起 OAuth 授权，返回持久连接 ID 与授权 URL
       tags:
       - admin
   /admin/connectors:
@@ -417,6 +746,11 @@ paths:
     delete:
       operationId: deleteConfig
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: connector_type
         in: path
         name: type
@@ -425,6 +759,14 @@ paths:
       responses:
         "204":
           description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -459,6 +801,11 @@ paths:
       - application/json
       operationId: putConfig
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: connector_type
         in: path
         name: type
@@ -477,6 +824,18 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/api.configResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -523,6 +882,11 @@ paths:
       - application/json
       operationId: validateConfig
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: connector_type
         in: path
         name: type
@@ -537,6 +901,18 @@ paths:
       responses:
         "204":
           description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -552,6 +928,11 @@ paths:
     post:
       operationId: verifyMcp
       parameters:
+      - description: 管理台同源写请求固定值 1
+        in: header
+        name: X-Connect-It-CSRF
+        required: true
+        type: string
       - description: connector_type
         in: path
         name: type
@@ -560,6 +941,14 @@ paths:
       responses:
         "204":
           description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -653,6 +1042,79 @@ paths:
       summary: 查询连接状态（pending / active / reauth_required …）
       tags:
       - connections
+  /v1/connections/{id}/credential:
+    put:
+      consumes:
+      - application/json
+      operationId: recredentialConnection
+      parameters:
+      - description: connection id（uuid）
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 完整 credential 字段组；不是局部 PATCH
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.recredentialRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/connsvc.ConnectionView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "408":
+          description: Request Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 验证并整组替换 API key / 自定义凭证；并发旧请求按版本冲突拒绝
+      tags:
+      - connections
   /v1/connections/{id}/reauth:
     post:
       consumes:
@@ -676,8 +1138,24 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/api.beginOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       security:
@@ -704,12 +1182,44 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/api.createConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "408":
+          description: Request Timeout
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "422":
           description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "504":
+          description: Gateway Timeout
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       security:
@@ -736,6 +1246,14 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/api.beginOAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
           schema:
@@ -801,7 +1319,8 @@ paths:
       - application/json
       operationId: createMcpSession
       parameters:
-      - description: 绑定与 allowlist；ttl_seconds 默认 3600、上限 86400
+      - description: 连接绑定与不可变 grant 快照；省略 allowlist 默认当前 read，[] 为零 Tool，null 拒绝；write/destructive
+          必须显式列出；ttl_seconds 默认 3600、上限 86400
         in: body
         name: body
         required: true
@@ -820,7 +1339,7 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: 签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+      summary: 签发短期 MCP session token（固化 alias、Tool grant 与授权代际）
       tags:
       - mcp
   /v1/oauth/callback:

@@ -10,16 +10,106 @@ import (
 	"time"
 )
 
-const deleteConnectorConfig = `-- name: DeleteConnectorConfig :execrows
-DELETE FROM connector_configs WHERE connector_type = $1
+const bumpConnectorAuthorizationGenerations = `-- name: BumpConnectorAuthorizationGenerations :execrows
+UPDATE connections
+SET authorization_generation = authorization_generation + 1,
+    updated_at = now()
+WHERE connector_type = $1
 `
 
-func (q *Queries) DeleteConnectorConfig(ctx context.Context, connectorType string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteConnectorConfig, connectorType)
+func (q *Queries) BumpConnectorAuthorizationGenerations(ctx context.Context, connectorType string) (int64, error) {
+	result, err := q.db.Exec(ctx, bumpConnectorAuthorizationGenerations, connectorType)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const clearConnectorConfigVerification = `-- name: ClearConnectorConfigVerification :exec
+UPDATE connector_configs
+SET mcp_verified_endpoint = null,
+    mcp_verified_at = null
+WHERE connector_type = $1
+`
+
+func (q *Queries) ClearConnectorConfigVerification(ctx context.Context, connectorType string) error {
+	_, err := q.db.Exec(ctx, clearConnectorConfigVerification, connectorType)
+	return err
+}
+
+const createConnectorConfig = `-- name: CreateConnectorConfig :one
+INSERT INTO connector_configs (
+  connector_type, config_schema_version, public_config, secret_config,
+  secret_key_version, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, now(), now())
+RETURNING connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at
+`
+
+type CreateConnectorConfigParams struct {
+	ConnectorType       string
+	ConfigSchemaVersion int32
+	PublicConfig        []byte
+	SecretConfig        []byte
+	SecretKeyVersion    int32
+}
+
+func (q *Queries) CreateConnectorConfig(ctx context.Context, arg CreateConnectorConfigParams) (ConnectorConfig, error) {
+	row := q.db.QueryRow(ctx, createConnectorConfig,
+		arg.ConnectorType,
+		arg.ConfigSchemaVersion,
+		arg.PublicConfig,
+		arg.SecretConfig,
+		arg.SecretKeyVersion,
+	)
+	var i ConnectorConfig
+	err := row.Scan(
+		&i.ConnectorType,
+		&i.ConfigSchemaVersion,
+		&i.PublicConfig,
+		&i.SecretConfig,
+		&i.SecretKeyVersion,
+		&i.McpVerifiedEndpoint,
+		&i.McpVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteConnectorConfigIfMatch = `-- name: DeleteConnectorConfigIfMatch :execrows
+DELETE FROM connector_configs
+WHERE connector_type = $1 AND updated_at = $2
+`
+
+type DeleteConnectorConfigIfMatchParams struct {
+	ConnectorType string
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) DeleteConnectorConfigIfMatch(ctx context.Context, arg DeleteConnectorConfigIfMatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteConnectorConfigIfMatch, arg.ConnectorType, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const ensureConnectorPolicyIdentity = `-- name: EnsureConnectorPolicyIdentity :exec
+INSERT INTO connector_policy_identities (
+  connector_type, identity_version, identity_digest, definition_digest,
+  initialized, created_at, updated_at
+) VALUES ($1, $2, '\x'::bytea, '\x'::bytea, false, now(), now())
+ON CONFLICT (connector_type) DO NOTHING
+`
+
+type EnsureConnectorPolicyIdentityParams struct {
+	ConnectorType   string
+	IdentityVersion int32
+}
+
+func (q *Queries) EnsureConnectorPolicyIdentity(ctx context.Context, arg EnsureConnectorPolicyIdentityParams) error {
+	_, err := q.db.Exec(ctx, ensureConnectorPolicyIdentity, arg.ConnectorType, arg.IdentityVersion)
+	return err
 }
 
 const getConnectorConfig = `-- name: GetConnectorConfig :one
@@ -37,6 +127,68 @@ func (q *Queries) GetConnectorConfig(ctx context.Context, connectorType string) 
 		&i.SecretKeyVersion,
 		&i.McpVerifiedEndpoint,
 		&i.McpVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getConnectorConfigForUpdate = `-- name: GetConnectorConfigForUpdate :one
+SELECT connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at FROM connector_configs WHERE connector_type = $1 FOR UPDATE
+`
+
+func (q *Queries) GetConnectorConfigForUpdate(ctx context.Context, connectorType string) (ConnectorConfig, error) {
+	row := q.db.QueryRow(ctx, getConnectorConfigForUpdate, connectorType)
+	var i ConnectorConfig
+	err := row.Scan(
+		&i.ConnectorType,
+		&i.ConfigSchemaVersion,
+		&i.PublicConfig,
+		&i.SecretConfig,
+		&i.SecretKeyVersion,
+		&i.McpVerifiedEndpoint,
+		&i.McpVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getConnectorPolicyIdentity = `-- name: GetConnectorPolicyIdentity :one
+SELECT connector_type, identity_version, identity_digest, definition_digest, initialized, created_at, updated_at FROM connector_policy_identities
+WHERE connector_type = $1
+`
+
+func (q *Queries) GetConnectorPolicyIdentity(ctx context.Context, connectorType string) (ConnectorPolicyIdentity, error) {
+	row := q.db.QueryRow(ctx, getConnectorPolicyIdentity, connectorType)
+	var i ConnectorPolicyIdentity
+	err := row.Scan(
+		&i.ConnectorType,
+		&i.IdentityVersion,
+		&i.IdentityDigest,
+		&i.DefinitionDigest,
+		&i.Initialized,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getConnectorPolicyIdentityForUpdate = `-- name: GetConnectorPolicyIdentityForUpdate :one
+SELECT connector_type, identity_version, identity_digest, definition_digest, initialized, created_at, updated_at FROM connector_policy_identities
+WHERE connector_type = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetConnectorPolicyIdentityForUpdate(ctx context.Context, connectorType string) (ConnectorPolicyIdentity, error) {
+	row := q.db.QueryRow(ctx, getConnectorPolicyIdentityForUpdate, connectorType)
+	var i ConnectorPolicyIdentity
+	err := row.Scan(
+		&i.ConnectorType,
+		&i.IdentityVersion,
+		&i.IdentityDigest,
+		&i.DefinitionDigest,
+		&i.Initialized,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -77,6 +229,44 @@ func (q *Queries) ListConnectorConfigs(ctx context.Context) ([]ConnectorConfig, 
 	return items, nil
 }
 
+const setConnectorPolicyIdentity = `-- name: SetConnectorPolicyIdentity :one
+UPDATE connector_policy_identities
+SET identity_version = $2,
+    identity_digest = $3,
+    definition_digest = $4,
+    initialized = true,
+    updated_at = now()
+WHERE connector_type = $1
+RETURNING connector_type, identity_version, identity_digest, definition_digest, initialized, created_at, updated_at
+`
+
+type SetConnectorPolicyIdentityParams struct {
+	ConnectorType    string
+	IdentityVersion  int32
+	IdentityDigest   []byte
+	DefinitionDigest []byte
+}
+
+func (q *Queries) SetConnectorPolicyIdentity(ctx context.Context, arg SetConnectorPolicyIdentityParams) (ConnectorPolicyIdentity, error) {
+	row := q.db.QueryRow(ctx, setConnectorPolicyIdentity,
+		arg.ConnectorType,
+		arg.IdentityVersion,
+		arg.IdentityDigest,
+		arg.DefinitionDigest,
+	)
+	var i ConnectorPolicyIdentity
+	err := row.Scan(
+		&i.ConnectorType,
+		&i.IdentityVersion,
+		&i.IdentityDigest,
+		&i.DefinitionDigest,
+		&i.Initialized,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateConnectorConfigIfMatch = `-- name: UpdateConnectorConfigIfMatch :one
 UPDATE connector_configs SET
   config_schema_version = $2,
@@ -105,51 +295,6 @@ func (q *Queries) UpdateConnectorConfigIfMatch(ctx context.Context, arg UpdateCo
 		arg.SecretConfig,
 		arg.SecretKeyVersion,
 		arg.UpdatedAt,
-	)
-	var i ConnectorConfig
-	err := row.Scan(
-		&i.ConnectorType,
-		&i.ConfigSchemaVersion,
-		&i.PublicConfig,
-		&i.SecretConfig,
-		&i.SecretKeyVersion,
-		&i.McpVerifiedEndpoint,
-		&i.McpVerifiedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const upsertConnectorConfig = `-- name: UpsertConnectorConfig :one
-INSERT INTO connector_configs (
-  connector_type, config_schema_version, public_config, secret_config,
-  secret_key_version, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, now(), now())
-ON CONFLICT (connector_type) DO UPDATE SET
-  config_schema_version = EXCLUDED.config_schema_version,
-  public_config = EXCLUDED.public_config,
-  secret_config = EXCLUDED.secret_config,
-  secret_key_version = EXCLUDED.secret_key_version,
-  updated_at = now()
-RETURNING connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at
-`
-
-type UpsertConnectorConfigParams struct {
-	ConnectorType       string
-	ConfigSchemaVersion int32
-	PublicConfig        []byte
-	SecretConfig        []byte
-	SecretKeyVersion    int32
-}
-
-func (q *Queries) UpsertConnectorConfig(ctx context.Context, arg UpsertConnectorConfigParams) (ConnectorConfig, error) {
-	row := q.db.QueryRow(ctx, upsertConnectorConfig,
-		arg.ConnectorType,
-		arg.ConfigSchemaVersion,
-		arg.PublicConfig,
-		arg.SecretConfig,
-		arg.SecretKeyVersion,
 	)
 	var i ConnectorConfig
 	err := row.Scan(

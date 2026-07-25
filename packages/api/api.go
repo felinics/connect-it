@@ -3,9 +3,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	echoSwagger "github.com/swaggo/echo-swagger"
@@ -17,29 +15,32 @@ import (
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
 	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/connsvc"
+	execsvc "github.com/memohai/connect-it/packages/service/exec"
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/sessions"
-	"github.com/memohai/connect-it/packages/service/store"
 )
 
 // ToolExecutor 抽象 exec.Engine，便于 /mcp 测试注入假执行器；
 // *exec.Engine 的方法集恰好满足本接口。
 type ToolExecutor interface {
-	Execute(ctx context.Context, connectionID uuid.UUID, toolID string, args json.RawMessage) (connector.ToolResultData, error)
+	Execute(ctx context.Context, request execsvc.ExecuteRequest) (connector.ToolResultData, error)
 }
 
 type Deps struct {
 	Registry     *registry.Registry
-	Store        *store.Queries
 	Config       *configsvc.Service
 	Catalog      *catalogsvc.Service
 	Auth         *authsvc.Service
 	OAuth        *oauthsvc.Service
 	Conns        *connsvc.Service
 	Exec         ToolExecutor
-	MCPTools     MCPToolLister
+	MCPTools     catalogsvc.MCPToolLister
 	Sessions     *sessions.Service
 	CookieSecret []byte
+	// CookieSecure is derived once from the trusted CONNECT_IT_BASE_URL at
+	// the composition root. Request proxy headers are not authoritative:
+	// an inner reverse proxy can overwrite an outer TLS terminator's scheme.
+	CookieSecure bool
 }
 
 func New(deps Deps) *echo.Echo {
@@ -62,13 +63,21 @@ func New(deps Deps) *echo.Echo {
 	v1.POST("/connections/oauth", h.beginOAuthConnection)
 	v1.POST("/connections/api-key", h.createAPIKeyConnection)
 	v1.GET("/connections/:id", h.getConnection)
+	v1.PUT("/connections/:id/credential", h.recredentialConnection)
 	v1.POST("/connections/:id/reauth", h.reauthConnection)
 	v1.DELETE("/connections/:id", h.deleteConnection)
-	registerMCPSessions(v1, deps)
+	v1.POST("/mcp-sessions", h.createMCPSession)
 	registerMCP(e, deps)
 
-	admin := e.Group("/admin", RequireAdminSession(deps.CookieSecret))
+	admin := e.Group(
+		"/admin",
+		RequireAdminSession(deps.CookieSecret),
+		RequireAdminCSRF,
+	)
 	admin.GET("/connections", h.listConnections)
+	admin.POST("/connections/oauth", h.adminBeginOAuthConnection)
+	admin.POST("/connections/api-key", h.adminCreateAPIKeyConnection)
+	admin.PUT("/connections/:id/credential", h.adminRecredentialConnection)
 	admin.POST("/connections/:id/reauth", h.adminReauthConnection)
 	admin.DELETE("/connections/:id", h.adminDeleteConnection)
 	admin.GET("/connectors", h.adminListConnectors)

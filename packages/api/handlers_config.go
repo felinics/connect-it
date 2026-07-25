@@ -60,46 +60,23 @@ type authMethodDTO struct {
 func (h *handlers) listAuthMethods(c echo.Context) error {
 	def, ok := h.deps.Registry.Get(connector.Type(c.Param("type")))
 	if !ok {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return notFound(c)
 	}
 	out := make([]authMethodDTO, 0, len(def.AuthMethods))
 	for _, m := range def.AuthMethods {
-		fields := make([]configFieldDTO, 0, len(m.CredentialFields))
-		for _, f := range m.CredentialFields {
-			options := f.Validation.Options
-			if options == nil {
-				options = []string{}
-			}
-			fields = append(fields, configFieldDTO{
-				Key: f.Key, Label: f.Label, InputType: string(f.InputType),
-				Required: f.Required, Secret: f.Secret, DefaultValue: f.DefaultValue,
-				Description: f.Description, Pattern: f.Validation.Pattern, Options: options,
-			})
-		}
 		out = append(out, authMethodDTO{
-			Key: m.Key, Label: m.Label, Type: string(m.Type), CredentialFields: fields,
+			Key:              m.Key,
+			Label:            m.Label,
+			Type:             string(m.Type),
+			CredentialFields: configFieldDTOs(m.CredentialFields),
 		})
 	}
 	return c.JSON(http.StatusOK, out)
 }
 
-// getConfigSchema godoc
-//
-//	@Summary	Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）
-//	@ID			getConfigSchema
-//	@Tags		admin
-//	@Produce	json
-//	@Param		type	path		string	true	"connector_type"
-//	@Success	200		{array}		api.configFieldDTO
-//	@Failure	404		{object}	api.ErrorResponse
-//	@Router		/admin/connectors/{type}/config-schema [get]
-func (h *handlers) getConfigSchema(c echo.Context) error {
-	def, ok := h.deps.Registry.Get(connector.Type(c.Param("type")))
-	if !ok {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
-	}
-	out := make([]configFieldDTO, 0, len(def.ConfigFields))
-	for _, f := range def.ConfigFields {
+func configFieldDTOs(fields []connector.ConfigField) []configFieldDTO {
+	out := make([]configFieldDTO, 0, len(fields))
+	for _, f := range fields {
 		options := f.Validation.Options
 		if options == nil {
 			options = []string{}
@@ -116,7 +93,25 @@ func (h *handlers) getConfigSchema(c echo.Context) error {
 			Options:      options,
 		})
 	}
-	return c.JSON(http.StatusOK, out)
+	return out
+}
+
+// getConfigSchema godoc
+//
+//	@Summary	Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）
+//	@ID			getConfigSchema
+//	@Tags		admin
+//	@Produce	json
+//	@Param		type	path		string	true	"connector_type"
+//	@Success	200		{array}		api.configFieldDTO
+//	@Failure	404		{object}	api.ErrorResponse
+//	@Router		/admin/connectors/{type}/config-schema [get]
+func (h *handlers) getConfigSchema(c echo.Context) error {
+	def, ok := h.deps.Registry.Get(connector.Type(c.Param("type")))
+	if !ok {
+		return notFound(c)
+	}
+	return c.JSON(http.StatusOK, configFieldDTOs(def.ConfigFields))
 }
 
 // getConfig godoc
@@ -144,9 +139,13 @@ func (h *handlers) getConfig(c echo.Context) error {
 //	@Tags		admin
 //	@Accept		json
 //	@Produce	json
+//	@Param		X-Connect-It-CSRF	header	string					true	"管理台同源写请求固定值 1"
 //	@Param		type	path		string					true	"connector_type"
 //	@Param		body	body		api.putConfigRequest	true	"配置内容；if_match 传上次读到的 updated_at（RFC3339），首次创建留空"
 //	@Success	200		{object}	api.configResponse
+//	@Failure	400		{object}	api.ErrorResponse
+//	@Failure	401		{object}	api.ErrorResponse
+//	@Failure	403		{object}	api.ErrorResponse
 //	@Failure	404		{object}	api.ErrorResponse
 //	@Failure	409		{object}	api.ErrorResponse
 //	@Failure	422		{object}	api.ErrorResponse
@@ -154,7 +153,7 @@ func (h *handlers) getConfig(c echo.Context) error {
 func (h *handlers) putConfig(c echo.Context) error {
 	var req putConfigRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return badRequest(c)
 	}
 	var ifMatch time.Time
 	if req.IfMatch != "" {
@@ -177,8 +176,11 @@ func (h *handlers) putConfig(c echo.Context) error {
 //	@Summary	删除 Connector 配置
 //	@ID			deleteConfig
 //	@Tags		admin
+//	@Param		X-Connect-It-CSRF	header	string	true	"管理台同源写请求固定值 1"
 //	@Param		type	path	string	true	"connector_type"
 //	@Success	204
+//	@Failure	401	{object}	api.ErrorResponse
+//	@Failure	403	{object}	api.ErrorResponse
 //	@Failure	404	{object}	api.ErrorResponse
 //	@Router		/admin/connectors/{type}/config [delete]
 func (h *handlers) deleteConfig(c echo.Context) error {
@@ -194,18 +196,22 @@ func (h *handlers) deleteConfig(c echo.Context) error {
 //	@ID			validateConfig
 //	@Tags		admin
 //	@Accept		json
+//	@Param		X-Connect-It-CSRF	header	string						true	"管理台同源写请求固定值 1"
 //	@Param		type	path	string						true	"connector_type"
 //	@Param		body	body	api.validateConfigRequest	true	"待校验配置"
 //	@Success	204
+//	@Failure	400	{object}	api.ErrorResponse
+//	@Failure	401	{object}	api.ErrorResponse
+//	@Failure	403	{object}	api.ErrorResponse
 //	@Failure	404	{object}	api.ErrorResponse
 //	@Failure	422	{object}	api.ErrorResponse
 //	@Router		/admin/connectors/{type}/config:validate [post]
 func (h *handlers) validateConfig(c echo.Context) error {
 	var req validateConfigRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return badRequest(c)
 	}
-	if err := h.deps.Config.Validate(connector.Type(c.Param("type")), req.Public, req.Secrets); err != nil {
+	if err := h.deps.Config.Validate(c.Request().Context(), connector.Type(c.Param("type")), req.Public, req.Secrets); err != nil {
 		return mapServiceError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)

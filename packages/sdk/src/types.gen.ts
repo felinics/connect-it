@@ -5,8 +5,28 @@ export type ClientOptions = {
 };
 
 export type ApiErrorResponse = {
+    /**
+     * Error 是稳定、机器可读的错误码。
+     */
     error?: string;
+    /**
+     * Message 可安全返回调用方，不含 Provider 原始响应或 credential 值。
+     */
     message?: string;
+    /**
+     * RetryAfterSeconds 仅在已知正数重试延迟时出现。
+     */
+    retry_after_seconds?: number;
+    /**
+     * Temporary 表示稍后重试是否可能成功。
+     */
+    temporary?: boolean;
+};
+
+export type ApiAdminBeginOAuthRequest = {
+    alias?: string;
+    auth_method: string;
+    connector_type: string;
 };
 
 export type ApiAuthMethodDto = {
@@ -18,8 +38,8 @@ export type ApiAuthMethodDto = {
 
 export type ApiBeginOAuthRequest = {
     alias?: string;
-    auth_method?: string;
-    connector_type?: string;
+    auth_method: string;
+    connector_type: string;
     redirect_url?: string;
 };
 
@@ -56,9 +76,9 @@ export type ApiConfigResponse = {
 
 export type ApiCreateApiKeyRequest = {
     alias?: string;
-    auth_method?: string;
-    connector_type?: string;
-    fields?: {
+    auth_method: string;
+    connector_type: string;
+    fields: {
         [key: string]: string;
     };
 };
@@ -68,10 +88,20 @@ export type ApiCreateConnectionResponse = {
 };
 
 export type ApiCreateMcpSessionRequest = {
+    /**
+     * Connections 将 Session-local alias 映射到持久 Connection UUID。
+     */
     connections?: {
         [key: string]: string;
     };
+    /**
+     * ToolAllowlist 区分三态：省略时固化当前 read Tool，[] 授权零 Tool，null
+     * 非法；write/destructive Tool 必须显式列出。
+     */
     tool_allowlist?: Array<string>;
+    /**
+     * TTLSeconds 是 Session 有效期；0 使用默认 3600 秒，上限 86400 秒。
+     */
     ttl_seconds?: number;
 };
 
@@ -106,6 +136,16 @@ export type ApiPutConfigRequest = {
 
 export type ApiReauthRequest = {
     redirect_url?: string;
+};
+
+export type ApiRecredentialRequest = {
+    /**
+     * Fields 是完整 API-key/custom-credential 字段组；缺少 required 字段会被
+     * 拒绝，本端点不是局部 PATCH。
+     */
+    fields: {
+        [key: string]: string;
+    };
 };
 
 export type ApiValidateConfigRequest = {
@@ -150,12 +190,30 @@ export type ChangePasswordData = {
      * 新密码（至少 8 个字符）
      */
     body: ApiChangePasswordRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path?: never;
     query?: never;
     url: '/admin/account/password';
 };
 
 export type ChangePasswordErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Unprocessable Entity
      */
@@ -192,10 +250,37 @@ export type CreateApiTokenData = {
      * token 名称
      */
     body: ApiCreateTokenRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path?: never;
     query?: never;
     url: '/admin/api-tokens';
 };
+
+export type CreateApiTokenErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+};
+
+export type CreateApiTokenError = CreateApiTokenErrors[keyof CreateApiTokenErrors];
 
 export type CreateApiTokenResponses = {
     /**
@@ -208,6 +293,12 @@ export type CreateApiTokenResponse = CreateApiTokenResponses[keyof CreateApiToke
 
 export type DeleteApiTokenData = {
     body?: never;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * token id（uuid）
@@ -219,6 +310,14 @@ export type DeleteApiTokenData = {
 };
 
 export type DeleteApiTokenErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -250,8 +349,134 @@ export type ListConnectionsResponses = {
 
 export type ListConnectionsResponse = ListConnectionsResponses[keyof ListConnectionsResponses];
 
+export type AdminCreateApiKeyConnectionData = {
+    /**
+     * 完整凭证字段组按 auth method 的 CredentialFields 填写；alias 可选
+     */
+    body: ApiCreateApiKeyRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/admin/connections/api-key';
+};
+
+export type AdminCreateApiKeyConnectionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Request Timeout
+     */
+    408: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ApiErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ApiErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ApiErrorResponse;
+    /**
+     * Gateway Timeout
+     */
+    504: ApiErrorResponse;
+};
+
+export type AdminCreateApiKeyConnectionError = AdminCreateApiKeyConnectionErrors[keyof AdminCreateApiKeyConnectionErrors];
+
+export type AdminCreateApiKeyConnectionResponses = {
+    /**
+     * Created
+     */
+    201: ApiCreateConnectionResponse;
+};
+
+export type AdminCreateApiKeyConnectionResponse = AdminCreateApiKeyConnectionResponses[keyof AdminCreateApiKeyConnectionResponses];
+
+export type AdminBeginOAuthConnectionData = {
+    /**
+     * alias 为可选展示标签；管理台授权固定回到 connect-it 完成页
+     */
+    body: ApiAdminBeginOAuthRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
+    path?: never;
+    query?: never;
+    url: '/admin/connections/oauth';
+};
+
+export type AdminBeginOAuthConnectionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+};
+
+export type AdminBeginOAuthConnectionError = AdminBeginOAuthConnectionErrors[keyof AdminBeginOAuthConnectionErrors];
+
+export type AdminBeginOAuthConnectionResponses = {
+    /**
+     * Created
+     */
+    201: ApiBeginOAuthResponse;
+};
+
+export type AdminBeginOAuthConnectionResponse = AdminBeginOAuthConnectionResponses[keyof AdminBeginOAuthConnectionResponses];
+
 export type AdminDeleteConnectionData = {
     body?: never;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * connection id（uuid）
@@ -263,6 +488,14 @@ export type AdminDeleteConnectionData = {
 };
 
 export type AdminDeleteConnectionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -278,8 +511,93 @@ export type AdminDeleteConnectionResponses = {
     204: unknown;
 };
 
+export type AdminRecredentialConnectionData = {
+    /**
+     * 完整 credential 字段组；不是局部 PATCH
+     */
+    body: ApiRecredentialRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
+    path: {
+        /**
+         * connection id（uuid）
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/admin/connections/{id}/credential';
+};
+
+export type AdminRecredentialConnectionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Request Timeout
+     */
+    408: ApiErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ApiErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ApiErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ApiErrorResponse;
+    /**
+     * Gateway Timeout
+     */
+    504: ApiErrorResponse;
+};
+
+export type AdminRecredentialConnectionError = AdminRecredentialConnectionErrors[keyof AdminRecredentialConnectionErrors];
+
+export type AdminRecredentialConnectionResponses = {
+    /**
+     * OK
+     */
+    200: ConnsvcConnectionView;
+};
+
+export type AdminRecredentialConnectionResponse = AdminRecredentialConnectionResponses[keyof AdminRecredentialConnectionResponses];
+
 export type AdminReauthConnectionData = {
     body?: never;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * connection id（uuid）
@@ -292,9 +610,29 @@ export type AdminReauthConnectionData = {
 
 export type AdminReauthConnectionErrors = {
     /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
      * Not Found
      */
     404: ApiErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
 };
 
 export type AdminReauthConnectionError = AdminReauthConnectionErrors[keyof AdminReauthConnectionErrors];
@@ -365,6 +703,12 @@ export type ListAuthMethodsResponse = ListAuthMethodsResponses[keyof ListAuthMet
 
 export type DeleteConfigData = {
     body?: never;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * connector_type
@@ -376,6 +720,14 @@ export type DeleteConfigData = {
 };
 
 export type DeleteConfigErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -426,6 +778,12 @@ export type PutConfigData = {
      * 配置内容；if_match 传上次读到的 updated_at（RFC3339），首次创建留空
      */
     body: ApiPutConfigRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * connector_type
@@ -437,6 +795,18 @@ export type PutConfigData = {
 };
 
 export type PutConfigErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -497,6 +867,12 @@ export type ValidateConfigData = {
      * 待校验配置
      */
     body: ApiValidateConfigRequest;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * connector_type
@@ -508,6 +884,18 @@ export type ValidateConfigData = {
 };
 
 export type ValidateConfigErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -529,6 +917,12 @@ export type ValidateConfigResponses = {
 
 export type VerifyMcpData = {
     body?: never;
+    headers: {
+        /**
+         * 管理台同源写请求固定值 1
+         */
+        'X-Connect-It-CSRF': string;
+    };
     path: {
         /**
          * connector_type
@@ -540,6 +934,14 @@ export type VerifyMcpData = {
 };
 
 export type VerifyMcpErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -615,13 +1017,45 @@ export type CreateApiKeyConnectionData = {
 
 export type CreateApiKeyConnectionErrors = {
     /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
      * Not Found
      */
     404: ApiErrorResponse;
     /**
+     * Request Timeout
+     */
+    408: ApiErrorResponse;
+    /**
      * Unprocessable Entity
      */
     422: ApiErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ApiErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ApiErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ApiErrorResponse;
+    /**
+     * Gateway Timeout
+     */
+    504: ApiErrorResponse;
 };
 
 export type CreateApiKeyConnectionError = CreateApiKeyConnectionErrors[keyof CreateApiKeyConnectionErrors];
@@ -646,6 +1080,14 @@ export type BeginOAuthConnectionData = {
 };
 
 export type BeginOAuthConnectionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
     /**
      * Not Found
      */
@@ -725,6 +1167,79 @@ export type GetConnectionResponses = {
 
 export type GetConnectionResponse = GetConnectionResponses[keyof GetConnectionResponses];
 
+export type RecredentialConnectionData = {
+    /**
+     * 完整 credential 字段组；不是局部 PATCH
+     */
+    body: ApiRecredentialRequest;
+    path: {
+        /**
+         * connection id（uuid）
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/v1/connections/{id}/credential';
+};
+
+export type RecredentialConnectionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
+     * Forbidden
+     */
+    403: ApiErrorResponse;
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Request Timeout
+     */
+    408: ApiErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+    /**
+     * Too Many Requests
+     */
+    429: ApiErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ApiErrorResponse;
+    /**
+     * Service Unavailable
+     */
+    503: ApiErrorResponse;
+    /**
+     * Gateway Timeout
+     */
+    504: ApiErrorResponse;
+};
+
+export type RecredentialConnectionError = RecredentialConnectionErrors[keyof RecredentialConnectionErrors];
+
+export type RecredentialConnectionResponses = {
+    /**
+     * OK
+     */
+    200: ConnsvcConnectionView;
+};
+
+export type RecredentialConnectionResponse = RecredentialConnectionResponses[keyof RecredentialConnectionResponses];
+
 export type ReauthConnectionData = {
     /**
      * redirect_url 可选
@@ -742,9 +1257,25 @@ export type ReauthConnectionData = {
 
 export type ReauthConnectionErrors = {
     /**
+     * Bad Request
+     */
+    400: ApiErrorResponse;
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+    /**
      * Not Found
      */
     404: ApiErrorResponse;
+    /**
+     * Conflict
+     */
+    409: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
 };
 
 export type ReauthConnectionError = ReauthConnectionErrors[keyof ReauthConnectionErrors];
@@ -815,7 +1346,7 @@ export type GetConnectorResponse = GetConnectorResponses[keyof GetConnectorRespo
 
 export type CreateMcpSessionData = {
     /**
-     * 绑定与 allowlist；ttl_seconds 默认 3600、上限 86400
+     * 连接绑定与不可变 grant 快照；省略 allowlist 默认当前 read，[] 为零 Tool，null 拒绝；write/destructive 必须显式列出；ttl_seconds 默认 3600、上限 86400
      */
     body: ApiCreateMcpSessionRequest;
     path?: never;

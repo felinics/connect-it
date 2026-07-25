@@ -18,7 +18,14 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
   unauthorizedHandler = fn
 }
 
-client.setConfig({ baseUrl: '', credentials: 'include' })
+client.setConfig({
+  baseUrl: '',
+  credentials: 'include',
+  // Static, non-secret same-origin proof for cookie-authenticated admin writes.
+  // Cross-origin callers cannot add it without a CORS preflight, which the API
+  // does not permit.
+  headers: { 'X-Connect-It-CSRF': '1' },
+})
 
 interface SdkResult<T> {
   data?: T
@@ -43,7 +50,10 @@ export async function unwrap<T>(
     if (typeof e.error === 'string' && e.error !== '') code = e.error
     if (typeof e.message === 'string' && e.message !== '') message = e.message
   }
-  if (response.status === 401 && !opts.allowUnauthorized) {
+  // Provider credential validation also uses HTTP 401 with the distinct
+  // authorization_failed code. Only the admin-session middleware's stable
+  // unauthorized code means the browser itself must return to login.
+  if (response.status === 401 && code === 'unauthorized' && !opts.allowUnauthorized) {
     unauthorizedHandler?.()
   }
   throw new ApiError(response.status, code, message)

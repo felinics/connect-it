@@ -12,25 +12,36 @@ import (
 // map 取参，remote backend 由 exec 重新序列化后透传。
 type ToolCallContext struct {
 	ConnectorType Type
-	ToolID        string
-	Arguments     map[string]any
+	// ConnectionID is the stable, non-secret execution identity used only for
+	// low-cardinality Provider request labels.
+	ConnectionID string
+	ToolID       string
+	Arguments    map[string]any
 	// Config 是合并默认值后的管理员配置（含 Secret 明文），来自 configsvc.Resolved。
 	Config map[string]any
 	// Credential 是 api_key / custom_credential 连接解密后的凭证字段；
 	// OAuth 与 AuthNone 连接为 nil。
 	Credential map[string]any
 	// AccessToken 是 OAuth 连接经惰性刷新后的有效 access token；
-	// api_key 类连接为其凭证值；其他为空。
+	// API key/custom credential 与 AuthNone 连接为空。
 	AccessToken string
+	// TokenType 是 OAuth credential 中规范化后的认证 scheme（首期仅
+	// Bearer）；非 OAuth 连接为空。
+	TokenType string
 }
 
 // ToolResultData 是两种 backend 统一的执行结果：Text 是人类可读输出（映射
 // MCP TextContent）；Structured 是结构化 JSON 输出（映射 structuredContent），
-// 可为空；IsError 表示业务失败（区别于 Go error 的传输/装配失败）。
+// 可为空；Failure 是 handler 的单一业务失败来源。
 type ToolResultData struct {
 	Text       string
 	Structured json.RawMessage
-	IsError    bool
+	Failure    *ToolFailure
+}
+
+// Failed reports whether the handler returned a typed business failure.
+func (r ToolResultData) Failed() bool {
+	return r.Failure != nil
 }
 
 // ManagedHandler 是 Managed Tool 的执行入口。

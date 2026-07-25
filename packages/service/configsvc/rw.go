@@ -31,23 +31,31 @@ func (s *Service) Get(ctx context.Context, t connector.Type) (ConfigView, error)
 // Put 写入配置：public 为全量替换；secrets 为部分合并——出现的 key 覆盖，
 // 空串表示删除，未出现的保留原值。Definition 已删除的字段在此顺带清理。
 func (s *Service) Put(ctx context.Context, t connector.Type, public map[string]any, secrets map[string]string, ifMatch time.Time) (ConfigView, error) {
-	def, ok := s.reg.Get(t)
-	if !ok {
-		return ConfigView{}, ErrUnknownConnector
+	def, spec, err := s.policyDefinition(t)
+	if err != nil {
+		return ConfigView{}, err
 	}
 	if public == nil {
 		public = map[string]any{}
 	}
-
-	row, err := s.q.GetConnectorConfig(ctx, string(t))
-	exists := true
-	if errors.Is(err, pgx.ErrNoRows) {
-		exists = false
-	} else if err != nil {
-		return ConfigView{}, err
+	if secrets == nil {
+		secrets = map[string]string{}
 	}
 
-	merged := map[string]string{}
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return ConfigView{}, err
+	}
+	defer tx.Rollback(ctx) // no-op after Commit
+
+	state, err := lockPolicyIdentity(ctx, qtx, t, spec.Version)
+	if err != nil {
+		return ConfigView{}, err
+	}
+	row, exists, err := getConfigForUpdate(ctx, qtx, t)
+	if err != nil {
+		return ConfigView{}, err
+	}
 	if exists {
 		if int(row.ConfigSchemaVersion) > def.ConfigSchemaVersion {
 			return ConfigView{}, ErrIncompatible
@@ -55,45 +63,47 @@ func (s *Service) Put(ctx context.Context, t connector.Type, public map[string]a
 		if !ifMatch.IsZero() && !row.UpdatedAt.Equal(ifMatch) {
 			return ConfigView{}, ErrConflict
 		}
-		if merged, err = s.decryptSecrets(row, t); err != nil {
-			return ConfigView{}, err
-		}
 	} else if !ifMatch.IsZero() {
 		// 客户端以为行存在（带了 If-Match），实际已被删除。
 		return ConfigView{}, ErrConflict
 	}
-	for k, v := range secrets {
-		if v == "" {
-			delete(merged, k)
-			continue
-		}
-		merged[k] = v
-	}
 
-	known := map[string]bool{}
-	for _, f := range def.ConfigFields {
-		known[f.Key] = true
-	}
-	for k := range public {
-		if !known[k] {
-			delete(public, k)
+	storedSecrets := map[string]string{}
+	if exists {
+		if storedSecrets, err = s.decryptSecrets(row, t); err != nil {
+			return ConfigView{}, err
+		}
+		if int(row.ConfigSchemaVersion) < def.ConfigSchemaVersion {
+			storedPublic, decodeErr := unmarshalPublic(row.PublicConfig)
+			if decodeErr != nil {
+				return ConfigView{}, decodeErr
+			}
+			_, storedSecrets, err = upgradeStoredConfig(
+				def,
+				int(row.ConfigSchemaVersion),
+				storedPublic,
+				storedSecrets,
+			)
+			if err != nil {
+				return ConfigView{}, err
+			}
 		}
 	}
-	for k := range merged {
-		if !known[k] {
-			delete(merged, k)
-		}
-	}
-
-	if err := s.Validate(t, public, merged); err != nil {
-		return ConfigView{}, err
-	}
-
-	pubJSON, err := json.Marshal(public)
+	normalizedPublic, normalizedSecrets, normalizedValues, err :=
+		s.normalizedWriteValues(def, public, storedSecrets, secrets)
 	if err != nil {
 		return ConfigView{}, err
 	}
-	secJSON, err := json.Marshal(merged)
+	newPolicy, err := projectPolicyIdentity(def, spec, normalizedValues)
+	if err != nil {
+		return ConfigView{}, err
+	}
+
+	pubJSON, err := json.Marshal(normalizedPublic)
+	if err != nil {
+		return ConfigView{}, err
+	}
+	secJSON, err := json.Marshal(normalizedSecrets)
 	if err != nil {
 		return ConfigView{}, err
 	}
@@ -103,20 +113,22 @@ func (s *Service) Put(ctx context.Context, t connector.Type, public map[string]a
 	}
 
 	var out store.ConnectorConfig
-	if exists && !ifMatch.IsZero() {
-		out, err = s.q.UpdateConnectorConfigIfMatch(ctx, store.UpdateConnectorConfigIfMatchParams{
+	if exists {
+		// Always recheck the exact locked old value. If-Match is an additional
+		// caller precondition, not the only protection against stale writes.
+		out, err = qtx.UpdateConnectorConfigIfMatch(ctx, store.UpdateConnectorConfigIfMatchParams{
 			ConnectorType:       string(t),
 			ConfigSchemaVersion: int32(def.ConfigSchemaVersion),
 			PublicConfig:        pubJSON,
 			SecretConfig:        ciphertext,
 			SecretKeyVersion:    int32(keyVersion),
-			UpdatedAt:           ifMatch,
+			UpdatedAt:           row.UpdatedAt,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ConfigView{}, ErrConflict
 		}
 	} else {
-		out, err = s.q.UpsertConnectorConfig(ctx, store.UpsertConnectorConfigParams{
+		out, err = qtx.CreateConnectorConfig(ctx, store.CreateConnectorConfigParams{
 			ConnectorType:       string(t),
 			ConfigSchemaVersion: int32(def.ConfigSchemaVersion),
 			PublicConfig:        pubJSON,
@@ -127,18 +139,102 @@ func (s *Service) Put(ctx context.Context, t connector.Type, public map[string]a
 	if err != nil {
 		return ConfigView{}, err
 	}
-	return s.viewFromRow(out, t)
+
+	// 唯一的判定口径：落库的 policy identity 就是授权总线；它与新 identity
+	// 不一致（含未初始化、版本或 Definition 漂移）就必须失效旧授权。
+	policyChanged := !matchesPolicyIdentity(state, newPolicy)
+	if _, err := qtx.SetConnectorPolicyIdentity(
+		ctx,
+		store.SetConnectorPolicyIdentityParams{
+			ConnectorType:    string(t),
+			IdentityVersion:  int32(newPolicy.version),
+			IdentityDigest:   newPolicy.identity[:],
+			DefinitionDigest: newPolicy.definition[:],
+		},
+	); err != nil {
+		return ConfigView{}, err
+	}
+	if policyChanged {
+		if err := qtx.ClearConnectorConfigVerification(ctx, string(t)); err != nil {
+			return ConfigView{}, err
+		}
+		if _, err := qtx.BumpConnectorAuthorizationGenerations(ctx, string(t)); err != nil {
+			return ConfigView{}, err
+		}
+		// ClearConnectorConfigVerification changed the row returned above.
+		out.McpVerifiedAt = nil
+		out.McpVerifiedEndpoint = nil
+	}
+	view, err := s.viewFromRow(out, t)
+	if err != nil {
+		return ConfigView{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ConfigView{}, err
+	}
+	return view, nil
 }
 
 func (s *Service) Delete(ctx context.Context, t connector.Type) error {
-	n, err := s.q.DeleteConnectorConfig(ctx, string(t))
+	def, spec, err := s.policyDefinition(t)
+	if err != nil {
+		return err
+	}
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	state, err := lockPolicyIdentity(ctx, qtx, t, spec.Version)
+	if err != nil {
+		return err
+	}
+	row, exists, err := getConfigForUpdate(ctx, qtx, t)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	newValues, err := s.policyValuesFromRow(def, store.ConnectorConfig{}, false)
+	if err != nil {
+		return err
+	}
+	newPolicy, err := projectPolicyIdentity(def, spec, newValues)
+	if err != nil {
+		return err
+	}
+	n, err := qtx.DeleteConnectorConfigIfMatch(
+		ctx,
+		store.DeleteConnectorConfigIfMatchParams{
+			ConnectorType: string(t),
+			UpdatedAt:     row.UpdatedAt,
+		},
+	)
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return ErrNotFound
+		return ErrConflict
 	}
-	return nil
+	policyChanged := !matchesPolicyIdentity(state, newPolicy)
+	if _, err := qtx.SetConnectorPolicyIdentity(
+		ctx,
+		store.SetConnectorPolicyIdentityParams{
+			ConnectorType:    string(t),
+			IdentityVersion:  int32(newPolicy.version),
+			IdentityDigest:   newPolicy.identity[:],
+			DefinitionDigest: newPolicy.definition[:],
+		},
+	); err != nil {
+		return err
+	}
+	if policyChanged {
+		if _, err := qtx.BumpConnectorAuthorizationGenerations(ctx, string(t)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) viewFromRow(row store.ConnectorConfig, t connector.Type) (ConfigView, error) {

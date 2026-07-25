@@ -1,0 +1,150 @@
+// TEMPLATE v1 (Remote MCP form) — copy only after completing
+// REVIEW_CHECKLIST.md. Use this file when the form decision
+// (docs/blueprint.md §8) lands on Remote MCP, which is the default: such a
+// Provider has NO client.go and NO managed.go. For a hand-written REST
+// Provider use definition.managed.go.preview instead.
+//
+// This preview is intentionally non-compiling and contains no inferred
+// official source, auth contract, schema, scope, risk, or Tool semantics.
+// Keep official sources, the mcp-probe date, review date, pinned reference
+// commits, exact reviewed paths and licenses in docs/providers/<type>.md.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+var Definition = connector.Definition{
+	Type:                connector.Type(TODO_CONNECTOR_TYPE),
+	Name:                TODO_DISPLAY_NAME,
+	Description:         TODO_DESCRIPTION,
+	Categories:          TODO_REVIEWED_CATEGORIES,
+	HomepageURL:         TODO_REVIEWED_HOMEPAGE_URL,
+	IconURL:             TODO_REVIEWED_BRAND_ASSET_URL,
+	ConfigSchemaVersion: TODO_CONFIG_SCHEMA_VERSION,
+
+	// EndpointConfigField 形态还必须在这里声明承载 endpoint 的字段，例如
+	// {Key: "mcp_url", Label: "MCP URL", InputType: connector.InputURL, Required: true}
+	// （见 packages/connectors/googleads/definition.go）。Registry 会校验
+	// Endpoint.ConfigFieldKey 指向的字段确实存在。
+	ConfigFields: TODO_REVIEWED_CONFIG_FIELDS,
+
+	AuthMethods: []connector.AuthMethod{
+		{
+			Key:              TODO_AUTH_METHOD_KEY,
+			Type:             TODO_AUTH_METHOD_TYPE,
+			Label:            TODO_AUTH_METHOD_LABEL,
+			CredentialFields: TODO_REVIEWED_CREDENTIAL_FIELDS,
+		},
+	},
+
+	RemoteMCPServers: []connector.RemoteMCPServer{
+		{
+			Key: TODO_SERVER_KEY,
+
+			// 两种 endpoint 形态二选一。
+			//
+			// 形态 A —— 厂商固定官方 endpoint（标杆：github）：
+			//   Endpoint: connector.Endpoint{
+			//       Source: connector.EndpointFixed,
+			//       URL:    "https://api.example.com/mcp/",
+			//   },
+			//   Provenance: connector.Provenance{
+			//       Kind:             connector.ProvenanceOfficial,
+			//       AllowedHostnames: []string{"api.example.com"},
+			//   },
+			// 固定 endpoint 必须是 https（Registry 强制），且受
+			// TestRemoteMCPFixedEndpointsSatisfyEgressPolicy 强制：主机名要落在
+			// AllowedHostnames 内、origin 可规范化并满足 providerkit 的
+			// PublicOnly 策略。
+			//
+			// 形态 B —— 运营方自建实例（标杆：googleads）：
+			//   Endpoint: connector.Endpoint{
+			//       Source:         connector.EndpointConfigField,
+			//       ConfigFieldKey: "mcp_url",
+			//   },
+			//   Provenance: connector.Provenance{Kind: connector.ProvenanceSelfHosted},
+			// Registry 只允许 self_hosted 从配置取 endpoint。此形态没有编译期
+			// hostname 白名单，URL 的 origin 策略在连接配置落库处校验。
+			Endpoint:   TODO_PICK_ONE_ENDPOINT_FORM,
+			Provenance: TODO_REVIEWED_PROVENANCE,
+
+			AuthBinding: connector.MCPAuthBinding{
+				// 目前仅 "bearer"。
+				Scheme: "bearer",
+				// 只为 api_key / custom_credential 的 auth method 写映射：key 是
+				// AuthMethod.Key，value 是该方法里承载 token 的 CredentialField.Key，
+				// 且该字段必须 Secret: true（Registry 强制以上三条）。OAuth 用
+				// typed access token，不写条目；声明顺序永远不是凭证绑定。纯 OAuth
+				// Provider 整个 map 留空即可（见 googleads）。
+				CredentialFieldByAuthMethod: map[string]string{
+					TODO_API_KEY_AUTH_METHOD_KEY: TODO_SECRET_CREDENTIAL_FIELD_KEY,
+				},
+			},
+
+			// 总超时。github 30s；googleads 因 GAQL 查询较慢给到 60s。
+			RequestTimeout: TODO_REVIEWED_TIMEOUT_SECONDS * time.Second,
+		},
+	},
+
+	// Remote tool 的 InputSchema 一律参数直通、以上游为准：
+	//   - 顶层固定 "additionalProperties": true，不封闭上游契约。上游加了参数我们
+	//     不改代码也不会拒绝调用；封闭反而会把合法调用挡在门外。
+	//   - Remote tool 因此豁免 closed schema 规则：
+	//     packages/connectors/all_test.go 的 TestManagedToolSchemasAreClosed 用
+	//     `if _, managed := tool.Backend.(connector.ManagedBackend); !managed`
+	//     跳过所有非 Managed backend，既不校验封闭性也不强制 OutputSchema。
+	//   - 豁免的是「封闭」不是「准确」：tool 名与参数的权威来源只有
+	//     `mise run mcp-probe -- -endpoint <url> -token <token>` 实拉的
+	//     tools/list（它与生产共用同一个 mcpclient，只读）。未经 probe 校准的
+	//     近似 schema 必须在 docs/providers/<type>.md 如实标注置信度和待办。
+	Tools: []connector.Tool{
+		{
+			// 每个评审过的上游 tool 复制一份。首版取上游列表里评审过的子集，
+			// 不要把整份 tools/list 搬进来。
+			ID:          TODO_STABLE_TOOL_ID,
+			Name:        TODO_TOOL_NAME,
+			Description: TODO_TOOL_DESCRIPTION,
+			InputSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": TODO_PROBED_PROPERTIES,
+  "required": TODO_PROBED_REQUIRED,
+  "additionalProperties": true
+}`),
+			// OutputSchema 默认不声明——现存六个 Remote MCP Provider 一个都没有。
+			//
+			// 声明是被支持的、不需要任何引擎改动：callManaged 与 callRemote 收敛
+			// 到同一个 finish()，它无条件调用
+			// validateBackendResult(result, schemas.Output)
+			// （packages/service/exec/schema_pipeline.go）——声明了就校验，没声明
+			// 就跳过，backend 类型不影响这条路径。
+			//
+			// 但一旦声明就必须来自真实响应采样。schema 写错一个字段，这个 tool 会
+			// 在运行时**永久返回 FailureInvalidResponse**，且失败信息不回显
+			// Provider 原始 body，排查成本很高。厂商文档普遍不描述 MCP tool 的
+			// 输出形状，照 REST API 文档反推同样不可靠。采样流程见 README.md
+			// 「给 Remote MCP tool 补 OutputSchema 的安全做法」的四步，不可跳步。
+			//
+			// 宁可暂时不声明，也不要声明一个猜的。
+			//
+			// OutputSchema: 未采样前不声明。
+
+			RequiredScopes: TODO_REVIEWED_REQUIRED_SCOPES,
+			Risk:           TODO_REVIEWED_TOOL_RISK,
+			Backend: connector.RemoteMCPBackend{
+				ServerKey: TODO_SERVER_KEY,
+				// 照抄上游拼写，包括上游自身的命名不一致（GitLab 的
+				// create_workitem_note 与 link_work_items 并存），不要顺手纠正。
+				RemoteToolName: TODO_EXACT_PROBED_UPSTREAM_TOOL_NAME,
+				// InputMapperKey / OutputMapperKey 必须留空：引擎第一期只支持参数
+				// 直通，非空值在触达 backend 前就被 callRemote 拒绝
+				// （packages/service/exec/engine.go）。
+			},
+		},
+	},
+}

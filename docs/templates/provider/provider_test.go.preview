@@ -1,0 +1,75 @@
+// TEMPLATE v1 — split into definition_test.go, managed_test.go and
+// validator_test.go. Tests must not access the public network or really sleep.
+// The handler tests here are Managed-only: a Remote MCP Provider has no
+// clientSource and no HandlerMap, so it keeps only the Definition contract and
+// the validator tests.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"context"
+	"net/http"
+	"testing"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/memohai/connect-it/packages/core/registry"
+	"github.com/memohai/connect-it/packages/core/providerkit/testkit"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+func TestDefinitionContract(t *testing.T) {
+	r := registry.New()
+	r.MustRegister(Definition, TODO_ALL_HANDLER_KEYS...)
+
+	// Source governance is checked from docs/providers/<type>.md. Here assert
+	// auth and credential fields, the complete 3–8 Tool set, scopes, risks,
+	// schemas and handler references.
+	TODO_ASSERT_EXACT_DEFINITION_CONTRACT(t, r)
+}
+
+func TestAllHandlersRequestsOutputsAndSchemas(t *testing.T) {
+	server := testkit.NewServerWithOptions(
+		t,
+		http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			// Assert fixed method/path/query/body/version/auth and return one
+			// documented bounded fixture per operation.
+			TODO_SERVE_REVIEWED_PROVIDER_FIXTURES(t, writer, request)
+		}),
+		testkit.ServerOptions{
+			Provider:         string(Definition.Type),
+			MaxResponseBytes: TODO_REVIEWED_MAX_RESPONSE_BYTES,
+		},
+	)
+	source := &clientSource{client: server.Client}
+	handlers := newHandlers(source)
+
+	for _, testCase := range TODO_EVERY_TOOL_SUCCESS_CASE {
+		result, err := handlers[testCase.handlerKey](
+			context.Background(),
+			testCase.call,
+		)
+		if err != nil || result.Failed() {
+			t.Fatalf("Tool failed: err=%v failure=%+v", err, result.Failure)
+		}
+		TODO_ASSERT_OUTPUT_SCHEMA(t, testCase.call.ToolID, result.Structured)
+	}
+}
+
+func TestFailureSecurityAndBoundaryMatrix(t *testing.T) {
+	// Table-cover exact and extra arguments, numeric/string/array boundaries,
+	// Unicode, aggregate URL/body limits, 400/401/403/404/408/409/422/429/5xx,
+	// malformed/HTML/oversize success, retry/write single-attempt, redirect,
+	// DNS/private IP and redaction. Invalid local inputs must observe zero HTTP.
+	TODO_RUN_COMPLETE_ADVERSARIAL_MATRIX(t)
+}
+
+func TestCredentialValidatorContract(t *testing.T) {
+	// Prove exact field shape, same client/auth/origin as handlers, strict
+	// profile identity, scopes-known semantics and body/credential redaction.
+	TODO_ASSERT_VALIDATOR_CONTRACT(t)
+}
+
+var _ connector.ToolResultData

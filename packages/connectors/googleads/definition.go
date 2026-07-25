@@ -9,6 +9,8 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 )
 
+func strPtr(value string) *string { return &value }
+
 var Definition = connector.Definition{
 	Type:                "google_ads",
 	Name:                "Google Ads",
@@ -16,7 +18,7 @@ var Definition = connector.Definition{
 	Categories:          []string{"advertising"},
 	HomepageURL:         "https://ads.google.com",
 	IconURL:             "https://cdn.simpleicons.org/googleads",
-	ConfigSchemaVersion: 1,
+	ConfigSchemaVersion: 2,
 
 	ConfigFields: []connector.ConfigField{
 		{
@@ -47,8 +49,8 @@ var Definition = connector.Definition{
 			InputType: connector.InputText,
 			Required:  true,
 			Secret:    true,
-			Description: "Google Ads API developer token。第一期仅保存不随请求传输，" +
-				"自托管 MCP server 侧需配置同一 token。",
+			Description: "Google Ads API developer token。连接激活前仅发送给官方 Google Ads " +
+				"credential validation endpoint；Tool 执行不透传给自托管 MCP，server 侧需配置同一 token。",
 		},
 		{
 			Key:         "customer_id",
@@ -66,6 +68,17 @@ var Definition = connector.Definition{
 			Description: "自托管 googleads/google-ads-mcp server 的 Streamable HTTP endpoint，" +
 				"填写后须通过 mcp:verify 方可用。",
 		},
+		{
+			Key:          "allow_insecure_http",
+			Label:        "Allow insecure HTTP",
+			InputType:    connector.InputSelect,
+			DefaultValue: strPtr("false"),
+			Description: "仅自托管开发环境需要；允许 mcp_url 使用明文 HTTP。" +
+				"实际生效仍受部署级安全开关约束。",
+			Validation: connector.FieldValidation{
+				Options: []string{"false", "true"},
+			},
+		},
 	},
 
 	AuthMethods: []connector.AuthMethod{
@@ -76,9 +89,13 @@ var Definition = connector.Definition{
 			OAuth: &connector.OAuthConfig{
 				AuthorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
 				TokenEndpoint:         "https://oauth2.googleapis.com/token",
-				Scopes:                []string{"https://www.googleapis.com/auth/adwords"},
-				UsePKCE:               false,
-				TokenEndpointAuth:     connector.TokenAuthPost,
+				Egress: connector.OAuthEgressConfig{
+					AuthorizationOrigins: []string{"https://accounts.google.com:443"},
+					TokenOrigins:         []string{"https://oauth2.googleapis.com:443"},
+				},
+				Scopes:            []string{"https://www.googleapis.com/auth/adwords"},
+				UsePKCE:           false,
+				TokenEndpointAuth: connector.TokenAuthPost,
 				ExtraAuthParams: map[string]string{
 					"access_type": "offline",
 					"prompt":      "consent",
@@ -96,12 +113,7 @@ var Definition = connector.Definition{
 			},
 			AuthBinding: connector.MCPAuthBinding{Scheme: "bearer"},
 			Provenance: connector.Provenance{
-				Kind:       connector.ProvenanceSelfHosted,
-				Publisher:  "self-hosted（官方 googleads/google-ads-mcp）",
-				DocsURL:    "https://developers.google.com/google-ads/api/docs/developer-toolkit/mcp-server",
-				SourceURL:  "https://github.com/googleads/google-ads-mcp",
-				ReviewedAt: "2026-07-22",
-				Stability:  connector.StabilityPreview,
+				Kind: connector.ProvenanceSelfHosted,
 			},
 			// GAQL 查询可能较慢，给足超时。
 			RequestTimeout: 60 * time.Second,
@@ -109,7 +121,8 @@ var Definition = connector.Definition{
 	},
 
 	// tool 名与官方 googleads/google-ads-mcp 一致；schema 为宽松近似，
-	// 以 mcp:verify 对照 tools/list 为准。
+	// tool 名可由 mcp:verify 兜底核对；schema 待 mcp-probe 校准
+	// （mcp:verify 只比对名字集合，不读 schema）。
 	Tools: []connector.Tool{
 		{
 			ID:          "list_accessible_customers",
@@ -154,4 +167,16 @@ var Definition = connector.Definition{
 			},
 		},
 	},
+	ConfigUpgraders: []connector.ConfigUpgrader{{
+		FromVersion: 1,
+		Upgrade: func(
+			public map[string]any,
+			secret map[string]any,
+		) (map[string]any, map[string]any, error) {
+			if _, exists := public["allow_insecure_http"]; !exists {
+				public["allow_insecure_http"] = "false"
+			}
+			return public, secret, nil
+		},
+	}},
 }

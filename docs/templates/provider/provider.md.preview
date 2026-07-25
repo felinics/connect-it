@@ -1,0 +1,85 @@
+# TODO Provider name
+
+Connector type: `TODO_connector_type`
+
+Status: **NOT SUPPORTED — implementation review and real-account smoke pending**
+
+## Source, version, and endpoint
+
+TODO: list current official documentation, exact reviewed API version/date and
+fixed canonical origins.
+
+`TestRegisteredProviderDocumentation` reads this section and unconditionally
+requires all of: an `https://` link, the word "official", an ISO review date, a
+full 40-hex commit SHA, `https://github.com/oomol-lab/open-connector`,
+`src/providers/` and `Apache-2.0`. So record the reference implementation's
+repository URL, pinned commit, exact reviewed paths and license here, and state
+what was not copied — a third-party implementation is never the source of truth
+for behavior.
+
+## Authentication and credential validation
+
+TODO: exact credential fields/presentation, minimal validator call, stable
+profile identity, scope-known semantics, secret bounds and redaction.
+
+## Fixed Tool surface
+
+TODO: table of the 3–8 Tool IDs, risk, required scope and fixed API operation.
+Document deliberate omissions and prove there is no arbitrary proxy surface.
+
+## Input, pagination and normalized output
+
+TODO: bounds, contextual encoding, pagination/termination, nullable/union
+semantics, response normalization and request/response byte limits.
+
+## Failure and security behavior
+
+TODO: status/envelope mapping, credential-invalid signal, Retry-After/retry,
+canonical origin, redirect, DNS/IP, proxy and timeout behavior.
+
+## Upgrade notes
+
+TODO: compatibility-sensitive Tool IDs, API version, auth, schemas, endpoint
+and pagination behavior.
+
+## Opt-in real-account smoke
+
+TODO: exact environment variable names, sandbox/test account requirements,
+least-privilege credential, write/destructive opt-in, command, coverage and
+cleanup. Add the fixed connector-type/package/exact-test/cleanup-mode row to
+`scripts/provider-real-smoke-manifest.tsv` — the single list the runner and
+`scripts/test-provider-real-smoke-gate.sh` both read; the gate test's hardcoded
+Provider count must be bumped in the same change. The only release command is:
+
+```sh
+bash scripts/run-provider-real-smoke.sh \
+  TODO_connector_type \
+  '<FULL_APPROVED_HEAD_SHA>' \
+  '/protected/provider-smoke/TODO_connector_type.tsv'
+```
+
+The runner must reject a dirty/wrong HEAD, a default no-environment SKIP,
+test/package FAIL, and a pre-existing output. Its mode-`0600` receipt binds the
+implementation commit and exact harness but only describes `cleanup_mode`; it
+never substitutes for separately verified cleanup `PASS`. Never document a
+real secret or customer identifier.
+
+## Smoke records
+
+Every row must fill the account/auth class, exact API/server version, and
+cleanup status explicitly. Do not hide these fields in `Coverage` or a PR
+comment, and do not record credential values or customer identifiers.
+Keep real-account rows newest first. A `production_supported` Provider uses
+the first real-account row as its current release evidence; that row must have
+an ISO execution date, concrete non-pending fields, cleanup `PASS` for any
+mutating Tool, and an unambiguous result in this machine-readable form:
+`PASS; implementation_commit=<full SHA>; harness=TestTODOProviderRealSmoke`.
+Historical `PASS`, `PENDING`, and `FAIL` rows remain in the table but cannot
+substitute for that current release row. Before production status, remove the
+initial undated placeholder or replace it with dated execution evidence;
+production history cannot retain an undated real-account row.
+
+| Date | Kind | Account/auth class | Environment | API/server version | Coverage | Cleanup status | Result |
+|---|---|---|---|---|---|---|---|
+| TODO | deterministic mock | N/A | no public network | TODO exact reviewed version | TODO | N/A — no external resources | TODO |
+| — | real account | TODO dedicated test account and auth type | dedicated sandbox/test tenant required | TODO record version at execution | TODO | **PENDING — not run** | **PENDING — not run** |

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/memohai/connect-it/packages/service/svcerr"
 )
 
 // EnvAdminPassword 用于首次启动 seed admin 账号（用户名固定 admin）。
@@ -25,7 +26,7 @@ const EnvAdminPassword = "CONNECT_IT_ADMIN_PASSWORD"
 const tokenPrefix = "cit_"
 
 // ErrNotFound：目标行不存在（如撤销不存在的 token）。
-var ErrNotFound = errors.New("authsvc: not found")
+var ErrNotFound = svcerr.New(svcerr.NotFound, "authsvc: not found")
 
 type Service struct {
 	q *store.Queries

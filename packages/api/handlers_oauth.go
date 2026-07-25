@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -23,29 +24,62 @@ func (h *handlers) oauthCallback(c echo.Context) error {
 	state, code := c.QueryParam("state"), c.QueryParam("code")
 
 	// provider 直接报错（用户拒绝等）：state 有效时仍能取到调用方的回跳地址。
-	if provErr := c.QueryParam("error"); provErr != "" {
+	if c.QueryParam("error") != "" {
 		redirectURL := ""
+		errCode := "authorization_denied"
 		if state != "" {
-			if result, err := h.deps.OAuth.HandleCallback(c.Request().Context(), state, ""); err != nil {
-				redirectURL = result.RedirectURL
+			result, err := h.deps.OAuth.HandleProviderErrorWithInput(
+				c.Request().Context(),
+				oauthsvc.ProviderErrorInput{
+					State: state,
+				},
+			)
+			redirectURL = result.RedirectURL
+			if err != nil {
+				// In particular, a failed claimed-attempt cleanup must not be
+				// hidden behind authorization_denied: that would falsely tell
+				// the caller the local state transition completed.
+				c.Logger().Error("OAuth provider-error 回调处理失败")
+				errCode = "oauth_failed"
+				if errors.Is(err, oauthsvc.ErrInvalidState) {
+					errCode = "invalid_state"
+				}
 			}
 		}
-		return h.finishCallback(c, redirectURL, "", provErr)
+		// Provider-controlled error text is never reflected into redirect
+		// parameters or HTML. The caller receives one stable safe code.
+		return h.finishCallback(c, redirectURL, "", errCode)
 	}
 	if state == "" || code == "" {
 		return h.finishCallback(c, "", "", "invalid_callback")
 	}
 
-	result, err := h.deps.OAuth.HandleCallback(c.Request().Context(), state, code)
+	result, err := h.deps.OAuth.HandleCallbackWithInput(
+		c.Request().Context(),
+		oauthsvc.CallbackInput{
+			State: state,
+			Code:  code,
+		},
+	)
 	if err != nil {
-		c.Logger().Errorf("oauth 回调失败: %v", err)
-		code := "oauth_failed"
-		if err == oauthsvc.ErrInvalidState {
-			code = "invalid_state"
-		}
-		return h.finishCallback(c, result.RedirectURL, "", code)
+		c.Logger().Error("oauth 回调失败")
+		return h.finishCallback(
+			c,
+			result.RedirectURL,
+			"",
+			safeCallbackErrorCode(err, "oauth_failed"),
+		)
 	}
 	return h.finishCallback(c, result.RedirectURL, result.ConnectionID.String(), "")
+}
+
+func safeCallbackErrorCode(err error, fallback string) string {
+	switch {
+	case errors.Is(err, oauthsvc.ErrInvalidState):
+		return "invalid_state"
+	default:
+		return fallback
+	}
 }
 
 // finishCallback 结束授权流程：调用方登记了 redirect_url 就带参数 302 回去；

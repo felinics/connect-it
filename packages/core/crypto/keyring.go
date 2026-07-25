@@ -23,7 +23,7 @@ type Keyring struct {
 	current int
 }
 
-func NewKeyring(keys map[int][]byte) (*Keyring, error) {
+func newKeyring(keys map[int][]byte) (*Keyring, error) {
 	if len(keys) == 0 {
 		return nil, errors.New("keyring: 至少需要一把 key")
 	}
@@ -66,10 +66,8 @@ func ParseKeyring(spec string) (*Keyring, error) {
 		}
 		keys[v] = raw
 	}
-	return NewKeyring(keys)
+	return newKeyring(keys)
 }
-
-func (k *Keyring) CurrentVersion() int { return k.current }
 
 func (k *Keyring) Encrypt(plaintext, aad []byte) ([]byte, int, error) {
 	gcm, err := k.gcm(k.current)

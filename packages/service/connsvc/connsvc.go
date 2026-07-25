@@ -15,30 +15,60 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
+	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/credential"
+	"github.com/memohai/connect-it/packages/service/internal/credentialcheck"
+	"github.com/memohai/connect-it/packages/service/internal/fieldnorm"
 	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/memohai/connect-it/packages/service/svcerr"
 )
 
-// AliasPattern 是 alias 的合法形式（spec §7）。
+// AliasPattern 是 alias 的唯一合法形式（spec §7）；connection 与 MCP session
+// 共用它，Go 侧不再有第二份拷贝。
 var AliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 var (
-	ErrInvalidAlias      = errors.New("connsvc: alias 必须匹配 ^[a-z0-9][a-z0-9-]{0,31}$")
-	ErrUnknownConnector  = errors.New("connsvc: 未知 connector type")
-	ErrUnknownAuthMethod = errors.New("connsvc: 未知 auth method")
-	ErrWrongAuthType     = errors.New("connsvc: auth method 不是 api_key / custom_credential")
-	ErrInvalidFields     = errors.New("connsvc: credential 字段不合法")
-	ErrNotFound          = errors.New("connsvc: connection 不存在")
+	ErrInvalidAlias      = svcerr.New(svcerr.Invalid, fmt.Sprintf("connsvc: alias 必须匹配 %s", AliasPattern))
+	ErrUnknownConnector  = svcerr.New(svcerr.NotFound, "connsvc: 未知 connector type")
+	ErrUnknownAuthMethod = svcerr.New(svcerr.Invalid, "connsvc: 未知 auth method")
+	ErrWrongAuthType     = svcerr.New(svcerr.Invalid, "connsvc: auth method 不是 api_key / custom_credential")
+	ErrInvalidFields     = svcerr.New(svcerr.Invalid, "connsvc: credential 字段不合法")
+	ErrNotFound          = svcerr.New(svcerr.NotFound, "connsvc: connection 不存在")
+	ErrConflict          = svcerr.New(svcerr.ConnectionConflict, "connsvc: connection credential 已被并发修改")
 )
 
-type Service struct {
-	q   *store.Queries
-	reg *registry.Registry
-	kr  *crypto.Keyring
+type configResolver interface {
+	ResolvedWithPolicy(
+		context.Context,
+		connector.Type,
+	) (map[string]any, configsvc.PolicySnapshot, error)
 }
 
-func New(q *store.Queries, reg *registry.Registry, kr *crypto.Keyring) *Service {
-	return &Service{q: q, reg: reg, kr: kr}
+type Service struct {
+	q          *store.Queries
+	reg        *registry.Registry
+	kr         *crypto.Keyring
+	configs    configResolver
+	validators connector.CredentialValidatorMap
+	matchers   connector.ScopeMatcherMap
+}
+
+func New(
+	q *store.Queries,
+	reg *registry.Registry,
+	kr *crypto.Keyring,
+	configs configResolver,
+	validators connector.CredentialValidatorMap,
+	matchers connector.ScopeMatcherMap,
+) *Service {
+	return &Service{
+		q:          q,
+		reg:        reg,
+		kr:         kr,
+		configs:    configs,
+		validators: validators,
+		matchers:   matchers,
+	}
 }
 
 // ConnectionView 是不含 credential 的对外视图。
@@ -61,24 +91,34 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 	if !ok {
 		return uuid.Nil, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
 	}
-	var method *connector.AuthMethod
-	for i := range def.AuthMethods {
-		if def.AuthMethods[i].Key == authMethodKey {
-			method = &def.AuthMethods[i]
-			break
-		}
-	}
+	method := authMethod(def, authMethodKey)
 	if method == nil {
 		return uuid.Nil, fmt.Errorf("%w: %s", ErrUnknownAuthMethod, authMethodKey)
 	}
 	if method.Type != connector.AuthAPIKey && method.Type != connector.AuthCustomCredential {
 		return uuid.Nil, fmt.Errorf("%w: %s 是 %s", ErrWrongAuthType, authMethodKey, method.Type)
 	}
-	if err := validateFields(method.CredentialFields, fields); err != nil {
+	normalizedFields, err := normalizeCredentialFields(
+		method.CredentialFields,
+		fields,
+	)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	authorizationID := uuid.New().String()
+	snapshot, policy, err := s.validateFieldsCredential(
+		ctx,
+		def,
+		*method,
+		normalizedFields,
+		"",
+		authorizationID,
+	)
+	if err != nil {
 		return uuid.Nil, err
 	}
 
-	plain, err := credential.Fields{Fields: fields}.Marshal()
+	plain, err := credential.Fields{Fields: normalizedFields}.Marshal()
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -91,21 +131,187 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 	if alias != "" {
 		aliasPtr = &alias
 	}
-	_, err = s.q.CreateConnection(ctx, store.CreateConnectionParams{
-		ID:               id,
-		ConnectorType:    string(t),
-		Alias:            aliasPtr,
-		AuthMethod:       authMethodKey,
-		Credential:       ct,
-		SecretKeyVersion: int32(ver),
-		Scopes:           []string{},
-		Status:           "active",
-		// AccessTokenExpiresAt 保持 nil（NULL）：api_key 不过期
-	})
+	_, err = s.q.CreateConnectionAtPolicyIdentity(
+		ctx,
+		store.CreateConnectionAtPolicyIdentityParams{
+			ID:                       id,
+			ConnectorType:            string(t),
+			Alias:                    aliasPtr,
+			AuthMethod:               authMethodKey,
+			Credential:               ct,
+			SecretKeyVersion:         int32(ver),
+			Profile:                  snapshot.Profile,
+			Scopes:                   snapshot.Scopes,
+			ScopesKnown:              snapshot.ScopesKnown,
+			Status:                   "active",
+			ExpectedIdentityVersion:  policy.IdentityVersion,
+			ExpectedIdentityDigest:   policy.IdentityDigest,
+			ExpectedDefinitionDigest: policy.DefinitionDigest,
+			// AccessTokenExpiresAt 保持 nil（NULL）：api_key 不过期
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrConflict
+	}
 	if err != nil {
 		return uuid.Nil, err
 	}
 	return id, nil
+}
+
+// RecredentialAPIKey validates and atomically replaces the complete
+// API-key/custom-credential group. The remote validation runs after taking a
+// version snapshot; the final dual-version CAS prevents a slower request from
+// overwriting a newer credential or authorization policy.
+func (s *Service) RecredentialAPIKey(
+	ctx context.Context,
+	connectionID uuid.UUID,
+	fields map[string]string,
+) (ConnectionView, error) {
+	if s.q == nil {
+		return ConnectionView{}, errors.New("connsvc: store 未配置")
+	}
+	row, err := s.q.GetConnection(ctx, connectionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ConnectionView{}, ErrNotFound
+		}
+		return ConnectionView{}, err
+	}
+	def, ok := s.reg.Get(connector.Type(row.ConnectorType))
+	if !ok {
+		return ConnectionView{}, fmt.Errorf(
+			"%w: %s",
+			ErrUnknownConnector,
+			row.ConnectorType,
+		)
+	}
+	method := authMethod(def, row.AuthMethod)
+	if method == nil {
+		return ConnectionView{}, fmt.Errorf(
+			"%w: %s",
+			ErrUnknownAuthMethod,
+			row.AuthMethod,
+		)
+	}
+	if method.Type != connector.AuthAPIKey &&
+		method.Type != connector.AuthCustomCredential {
+		return ConnectionView{}, fmt.Errorf(
+			"%w: %s 是 %s",
+			ErrWrongAuthType,
+			method.Key,
+			method.Type,
+		)
+	}
+	if row.Status == "pending" {
+		return ConnectionView{}, ErrConflict
+	}
+	normalizedFields, err := normalizeCredentialFields(
+		method.CredentialFields,
+		fields,
+	)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	snapshot, _, err := s.validateFieldsCredential(
+		ctx,
+		def,
+		*method,
+		normalizedFields,
+		connectionID.String(),
+		"",
+	)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	plain, err := credential.Fields{Fields: normalizedFields}.Marshal()
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	ciphertext, keyVersion, err := s.kr.Encrypt(
+		plain,
+		[]byte(connectionID.String()),
+	)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	_, err = s.q.RecredentialConnection(
+		ctx,
+		store.RecredentialConnectionParams{
+			Credential:                      ciphertext,
+			SecretKeyVersion:                int32(keyVersion),
+			Profile:                         snapshot.Profile,
+			Scopes:                          snapshot.Scopes,
+			ScopesKnown:                     snapshot.ScopesKnown,
+			ConnectionID:                    connectionID,
+			ExpectedCredentialVersion:       row.CredentialVersion,
+			ExpectedAuthorizationGeneration: row.AuthorizationGeneration,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ConnectionView{}, ErrConflict
+	}
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	updated, err := s.q.GetConnection(ctx, connectionID)
+	if err != nil {
+		return ConnectionView{}, err
+	}
+	return toView(updated), nil
+}
+
+func (s *Service) validateFieldsCredential(
+	ctx context.Context,
+	def connector.Definition,
+	method connector.AuthMethod,
+	fields map[string]string,
+	connectionID string,
+	authorizationID string,
+) (credentialcheck.Snapshot, configsvc.PolicySnapshot, error) {
+	if s.configs == nil {
+		return credentialcheck.Snapshot{}, configsvc.PolicySnapshot{}, errors.New(
+			"connsvc: config resolver 未配置",
+		)
+	}
+	resolved, policy, err := s.configs.ResolvedWithPolicy(ctx, def.Type)
+	if err != nil {
+		return credentialcheck.Snapshot{}, configsvc.PolicySnapshot{}, err
+	}
+	snapshot, err := credentialcheck.Validate(
+		ctx,
+		s.validators,
+		s.matchers,
+		def,
+		method,
+		connector.CredentialValidationInput{
+			ConnectorType:   def.Type,
+			AuthMethodKey:   method.Key,
+			AuthType:        method.Type,
+			ConnectionID:    connectionID,
+			AuthorizationID: authorizationID,
+			Config:          resolved,
+			Fields:          fields,
+		},
+		nil,
+		false,
+	)
+	if err != nil {
+		return credentialcheck.Snapshot{}, configsvc.PolicySnapshot{}, err
+	}
+	return snapshot, policy, nil
+}
+
+func authMethod(
+	def connector.Definition,
+	key string,
+) *connector.AuthMethod {
+	for i := range def.AuthMethods {
+		if def.AuthMethods[i].Key == key {
+			return &def.AuthMethods[i]
+		}
+	}
+	return nil
 }
 
 func (s *Service) List(ctx context.Context) ([]ConnectionView, error) {
@@ -157,31 +363,13 @@ func toView(r store.Connection) ConnectionView {
 	}
 }
 
-func validateFields(defs []connector.ConfigField, got map[string]string) error {
-	byKey := map[string]connector.ConfigField{}
-	for _, f := range defs {
-		byKey[f.Key] = f
+func normalizeCredentialFields(
+	definitions []connector.ConfigField,
+	input map[string]string,
+) (map[string]string, error) {
+	normalized, err := fieldnorm.Normalize(definitions, input)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidFields, err)
 	}
-	for k := range got {
-		if _, ok := byKey[k]; !ok {
-			return fmt.Errorf("%w: 未声明的字段 %q", ErrInvalidFields, k)
-		}
-	}
-	for _, f := range defs {
-		v, ok := got[f.Key]
-		if f.Required && (!ok || v == "") {
-			return fmt.Errorf("%w: 缺少必填字段 %q", ErrInvalidFields, f.Key)
-		}
-		if ok && v != "" && f.Validation.Pattern != "" {
-			re, err := regexp.Compile(f.Validation.Pattern)
-			if err != nil {
-				return fmt.Errorf("%w: 字段 %q 的校验正则非法: %v", ErrInvalidFields, f.Key, err)
-			}
-			if !re.MatchString(v) {
-				return fmt.Errorf("%w: 字段 %q 不符合 %s", ErrInvalidFields, f.Key, f.Validation.Pattern)
-			}
-		}
-	}
-	return nil
+	return normalized, nil
 }
-

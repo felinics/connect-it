@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { client as sdkClient } from '@connect-it/sdk'
 
 import { ApiError, setUnauthorizedHandler, unwrap } from './client'
 
@@ -11,6 +12,12 @@ function result(status: number, body: unknown) {
 }
 
 describe('unwrap', () => {
+  it('所有同源 SDK 请求都携带管理端 CSRF header', () => {
+    const headers = new Headers(sdkClient.getConfig().headers as HeadersInit)
+    expect(headers.get('X-Connect-It-CSRF')).toBe('1')
+    expect(sdkClient.getConfig().credentials).toBe('include')
+  })
+
   it('2xx 返回 data', async () => {
     await expect(unwrap(result(200, { ok: true }))).resolves.toEqual({ ok: true })
   })
@@ -46,6 +53,23 @@ describe('unwrap', () => {
       allowUnauthorized: true,
     }).catch(() => undefined)
     expect(called).toBe(1)
+    setUnauthorizedHandler(null)
+  })
+
+  it('Provider credential 401 不应被误判为管理会话过期', async () => {
+    let called = 0
+    setUnauthorizedHandler(() => {
+      called += 1
+    })
+    const err = await unwrap(
+      result(401, {
+        error: 'authorization_failed',
+        message: 'provider authorization failed',
+      }),
+    ).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).code).toBe('authorization_failed')
+    expect(called).toBe(0)
     setUnauthorizedHandler(null)
   })
 })

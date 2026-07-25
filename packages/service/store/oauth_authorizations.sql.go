@@ -7,97 +7,10 @@ package store
 
 import (
 	"context"
-	"time"
-
-	"github.com/google/uuid"
 )
-
-const completeOAuthAuthorization = `-- name: CompleteOAuthAuthorization :exec
-UPDATE oauth_authorizations
-SET status = $2,
-    connection_id = $3
-WHERE id = $1
-`
-
-type CompleteOAuthAuthorizationParams struct {
-	ID           uuid.UUID
-	Status       string
-	ConnectionID *uuid.UUID
-}
-
-func (q *Queries) CompleteOAuthAuthorization(ctx context.Context, arg CompleteOAuthAuthorizationParams) error {
-	_, err := q.db.Exec(ctx, completeOAuthAuthorization, arg.ID, arg.Status, arg.ConnectionID)
-	return err
-}
-
-const createOAuthAuthorization = `-- name: CreateOAuthAuthorization :one
-INSERT INTO oauth_authorizations (
-  id, connector_type, state_hash, pkce_verifier, secret_key_version,
-  auth_method, alias, connection_id, redirect_url, status, expires_at, created_at
-) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()
-)
-RETURNING id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url
-`
-
-type CreateOAuthAuthorizationParams struct {
-	ID               uuid.UUID
-	ConnectorType    string
-	StateHash        string
-	PkceVerifier     []byte
-	SecretKeyVersion int32
-	AuthMethod       string
-	Alias            string
-	ConnectionID     *uuid.UUID
-	RedirectUrl      string
-	Status           string
-	ExpiresAt        time.Time
-}
-
-func (q *Queries) CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthAuthorizationParams) (OauthAuthorization, error) {
-	row := q.db.QueryRow(ctx, createOAuthAuthorization,
-		arg.ID,
-		arg.ConnectorType,
-		arg.StateHash,
-		arg.PkceVerifier,
-		arg.SecretKeyVersion,
-		arg.AuthMethod,
-		arg.Alias,
-		arg.ConnectionID,
-		arg.RedirectUrl,
-		arg.Status,
-		arg.ExpiresAt,
-	)
-	var i OauthAuthorization
-	err := row.Scan(
-		&i.ID,
-		&i.ConnectorType,
-		&i.StateHash,
-		&i.PkceVerifier,
-		&i.ConnectionID,
-		&i.Status,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.AuthMethod,
-		&i.Alias,
-		&i.SecretKeyVersion,
-		&i.RedirectUrl,
-	)
-	return i, err
-}
-
-const deleteExpiredOAuthAuthorizations = `-- name: DeleteExpiredOAuthAuthorizations :exec
-DELETE FROM oauth_authorizations
-WHERE expires_at < now() AND status = 'pending'
-`
-
-func (q *Queries) DeleteExpiredOAuthAuthorizations(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredOAuthAuthorizations)
-	return err
-}
 
 const getOAuthAuthorizationByStateHash = `-- name: GetOAuthAuthorizationByStateHash :one
-SELECT id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url FROM oauth_authorizations WHERE state_hash = $1
+SELECT id, connector_type, state_hash, context_ciphertext, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url, attempt_version, expected_authorization_generation, flow_kind, requested_scopes, context_version FROM oauth_authorizations WHERE state_hash = $1
 `
 
 func (q *Queries) GetOAuthAuthorizationByStateHash(ctx context.Context, stateHash string) (OauthAuthorization, error) {
@@ -107,7 +20,7 @@ func (q *Queries) GetOAuthAuthorizationByStateHash(ctx context.Context, stateHas
 		&i.ID,
 		&i.ConnectorType,
 		&i.StateHash,
-		&i.PkceVerifier,
+		&i.ContextCiphertext,
 		&i.ConnectionID,
 		&i.Status,
 		&i.ExpiresAt,
@@ -116,6 +29,11 @@ func (q *Queries) GetOAuthAuthorizationByStateHash(ctx context.Context, stateHas
 		&i.Alias,
 		&i.SecretKeyVersion,
 		&i.RedirectUrl,
+		&i.AttemptVersion,
+		&i.ExpectedAuthorizationGeneration,
+		&i.FlowKind,
+		&i.RequestedScopes,
+		&i.ContextVersion,
 	)
 	return i, err
 }

@@ -10,8 +10,6 @@ import (
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func TestConnectorHealthUpsert(t *testing.T) {
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
@@ -56,30 +54,54 @@ func TestInsertToolRun(t *testing.T) {
 	ctx := context.Background()
 	id := uuid.New()
 	connID := uuid.New()
+	errorCode := "rate_limited"
+	upstreamStatus := int32(429)
+	safeError := `{"code":"rate_limited","message":"provider rate limit exceeded"}`
 	err := q.InsertToolRun(ctx, store.InsertToolRunParams{
-		ID:            id,
-		ConnectorType: "test_runs",
-		ConnectionID:  &connID,
-		ToolID:        "list_items",
-		SessionID:     nil,
-		Status:        "ok",
-		Error:         nil,
-		Input:         []byte(`{"a":1}`),
-		OutputSummary: ptr("done"),
-		DurationMs:    ptr(int32(12)),
+		ID:             id,
+		ConnectorType:  "test_runs",
+		ConnectionID:   &connID,
+		ToolID:         "list_items",
+		SessionID:      nil,
+		Status:         "error",
+		Error:          &safeError,
+		ErrorCode:      &errorCode,
+		UpstreamStatus: &upstreamStatus,
+		Input:          []byte(`{"a":1}`),
+		OutputSummary:  ptr("done"),
+		DurationMs:     ptr(int32(12)),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var status, toolID string
+	var status, toolID, storedErrorCode string
+	var storedUpstreamStatus int32
 	var sessionID *uuid.UUID
 	if err := pool.QueryRow(ctx,
-		`select status, tool_id, session_id from tool_runs where id = $1`, id).
-		Scan(&status, &toolID, &sessionID); err != nil {
+		`select status, tool_id, session_id, error_code, upstream_status
+		 from tool_runs where id = $1`, id).
+		Scan(
+			&status,
+			&toolID,
+			&sessionID,
+			&storedErrorCode,
+			&storedUpstreamStatus,
+		); err != nil {
 		t.Fatal(err)
 	}
-	if status != "ok" || toolID != "list_items" || sessionID != nil {
-		t.Fatalf("行内容不符: %s %s %v", status, toolID, sessionID)
+	if status != "error" ||
+		toolID != "list_items" ||
+		sessionID != nil ||
+		storedErrorCode != errorCode ||
+		storedUpstreamStatus != upstreamStatus {
+		t.Fatalf(
+			"行内容不符: %s %s %v %s %d",
+			status,
+			toolID,
+			sessionID,
+			storedErrorCode,
+			storedUpstreamStatus,
+		)
 	}
 }
 

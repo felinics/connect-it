@@ -1,0 +1,54 @@
+// TEMPLATE v1 (Managed REST form) — copy only after completing
+// REVIEW_CHECKLIST.md. Use this file ONLY when the form decision
+// (docs/blueprint.md §8) is a documented downgrade to hand-written REST; the
+// default is Remote MCP, which uses definition.remote.go.preview and needs
+// neither client.go nor managed.go.
+//
+// This preview is intentionally non-compiling and contains no inferred
+// official source, auth contract, schema, scope, risk, or Tool semantics.
+// Keep official sources, API version, review date, pinned implementation
+// commits, exact reviewed paths, and licenses in docs/providers/<type>.md.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"encoding/json"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+var Definition = connector.Definition{
+	Type:                connector.Type(TODO_CONNECTOR_TYPE),
+	Name:                TODO_DISPLAY_NAME,
+	Description:         TODO_DESCRIPTION,
+	Categories:          TODO_REVIEWED_CATEGORIES,
+	HomepageURL:         TODO_REVIEWED_HOMEPAGE_URL,
+	IconURL:             TODO_REVIEWED_BRAND_ASSET_URL,
+	ConfigSchemaVersion: TODO_CONFIG_SCHEMA_VERSION,
+	ConfigFields: TODO_REVIEWED_CONFIG_FIELDS,
+	AuthMethods: []connector.AuthMethod{
+		{
+			Key:              TODO_AUTH_METHOD_KEY,
+			Type:             TODO_AUTH_METHOD_TYPE,
+			Label:            TODO_AUTH_METHOD_LABEL,
+			CredentialFields: TODO_REVIEWED_CREDENTIAL_FIELDS,
+		},
+	},
+	Tools: []connector.Tool{
+		{
+			// Duplicate this block only for the 3–8 reviewed workflows.
+			ID:             TODO_STABLE_TOOL_ID,
+			Name:           TODO_TOOL_NAME,
+			Description:    TODO_TOOL_DESCRIPTION,
+			InputSchema:    json.RawMessage(TODO_REVIEWED_INPUT_SCHEMA),
+			OutputSchema:   json.RawMessage(TODO_REVIEWED_OUTPUT_SCHEMA),
+			MaxInputBytes:  TODO_REVIEWED_INPUT_BYTE_LIMIT,
+			RequiredScopes: TODO_REVIEWED_REQUIRED_SCOPES,
+			Risk:           TODO_REVIEWED_TOOL_RISK,
+			Backend: connector.ManagedBackend{
+				HandlerKey: TODO_HANDLER_KEY_MATCHING_TOOL,
+			},
+		},
+	},
+}

@@ -1,12 +1,15 @@
 # Versions verified 2026-07-22:
-#   actions/checkout v7 (latest v7.0.1)  https://github.com/actions/checkout/releases
-#   jdx/mise-action  v4 (latest v4.2.1)  https://github.com/jdx/mise-action/releases
+#   actions/checkout v7.0.1 -> 3d3c42e5aac5ba805825da76410c181273ba90b1
+#   jdx/mise-action  v4.2.1 -> dad1bfd3df957f44999b559dd69dc1671cb4e9ea
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -30,12 +33,13 @@ jobs:
       # GITHUB_TOKEN cannot fetch it; provide a deploy key via the `ssh-key`
       # input or a PAT via the `token` input of actions/checkout.
       - name: Check out repository (with ui submodule)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install toolchain (go/node/pnpm) via mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
 
       - name: Vet Go modules
         run: mise run vet
@@ -45,8 +49,45 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://connect_it:connect_it@localhost:5432/connect_it_test?sslmode=disable
 
+      - name: Race-test Provider runtime
+        working-directory: packages/core
+        run: go test -race ./...
+
+      - name: Race-test Provider adapters (real smoke excluded)
+        working-directory: packages/connectors
+        run: go test -race -skip 'RealSmoke$' ./...
+
+      - name: Test fail-closed Provider real-smoke gate
+        run: mise run test-provider-real-smoke-gate
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify generated artifacts and Go module graphs
+        run: |
+          mise run swagger
+          mise run sdk
+          mise run sqlc
+          for module in packages/*/; do
+            if [ -f "${module}/go.mod" ]; then
+              (cd "${module}" && go mod tidy -diff)
+            fi
+          done
+          git diff --check HEAD
+          git diff --exit-code HEAD -- \
+            packages/api/docs \
+            packages/sdk/src \
+            packages/service/store
+          untracked_generated="$(
+            git ls-files --others --exclude-standard -- \
+              packages/api/docs \
+              packages/sdk/src \
+              packages/service/store
+          )"
+          if [ -n "${untracked_generated}" ]; then
+            printf 'Untracked generated artifacts:\n%s\n' "${untracked_generated}"
+            exit 1
+          fi
 
       - name: Run web unit tests
         run: pnpm --dir packages/web run test
@@ -54,7 +95,28 @@ jobs:
       - name: Build web UI
         run: mise run build-web
 
-      - name: Docker build smoke test (server + web images)
+      - name: Validate immutable release Compose model
+        run: mise run check-release-compose
+
+      - name: Test Docker ingress runner isolation
+        run: bash scripts/test-mcp-ingress-docker-unit.sh
+
+      - name: Build production Docker images
         run: |
-          docker build -f docker/server.Dockerfile -t connect-it-server:ci .
-          docker build -f docker/web.Dockerfile -t connect-it-web:ci .
+          docker build \
+            --build-arg "CONNECT_IT_BUILD_REVISION=${GITHUB_SHA}" \
+            -f docker/server.Dockerfile \
+            -t connect-it-server:ci \
+            .
+          docker build \
+            --build-arg "CONNECT_IT_BUILD_REVISION=${GITHUB_SHA}" \
+            -f docker/web.Dockerfile \
+            -t connect-it-web:ci \
+            .
+
+      - name: Real Docker/Nginx MCP ingress contract
+        run: bash scripts/test-mcp-ingress-docker.sh
+        env:
+          CONNECT_IT_INGRESS_SERVER_IMAGE: connect-it-server:ci
+          CONNECT_IT_INGRESS_WEB_IMAGE: connect-it-web:ci
+          CONNECT_IT_INGRESS_SKIP_BUILD: "1"

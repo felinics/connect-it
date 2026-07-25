@@ -19,11 +19,13 @@ set last_error_at = now(),
 -- name: InsertToolRun :exec
 insert into tool_runs (
   id, connector_type, connection_id, tool_id, session_id,
-  status, error, input, output_summary, duration_ms, created_at
+  status, error, error_code, upstream_status, input, output_summary,
+  duration_ms, created_at
 ) values (
   sqlc.arg(id), sqlc.arg(connector_type), sqlc.narg(connection_id), sqlc.arg(tool_id),
   sqlc.narg(session_id), sqlc.arg(status), sqlc.narg(error),
-  sqlc.narg(input), sqlc.narg(output_summary), sqlc.arg(duration_ms), now()
+  sqlc.narg(error_code), sqlc.narg(upstream_status), sqlc.narg(input),
+  sqlc.narg(output_summary), sqlc.arg(duration_ms), now()
 );
 
 -- name: SetConnectorConfigVerified :exec

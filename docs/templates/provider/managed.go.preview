@@ -1,0 +1,163 @@
+// TEMPLATE v1 — one representative Managed handler. Duplicate only after
+// reviewing each operation's method, path, retry, input and response contract.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/memohai/connect-it/packages/core/providerkit"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+type managedHandler struct {
+	clients *clientSource
+}
+
+func NewHandlers(
+	factory *providerkit.Factory,
+) (connector.HandlerMap, error) {
+	source, err := newClientSource(factory)
+	if err != nil {
+		return nil, err
+	}
+	return newHandlers(source), nil
+}
+
+func newHandlers(source *clientSource) connector.HandlerMap {
+	handler := &managedHandler{clients: source}
+	return connector.HandlerMap{
+		TODO_HANDLER_KEY_MATCHING_DEFINITION: handler.exampleRead,
+	}
+}
+
+func (handler *managedHandler) exampleRead(
+	ctx context.Context,
+	call connector.ToolCallContext,
+) (connector.ToolResultData, error) {
+	if code := validateToolCall(
+		call,
+		TODO_STABLE_TOOL_ID,
+		TODO_EXACT_ALLOWED_ARGUMENT_KEYS...,
+	); code != "" {
+		return failureResult(code, 0, 0)
+	}
+	credentials, code := credentialsFromToolCall(call)
+	if code != "" {
+		return failureResult(code, 0, 0)
+	}
+	authorizer, code := credentials.authorizer()
+	if code != "" {
+		return failureResult(code, 0, 0)
+	}
+	if handler == nil || handler.clients == nil || handler.clients.client == nil {
+		return failureResult(connector.FailureConfigurationError, 0, 0)
+	}
+	response, err := handler.clients.client.Do(ctx, providerkit.Request{
+		Method:     http.MethodGet,
+		URL:        TODO_FIXED_RELATIVE_OPERATION_PATH,
+		Query:      TODO_CONTEXT_ENCODED_QUERY(call.Arguments),
+		Authorizer: authorizer,
+		Headers: http.Header{
+			"Accept": {"application/json"},
+		},
+		Labels: providerkit.RequestLabels{
+			ConnectorType: string(Definition.Type),
+			ConnectionID:  call.ConnectionID,
+			ToolID:        call.ToolID,
+		},
+	})
+	if err != nil {
+		return connector.ToolResultData{
+			Failure: mapProviderFailure(response, err),
+		}, nil
+	}
+
+	var upstream TODO_DOCUMENTED_SUCCESS_RESPONSE
+	if response == nil || response.DecodeJSON(&upstream) != nil {
+		return failureResult(
+			connector.FailureInvalidResponse,
+			responseStatus(response),
+			0,
+		)
+	}
+	normalized, ok := TODO_STRICT_NORMALIZE_SUCCESS(upstream)
+	if !ok {
+		return failureResult(
+			connector.FailureInvalidResponse,
+			response.StatusCode,
+			0,
+		)
+	}
+	return structuredResult(normalized)
+}
+
+func validateToolCall(
+	call connector.ToolCallContext,
+	expectedToolID string,
+	allowedArgumentKeys ...string,
+) connector.FailureCode {
+	if call.ConnectorType != Definition.Type {
+		return connector.FailureConfigurationError
+	}
+	if call.ToolID != expectedToolID {
+		return connector.FailureToolUnavailable
+	}
+	if len(call.Arguments) > len(allowedArgumentKeys) {
+		return connector.FailureInvalidInput
+	}
+	allowed := make(map[string]struct{}, len(allowedArgumentKeys))
+	for _, key := range allowedArgumentKeys {
+		allowed[key] = struct{}{}
+	}
+	for key := range call.Arguments {
+		if _, ok := allowed[key]; !ok {
+			return connector.FailureInvalidInput
+		}
+	}
+	return ""
+}
+
+func structuredResult(value any) (connector.ToolResultData, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return failureResult(connector.FailureInternalError, 0, 0)
+	}
+	structured := bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'})
+	if len(structured) == 0 || len(structured) > TODO_NORMALIZED_OUTPUT_BYTE_LIMIT {
+		return failureResult(connector.FailureResponseTooLarge, 0, 0)
+	}
+	return connector.ToolResultData{
+		Structured: append(json.RawMessage(nil), structured...),
+	}, nil
+}
+
+func failureResult(
+	code connector.FailureCode,
+	status int,
+	retryAfterSeconds int,
+) (connector.ToolResultData, error) {
+	failure, err := connector.NewToolFailure(
+		code,
+		connector.DefaultFailureMessage(code),
+		status,
+		retryAfterSeconds,
+	)
+	if err != nil {
+		return connector.ToolResultData{}, err
+	}
+	return connector.ToolResultData{Failure: failure}, nil
+}
+
+func responseStatus(response *providerkit.Response) int {
+	if response == nil {
+		return 0
+	}
+	return response.StatusCode
+}

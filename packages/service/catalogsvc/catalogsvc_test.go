@@ -2,6 +2,7 @@ package catalogsvc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -24,7 +25,12 @@ func newCatalog(t *testing.T) (*catalogsvc.Service, context.Context, func(sql st
 		t.Fatal(err)
 	}
 	reg := registry.New()
-	tool := []connector.Tool{{ID: "t", Backend: connector.ManagedBackend{HandlerKey: "t"}}}
+	tool := []connector.Tool{{
+		ID:          "t",
+		Risk:        connector.RiskRead,
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":true}`),
+		Backend:     connector.ManagedBackend{HandlerKey: "t"},
+	}}
 	reg.MustRegister(connector.Definition{
 		Type: "ready_app", Name: "Ready", ConfigSchemaVersion: 1, Tools: tool,
 	}, "t")

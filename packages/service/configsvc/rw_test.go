@@ -18,8 +18,6 @@ import (
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
 
-func strPtr(s string) *string { return &s }
-
 func testKeyring(t *testing.T) *crypto.Keyring {
 	t.Helper()
 	k, err := crypto.ParseKeyring("1:" + strings.Repeat("ab", 32))
@@ -29,21 +27,6 @@ func testKeyring(t *testing.T) *crypto.Keyring {
 	return k
 }
 
-// rwDefinition 是读写测试的主 connector：必填公开＋必填 secret＋默认值＋可选 secret。
-func rwDefinition() connector.Definition {
-	return connector.Definition{
-		Type:                "example_app",
-		Name:                "Example",
-		ConfigSchemaVersion: 1,
-		ConfigFields: []connector.ConfigField{
-			{Key: "client_id", Label: "Client ID", InputType: connector.InputText, Required: true},
-			{Key: "client_secret", Label: "Client Secret", InputType: connector.InputText, Required: true, Secret: true},
-			{Key: "tenant", Label: "Tenant", InputType: connector.InputText, Required: true, DefaultValue: strPtr("common")},
-			{Key: "api_key", Label: "API Key", InputType: connector.InputText, Secret: true},
-		},
-	}
-}
-
 func newRWService(t *testing.T, defs ...connector.Definition) (*configsvc.Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testutil.NewDB(t)
@@ -51,7 +34,11 @@ func newRWService(t *testing.T, defs ...connector.Definition) (*configsvc.Servic
 	for _, d := range defs {
 		r.MustRegister(d)
 	}
-	return configsvc.New(store.New(pool), r, testKeyring(t)), pool
+	svc := configsvc.New(store.New(pool), r, testKeyring(t))
+	if _, err := svc.ReconcilePolicyIdentities(t.Context()); err != nil {
+		t.Fatalf("startup policy reconcile: %v", err)
+	}
+	return svc, pool
 }
 
 func mustPut(t *testing.T, s *configsvc.Service, typ connector.Type, public map[string]any, secrets map[string]string) configsvc.ConfigView {
@@ -64,7 +51,7 @@ func mustPut(t *testing.T, s *configsvc.Service, typ connector.Type, public map[
 }
 
 func TestPutGetRoundtrip(t *testing.T) {
-	s, _ := newRWService(t, rwDefinition())
+	s, _ := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	mustPut(t, s, "example_app",
@@ -87,7 +74,7 @@ func TestPutGetRoundtrip(t *testing.T) {
 }
 
 func TestPutMergesSecrets(t *testing.T) {
-	s, _ := newRWService(t, rwDefinition())
+	s, _ := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	mustPut(t, s, "example_app",
@@ -111,7 +98,7 @@ func TestPutMergesSecrets(t *testing.T) {
 }
 
 func TestPutIfMatchConflict(t *testing.T) {
-	s, _ := newRWService(t, rwDefinition())
+	s, _ := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	first := mustPut(t, s, "example_app",
@@ -135,7 +122,7 @@ func TestPutIfMatchConflict(t *testing.T) {
 }
 
 func TestPutIncompatible(t *testing.T) {
-	s, pool := newRWService(t, rwDefinition())
+	s, pool := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	mustPut(t, s, "example_app",
@@ -154,7 +141,7 @@ func TestPutIncompatible(t *testing.T) {
 func TestPutPrunesRemovedSecretFields(t *testing.T) {
 	// 模拟代码升级删除字段：v1 定义含 legacy secret，写入后换用不含 legacy 的
 	// v2 服务实例再保存一次，legacy 应被清理。
-	oldDef := rwDefinition()
+	oldDef := configsvc.Fixture("example_app", "")
 	oldDef.ConfigFields = append(oldDef.ConfigFields, connector.ConfigField{
 		Key: "legacy", Label: "Legacy", InputType: connector.InputText, Secret: true,
 	})
@@ -171,7 +158,7 @@ func TestPutPrunesRemovedSecretFields(t *testing.T) {
 	}
 
 	newReg := registry.New()
-	newReg.MustRegister(rwDefinition())
+	newReg.MustRegister(configsvc.Fixture("example_app", ""))
 	newSvc := configsvc.New(store.New(pool), newReg, kr)
 	if _, err := newSvc.Put(context.Background(), "example_app",
 		map[string]any{"client_id": "abc"}, map[string]string{}, time.Time{}); err != nil {
@@ -187,7 +174,7 @@ func TestPutPrunesRemovedSecretFields(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	s, _ := newRWService(t, rwDefinition())
+	s, _ := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	mustPut(t, s, "example_app",
@@ -205,7 +192,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestResolvedDefaultsAndSecrets(t *testing.T) {
-	s, _ := newRWService(t, rwDefinition())
+	s, _ := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	// 未配置：只有默认值
@@ -268,6 +255,9 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 	regV2 := registry.New()
 	regV2.MustRegister(v2)
 	svcV2 := configsvc.New(store.New(pool), regV2, kr)
+	if _, err := svcV2.ReconcilePolicyIdentities(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 
 	resolved, err := svcV2.Resolved(context.Background(), "upg_app")
 	if err != nil {
@@ -286,8 +276,84 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 	}
 }
 
+func TestPutAppliesSecretUpgraderBeforeMergeAndNormalizedSave(t *testing.T) {
+	pool := testutil.NewDB(t)
+	kr := testKeyring(t)
+	v1 := connector.Definition{
+		Type: "secret_upgrade", Name: "Secret upgrade", ConfigSchemaVersion: 1,
+		ConfigFields: []connector.ConfigField{{
+			Key:       "old_secret",
+			Label:     "Old secret",
+			InputType: connector.InputText,
+			Required:  true,
+			Secret:    true,
+		}},
+	}
+	regV1 := registry.New()
+	regV1.MustRegister(v1)
+	svcV1 := configsvc.New(store.New(pool), regV1, kr)
+	if _, err := svcV1.Put(
+		context.Background(),
+		"secret_upgrade",
+		nil,
+		map[string]string{"old_secret": "preserved"},
+		time.Time{},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	v2 := connector.Definition{
+		Type: "secret_upgrade", Name: "Secret upgrade", ConfigSchemaVersion: 2,
+		ConfigFields: []connector.ConfigField{{
+			Key:       "new_secret",
+			Label:     "New secret",
+			InputType: connector.InputText,
+			Required:  true,
+			Secret:    true,
+		}},
+		ConfigUpgraders: []connector.ConfigUpgrader{{
+			FromVersion: 1,
+			Upgrade: func(
+				public map[string]any,
+				secrets map[string]any,
+			) (map[string]any, map[string]any, error) {
+				secrets["new_secret"] = secrets["old_secret"]
+				delete(secrets, "old_secret")
+				return public, secrets, nil
+			},
+		}},
+	}
+	regV2 := registry.New()
+	regV2.MustRegister(v2)
+	svcV2 := configsvc.New(store.New(pool), regV2, kr)
+	view, err := svcV2.Put(
+		context.Background(),
+		"secret_upgrade",
+		nil,
+		nil,
+		time.Time{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.SchemaVersion != 2 ||
+		!slices.Equal(view.SecretKeysSet, []string{"new_secret"}) {
+		t.Fatalf("normalized upgraded secret view = %+v", view)
+	}
+	resolved, err := svcV2.Resolved(context.Background(), "secret_upgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved["new_secret"] != "preserved" {
+		t.Fatalf("upgraded secret was not retained: %+v", resolved)
+	}
+	if _, exists := resolved["old_secret"]; exists {
+		t.Fatalf("removed secret survived normalized save: %+v", resolved)
+	}
+}
+
 func TestConfigStateMapping(t *testing.T) {
-	s, pool := newRWService(t, rwDefinition())
+	s, pool := newRWService(t, configsvc.Fixture("example_app", ""))
 	ctx := context.Background()
 
 	st, err := s.ConfigState(ctx, "example_app")

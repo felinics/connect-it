@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	service "github.com/memohai/connect-it/packages/service"
+	"github.com/memohai/connect-it/packages/service/dbmigrate"
 )
 
 // NewDB 返回一个连接到独立随机 schema、已跑完全部 migration 的连接池。
@@ -46,7 +46,7 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.MigrateUp(schemaURL); err != nil {
+	if err := dbmigrate.Initialize(ctx, schemaURL); err != nil {
 		t.Fatalf("migration 失败: %v", err)
 	}
 	pool, err := pgxpool.New(ctx, schemaURL)

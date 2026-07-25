@@ -1,0 +1,64 @@
+// TEMPLATE v1 — this test must skip unless explicitly enabled. The release
+// runner separately treats that default SKIP as a failed acceptance gate.
+// Never print credential values, headers, request/response bodies or customer
+// data.
+package TODO_PROVIDER_PACKAGE
+
+import (
+	"testing"
+
+	"github.com/memohai/connect-it/packages/connectors/internal/smoketest"
+	"github.com/memohai/connect-it/packages/core/providerkit"
+)
+
+const _ = TODO_HUMAN_REVIEW_REQUIRED_BEFORE_COMPILATION
+
+func TestProviderRealSmoke(t *testing.T) {
+	// smoketest.Config is the shared gate every harness uses: skip when nothing
+	// is configured, fail when the configuration is partial or invalid. Do not
+	// hand-roll it from os.Getenv.
+	credential := smoketest.Config(
+		t,
+		TODO_PROVIDER_DISPLAY_NAME,
+		parseProviderSmokeCredential,
+	)
+
+	factory, err := providerkit.NewFactoryFromEnv()
+	if err != nil {
+		t.Fatal("construct guarded Provider runtime")
+	}
+	_ = factory
+
+	// Use a dedicated sandbox/test tenant and short-lived least-privilege
+	// credential. Exercise the compiled validator and every first-release Tool,
+	// then verify negative permission/auth/rate-limit behavior where the
+	// Provider supports it. Clean up through a reviewed path (smoketest.Retry
+	// is the shared resolve-verify-delete loop) or record manual cleanup
+	// without logging IDs or business data.
+	TODO_RUN_REAL_ACCOUNT_SMOKE_WITHOUT_SECRET_OUTPUT(t, credential)
+}
+
+func parseProviderSmokeCredential(
+	lookup smoketest.Lookup,
+) (string, bool, error) {
+	values, configured, err := smoketest.Values(
+		TODO_PROVIDER_DISPLAY_NAME,
+		lookup,
+		TODO_EVERY_REQUIRED_SMOKE_ENV_NAME...,
+	)
+	if !configured || err != nil {
+		return "", configured, err
+	}
+	// Every write/destructive Tool needs its own exact opt-in. smoketest.Exactly
+	// is the only accepted form, so no truthy-looking value can arm a mutation.
+	if TODO_HAS_WRITE_TOOLS {
+		if err := smoketest.Exactly(
+			values,
+			TODO_PROVIDER_SMOKE_ALLOW_WRITES_ENV,
+			"true",
+		); err != nil {
+			return "", true, err
+		}
+	}
+	return values[TODO_PROVIDER_SMOKE_CREDENTIAL_ENV], true, nil
+}
