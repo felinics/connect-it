@@ -7,6 +7,9 @@ const backend = 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   server: {
     proxy: {
       '/v1': backend,
