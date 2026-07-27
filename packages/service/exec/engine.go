@@ -1,10 +1,4 @@
-// Package exec 是两种 Tool backend 的统一执行引擎（spec §11）：
-// 装配 Definition＋配置＋credential，分派 Managed handler 或 Remote MCP，
-// 结果 piggyback 写入 tool_runs 与 connector_health。
-//
-// health 只记录 backend 真正被调用后的成败：配置类拒绝（tool/handler 不存在、
-// mapper 未实现、self_hosted 未 verify）不污染健康数据；上游 IsError=true
-// 视为连通成功（health 记成功、tool_runs 记 error）。
+// Package exec assembles a connection and dispatches MCP tools.
 package exec
 
 import (
@@ -12,34 +6,50 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/credential"
-	"github.com/memohai/connect-it/packages/service/mcpclient"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/tokens"
 )
 
 const (
-	maxInputBytes    = 64 * 1024
-	maxSummaryBytes  = 2048
-	defaultMCPWindow = 30 * time.Second
+	defaultMCPTimeout = 30 * time.Second
+	auditWriteTimeout = 2 * time.Second
 )
 
 var (
 	ErrConnectionNotFound = errors.New("exec: connection 不存在")
+	ErrConnectionInactive = errors.New("exec: connection 不可用")
 	ErrToolUnavailable    = errors.New("exec: tool 不存在或已下线")
 )
 
-type MCPCaller interface {
-	CallTool(ctx context.Context, endpoint, bearerToken string, timeout time.Duration, remoteToolName string, args json.RawMessage) (connector.ToolResultData, error)
+const (
+	errorKindAuth            = "auth"
+	errorKindCanceled        = "canceled"
+	errorKindInternal        = "internal"
+	errorKindInvalidArgs     = "invalid_args"
+	errorKindTimeout         = "timeout"
+	errorKindToolError       = "tool_error"
+	errorKindToolUnavailable = "tool_unavailable"
+	errorKindTransport       = "transport"
+	errorKindUpstream4xx     = "upstream_4xx"
+	errorKindUpstream5xx     = "upstream_5xx"
+)
+
+type MCPClient interface {
+	ListTools(ctx context.Context, endpoint, bearerToken string, timeout time.Duration) ([]*mcp.Tool, error)
+	CallTool(ctx context.Context, endpoint, bearerToken string, timeout time.Duration, params *mcp.CallToolParamsRaw) (*mcp.CallToolResult, error)
 }
 
 type Engine struct {
@@ -48,252 +58,377 @@ type Engine struct {
 	cfg       *configsvc.Service
 	refresher *tokens.Refresher
 	kr        *crypto.Keyring
-	handlers  map[connector.Type]connector.HandlerMap
-	mcp       MCPCaller
+	mcp       MCPClient
 }
 
-func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, refresher *tokens.Refresher, kr *crypto.Keyring, handlers map[connector.Type]connector.HandlerMap, mcp MCPCaller) *Engine {
-	return &Engine{q: q, reg: reg, cfg: cfg, refresher: refresher, kr: kr, handlers: handlers, mcp: mcp}
+func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, refresher *tokens.Refresher, kr *crypto.Keyring, mcpClient MCPClient) *Engine {
+	return &Engine{q: q, reg: reg, cfg: cfg, refresher: refresher, kr: kr, mcp: mcpClient}
 }
 
-// Execute 执行一次 Tool 调用。返回的 error 表示装配/传输层失败；
-// 业务失败经 ToolResultData.IsError 表达。
-func (e *Engine) Execute(ctx context.Context, connectionID uuid.UUID, toolID string, args json.RawMessage) (connector.ToolResultData, error) {
-	started := time.Now()
+// ListTools returns static tools for Managed connectors and dynamically
+// discovers tools from the upstream server for Remote MCP connectors.
+func (e *Engine) ListTools(ctx context.Context, connectionID uuid.UUID) ([]*mcp.Tool, error) {
+	row, def, err := e.connection(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
 
+	switch impl := def.Implementation.(type) {
+	case connector.Managed:
+		tools := make([]*mcp.Tool, 0, len(impl.Tools))
+		for _, managedTool := range impl.Tools {
+			tool := managedTool.Tool
+			tools = append(tools, &tool)
+		}
+		return tools, nil
+	case connector.RemoteMCP:
+		prepared, err := e.prepare(ctx, row, def)
+		if err != nil {
+			return nil, err
+		}
+		return e.mcp.ListTools(ctx, impl.Endpoint, prepared.accessToken, requestTimeout(impl))
+	default:
+		return nil, fmt.Errorf("exec: connector %s implementation 非法", def.Type)
+	}
+}
+
+// CallTool dispatches one native MCP call. The caller must first authorize the
+// tool name against the session capability snapshot. Remote MCP parameters and
+// results pass through unchanged; Managed tools invoke their attached handler.
+func (e *Engine) CallTool(
+	ctx context.Context,
+	sessionID, apiTokenID, connectionID uuid.UUID,
+	params *mcp.CallToolParamsRaw,
+) (*mcp.CallToolResult, error) {
+	row, def, err := e.connection(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	toolName := ""
+	if params != nil {
+		toolName = params.Name
+	}
+	rec := &recorder{
+		engine:        e,
+		started:       time.Now(),
+		connectorType: row.ConnectorType,
+		connectionID:  connectionID,
+		sessionID:     sessionID,
+		apiTokenID:    apiTokenID,
+		toolName:      toolName,
+	}
+	if params == nil || params.Name == "" {
+		err := fmt.Errorf("%w: tool name 不能为空", ErrToolUnavailable)
+		rec.record(ctx, nil, err)
+		return nil, err
+	}
+
+	switch impl := def.Implementation.(type) {
+	case connector.Managed:
+		tool := findManagedTool(impl, params.Name)
+		if tool == nil {
+			err := fmt.Errorf("%w: %s", ErrToolUnavailable, params.Name)
+			rec.record(ctx, nil, err)
+			return nil, err
+		}
+		arguments, err := validateManagedArguments(tool.Tool.InputSchema, params.Arguments)
+		if err != nil {
+			result := invalidArgumentsResult(err)
+			rec.record(ctx, result, nil)
+			return result, nil
+		}
+		prepared, err := e.prepare(ctx, row, def)
+		if err != nil {
+			rec.record(ctx, nil, err)
+			return nil, err
+		}
+		result, err := tool.Handler(ctx, connector.ManagedCall{
+			Arguments:   arguments,
+			Config:      prepared.config,
+			Credential:  prepared.credential,
+			AccessToken: prepared.accessToken,
+		})
+		if result == nil && err == nil {
+			err = fmt.Errorf("exec: managed tool %q 返回空结果", params.Name)
+		}
+		rec.record(ctx, result, err)
+		return result, err
+	case connector.RemoteMCP:
+		prepared, err := e.prepare(ctx, row, def)
+		if err != nil {
+			rec.record(ctx, nil, err)
+			return nil, err
+		}
+		result, err := e.mcp.CallTool(ctx, impl.Endpoint, prepared.accessToken, requestTimeout(impl), params)
+		rec.record(ctx, result, err)
+		return result, err
+	default:
+		err := fmt.Errorf("exec: connector %s implementation 非法", def.Type)
+		rec.record(ctx, nil, err)
+		return nil, err
+	}
+}
+
+func (e *Engine) connection(ctx context.Context, connectionID uuid.UUID) (store.Connection, connector.Definition, error) {
 	row, err := e.q.GetConnection(ctx, connectionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return connector.ToolResultData{}, ErrConnectionNotFound
+			return store.Connection{}, connector.Definition{}, ErrConnectionNotFound
 		}
-		return connector.ToolResultData{}, err
+		return store.Connection{}, connector.Definition{}, err
 	}
-	t := connector.Type(row.ConnectorType)
-	def, ok := e.reg.Get(t)
+	if row.Status != "active" {
+		return store.Connection{}, connector.Definition{},
+			fmt.Errorf("%w（当前状态 %s）", ErrConnectionInactive, row.Status)
+	}
+	def, ok := e.reg.Get(connector.Type(row.ConnectorType))
 	if !ok {
-		return connector.ToolResultData{}, fmt.Errorf("exec: 未知 connector type %s", t)
+		return store.Connection{}, connector.Definition{},
+			fmt.Errorf("exec: 未知 connector type %s", row.ConnectorType)
 	}
+	return row, def, nil
+}
 
-	rec := &recorder{engine: e, started: started, connectorType: string(t), connectionID: connectionID, toolID: toolID, input: args}
+type preparedCall struct {
+	config      map[string]any
+	credential  map[string]any
+	accessToken string
+}
 
-	tool := findTool(def, toolID)
-	if tool == nil {
-		err := fmt.Errorf("%w: %s", ErrToolUnavailable, toolID)
-		rec.record(ctx, connector.ToolResultData{}, err, false)
-		return connector.ToolResultData{}, err
-	}
-
-	var argsMap map[string]any
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &argsMap); err != nil {
-			err = fmt.Errorf("exec: arguments 不是合法 JSON 对象: %w", err)
-			rec.record(ctx, connector.ToolResultData{}, err, false)
-			return connector.ToolResultData{}, err
-		}
-	}
-	resolved, err := e.cfg.Resolved(ctx, t)
+func (e *Engine) prepare(ctx context.Context, row store.Connection, def connector.Definition) (preparedCall, error) {
+	resolved, err := e.cfg.Resolved(ctx, def.Type)
 	if err != nil {
-		rec.record(ctx, connector.ToolResultData{}, err, false)
-		return connector.ToolResultData{}, err
+		return preparedCall{}, err
 	}
-
+	if err := validateResolvedConfig(def, resolved); err != nil {
+		return preparedCall{}, err
+	}
 	method, err := findAuthMethod(def, row.AuthMethod)
 	if err != nil {
-		rec.record(ctx, connector.ToolResultData{}, err, false)
-		return connector.ToolResultData{}, err
+		return preparedCall{}, err
 	}
-	var accessToken string
-	var credFields map[string]any
-	if method.Type != connector.AuthNone {
-		accessToken, err = e.refresher.AccessToken(ctx, connectionID)
-		if err != nil {
-			rec.record(ctx, connector.ToolResultData{}, err, false)
-			return connector.ToolResultData{}, err
-		}
-		if method.Type == connector.AuthAPIKey || method.Type == connector.AuthCustomCredential {
-			plain, err := e.kr.Decrypt(row.Credential, int(row.SecretKeyVersion), []byte(row.ID.String()))
-			if err != nil {
-				rec.record(ctx, connector.ToolResultData{}, err, false)
-				return connector.ToolResultData{}, err
-			}
-			fields, err := credential.UnmarshalFields(plain)
-			if err != nil {
-				rec.record(ctx, connector.ToolResultData{}, err, false)
-				return connector.ToolResultData{}, err
-			}
-			credFields = map[string]any{}
-			for k, v := range fields.Fields {
-				credFields[k] = v
-			}
-		}
+	if method.Type == connector.AuthNone {
+		return preparedCall{config: resolved}, nil
 	}
 
-	call := connector.ToolCallContext{
-		ConnectorType: t,
-		ToolID:        toolID,
-		Arguments:     argsMap,
-		Config:        resolved,
-		Credential:    credFields,
-		AccessToken:   accessToken,
-	}
-
-	switch b := tool.Backend.(type) {
-	case connector.ManagedBackend:
-		handler, ok := e.handlers[t][b.HandlerKey]
-		if !ok {
-			err := fmt.Errorf("exec: managed handler %q 未注册", b.HandlerKey)
-			rec.record(ctx, connector.ToolResultData{}, err, false)
-			return connector.ToolResultData{}, err
-		}
-		res, err := handler(ctx, call)
-		rec.record(ctx, res, err, true)
-		return res, err
-	case connector.RemoteMCPBackend:
-		if b.InputMapperKey != "" || b.OutputMapperKey != "" {
-			err := fmt.Errorf("exec: tool %q 的 mapper 未实现（第一期仅支持参数直通）", toolID)
-			rec.record(ctx, connector.ToolResultData{}, err, false)
-			return connector.ToolResultData{}, err
-		}
-		server := findServer(def, b.ServerKey)
-		if server == nil {
-			err := fmt.Errorf("exec: MCP server %q 不存在", b.ServerKey)
-			rec.record(ctx, connector.ToolResultData{}, err, false)
-			return connector.ToolResultData{}, err
-		}
-		endpoint, err := e.resolveEndpoint(ctx, t, server, resolved)
-		if err != nil {
-			rec.record(ctx, connector.ToolResultData{}, err, false)
-			return connector.ToolResultData{}, err
-		}
-		timeout := server.RequestTimeout
-		if timeout <= 0 {
-			timeout = defaultMCPWindow
-		}
-		res, err := e.mcp.CallTool(ctx, endpoint, accessToken, timeout, b.RemoteToolName, args)
-		rec.record(ctx, res, err, true)
-		return res, err
-	default:
-		err := fmt.Errorf("exec: tool %q 缺少可执行 backend", toolID)
-		rec.record(ctx, connector.ToolResultData{}, err, false)
-		return connector.ToolResultData{}, err
-	}
-}
-
-// resolveEndpoint 求解 MCP endpoint：固定 URL 直接用；来自配置的必须已通过
-// mcp:verify 且与验证时一致（spec §13 规则 3），并做 https 检查（规则 2）。
-func (e *Engine) resolveEndpoint(ctx context.Context, t connector.Type, server *connector.RemoteMCPServer, resolved map[string]any) (string, error) {
-	if server.Endpoint.Source == connector.EndpointFixed {
-		return server.Endpoint.URL, nil
-	}
-	endpoint, _ := resolved[server.Endpoint.ConfigFieldKey].(string)
-	if endpoint == "" {
-		return "", fmt.Errorf("exec: 配置字段 %q 未填写 MCP endpoint", server.Endpoint.ConfigFieldKey)
-	}
-	allowInsecure, _ := resolved["allow_insecure_http"].(string)
-	if err := mcpclient.CheckEndpoint(endpoint, allowInsecure == "true"); err != nil {
-		return "", err
-	}
-	v, err := e.q.GetConnectorConfigVerification(ctx, string(t))
+	accessToken, err := e.refresher.AccessToken(ctx, row.ID)
 	if err != nil {
-		return "", err
+		return preparedCall{}, err
 	}
-	if v.McpVerifiedAt == nil || v.McpVerifiedEndpoint == nil || *v.McpVerifiedEndpoint != endpoint {
-		return "", fmt.Errorf("exec: self_hosted endpoint 未通过 mcp:verify 或已变更，须先验证")
+	if accessToken == "" {
+		return preparedCall{}, fmt.Errorf("exec: connection %s 的凭证为空", row.ID)
 	}
-	return endpoint, nil
-}
-
-// recorder 统一写 tool_runs 与（仅当 backend 被真正调用时）connector_health。
-type recorder struct {
-	engine        *Engine
-	started       time.Time
-	connectorType string
-	connectionID  uuid.UUID
-	toolID        string
-	input         json.RawMessage
-}
-
-func (r *recorder) record(ctx context.Context, res connector.ToolResultData, execErr error, backendTouched bool) {
-	status := "ok"
-	var errText *string
-	switch {
-	case execErr != nil:
-		status = "error"
-		msg := execErr.Error()
-		errText = &msg
-	case res.IsError:
-		status = "error"
-	}
-
-	input := r.input
-	if len(input) > maxInputBytes {
-		// 截断原文会破坏 jsonb 合法性，改存标记对象。
-		input, _ = json.Marshal(map[string]any{"truncated": true, "original_bytes": len(r.input)})
-	}
-	if len(input) == 0 {
-		input = nil
-	}
-	var summary *string
-	if res.Text != "" {
-		s := res.Text
-		if len(s) > maxSummaryBytes {
-			s = s[:maxSummaryBytes]
+	var credentialFields map[string]any
+	if method.Type == connector.AuthAPIKey || method.Type == connector.AuthCustomCredential {
+		plain, err := e.kr.Decrypt(row.Credential, int(row.SecretKeyVersion), []byte(row.ID.String()))
+		if err != nil {
+			return preparedCall{}, err
 		}
-		summary = &s
+		fields, err := credential.UnmarshalFields(plain)
+		if err != nil {
+			return preparedCall{}, err
+		}
+		credentialFields = make(map[string]any, len(fields.Fields))
+		for key, value := range fields.Fields {
+			credentialFields[key] = value
+		}
 	}
-	duration := int32(time.Since(r.started).Milliseconds())
-	connID := r.connectionID
-	if err := r.engine.q.InsertToolRun(ctx, store.InsertToolRunParams{
-		ID:            uuid.New(),
-		ConnectorType: r.connectorType,
-		ConnectionID:  &connID,
-		ToolID:        r.toolID,
-		Status:        status,
-		Error:         errText,
-		Input:         input,
-		OutputSummary: summary,
-		DurationMs:    &duration,
-	}); err != nil {
-		// 审计写入失败不阻断执行结果，只能吞掉（记录层自身无处上报）。
-		_ = err
-	}
-
-	if !backendTouched {
-		return
-	}
-	if execErr != nil {
-		msg := execErr.Error()
-		_ = r.engine.q.UpsertConnectorHealthFailure(ctx, store.UpsertConnectorHealthFailureParams{
-			ConnectorType: r.connectorType, LastError: &msg,
-		})
-		return
-	}
-	_ = r.engine.q.UpsertConnectorHealthSuccess(ctx, r.connectorType)
+	return preparedCall{
+		config:      resolved,
+		credential:  credentialFields,
+		accessToken: accessToken,
+	}, nil
 }
 
-func findTool(def connector.Definition, id string) *connector.Tool {
-	for i := range def.Tools {
-		if def.Tools[i].ID == id {
-			return &def.Tools[i]
+func requestTimeout(remote connector.RemoteMCP) time.Duration {
+	if remote.RequestTimeout > 0 {
+		return remote.RequestTimeout
+	}
+	return defaultMCPTimeout
+}
+
+func findManagedTool(managed connector.Managed, name string) *connector.ManagedTool {
+	for i := range managed.Tools {
+		if managed.Tools[i].Tool.Name == name {
+			return &managed.Tools[i]
 		}
 	}
 	return nil
 }
 
-func findServer(def connector.Definition, key string) *connector.RemoteMCPServer {
-	for i := range def.RemoteMCPServers {
-		if def.RemoteMCPServers[i].Key == key {
-			return &def.RemoteMCPServers[i]
+func validateManagedArguments(schema any, arguments json.RawMessage) (json.RawMessage, error) {
+	var inputSchema *jsonschema.Schema
+	if typed, ok := schema.(*jsonschema.Schema); ok {
+		inputSchema = typed
+	} else {
+		data, err := json.Marshal(schema)
+		if err != nil {
+			return nil, fmt.Errorf("InputSchema 不是合法 JSON: %w", err)
+		}
+		inputSchema = new(jsonschema.Schema)
+		if err := json.Unmarshal(data, inputSchema); err != nil {
+			return nil, fmt.Errorf("InputSchema 无法解析: %w", err)
+		}
+	}
+	resolved, err := inputSchema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	if err != nil {
+		return nil, fmt.Errorf("InputSchema 无法解析: %w", err)
+	}
+
+	value := make(map[string]any)
+	if len(arguments) > 0 {
+		if err := json.Unmarshal(arguments, &value); err != nil {
+			return nil, fmt.Errorf("arguments 必须是 JSON object: %w", err)
+		}
+		if value == nil {
+			return nil, fmt.Errorf("arguments 必须是 JSON object")
+		}
+	}
+	if err := resolved.ApplyDefaults(&value); err != nil {
+		return nil, fmt.Errorf("应用 arguments 默认值: %w", err)
+	}
+	if err := resolved.Validate(&value); err != nil {
+		return nil, err
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("序列化 arguments: %w", err)
+	}
+	return normalized, nil
+}
+
+func invalidArgumentsResult(err error) *mcp.CallToolResult {
+	message := "arguments 不符合 InputSchema: " + err.Error()
+	return &mcp.CallToolResult{
+		IsError:           true,
+		Content:           []mcp.Content{&mcp.TextContent{Text: message}},
+		StructuredContent: map[string]any{"error": "invalid_arguments", "message": message},
+	}
+}
+
+func validateResolvedConfig(def connector.Definition, resolved map[string]any) error {
+	for _, field := range def.ConfigFields {
+		if !field.Required {
+			continue
+		}
+		value, _ := resolved[field.Key].(string)
+		if value == "" {
+			return fmt.Errorf("exec: connector %s 缺少必填配置 %q", def.Type, field.Key)
 		}
 	}
 	return nil
 }
 
 func findAuthMethod(def connector.Definition, key string) (connector.AuthMethod, error) {
-	for _, m := range def.AuthMethods {
-		if m.Key == key {
-			return m, nil
+	for _, method := range def.AuthMethods {
+		if method.Key == key {
+			return method, nil
 		}
 	}
 	return connector.AuthMethod{}, fmt.Errorf("exec: 未知 auth method %s", key)
+}
+
+// recorder writes one audit row for every attempted tool call.
+type recorder struct {
+	engine        *Engine
+	started       time.Time
+	connectorType string
+	connectionID  uuid.UUID
+	sessionID     uuid.UUID
+	apiTokenID    uuid.UUID
+	toolName      string
+}
+
+func (r *recorder) record(ctx context.Context, result *mcp.CallToolResult, callErr error) {
+	runStatus := "ok"
+	var errorKind *string
+	var upstreamStatus *int32
+	switch {
+	case callErr != nil:
+		runStatus = "error"
+		kind, statusCode := classifyCallError(callErr)
+		errorKind = &kind
+		upstreamStatus = statusCode
+	case result != nil && result.IsError:
+		runStatus = "error"
+		kind := classifyToolError(result)
+		errorKind = &kind
+	}
+
+	duration := int32(time.Since(r.started).Milliseconds())
+	connectionID := r.connectionID
+	var sessionID *uuid.UUID
+	if r.sessionID != uuid.Nil {
+		sessionID = &r.sessionID
+	}
+	var apiTokenID *uuid.UUID
+	if r.apiTokenID != uuid.Nil {
+		apiTokenID = &r.apiTokenID
+	}
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), auditWriteTimeout)
+	defer cancel()
+	_ = r.engine.q.InsertToolRun(auditCtx, store.InsertToolRunParams{
+		ID:             uuid.New(),
+		ConnectorType:  r.connectorType,
+		ConnectionID:   &connectionID,
+		ToolID:         r.toolName,
+		SessionID:      sessionID,
+		ApiTokenID:     apiTokenID,
+		Status:         runStatus,
+		ErrorKind:      errorKind,
+		UpstreamStatus: upstreamStatus,
+		DurationMs:     &duration,
+	})
+}
+
+type upstreamStatusError interface {
+	error
+	UpstreamStatusCode() int
+}
+
+func classifyCallError(err error) (string, *int32) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return errorKindTimeout, nil
+	case errors.Is(err, context.Canceled):
+		return errorKindCanceled, nil
+	case errors.Is(err, ErrToolUnavailable):
+		return errorKindToolUnavailable, nil
+	case errors.Is(err, tokens.ErrReauthRequired):
+		return errorKindAuth, nil
+	}
+
+	var upstreamErr upstreamStatusError
+	if errors.As(err, &upstreamErr) {
+		statusCode := upstreamErr.UpstreamStatusCode()
+		var storedStatus *int32
+		if statusCode >= 100 && statusCode <= 599 {
+			value := int32(statusCode)
+			storedStatus = &value
+		}
+		switch {
+		case statusCode == 401 || statusCode == 403:
+			return errorKindAuth, storedStatus
+		case statusCode >= 400 && statusCode < 500:
+			return errorKindUpstream4xx, storedStatus
+		case statusCode >= 500:
+			return errorKindUpstream5xx, storedStatus
+		default:
+			return errorKindTransport, storedStatus
+		}
+	}
+
+	var transportErr *url.Error
+	if errors.As(err, &transportErr) {
+		return errorKindTransport, nil
+	}
+	return errorKindInternal, nil
+}
+
+func classifyToolError(result *mcp.CallToolResult) string {
+	if fields, ok := result.StructuredContent.(map[string]any); ok &&
+		fields["error"] == "invalid_arguments" {
+		return errorKindInvalidArgs
+	}
+	return errorKindToolError
 }

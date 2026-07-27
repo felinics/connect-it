@@ -46,33 +46,18 @@ type ConnectorConfig struct {
 	PublicConfig        []byte
 	SecretConfig        []byte
 	SecretKeyVersion    int32
-	McpVerifiedEndpoint *string
-	McpVerifiedAt       *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
 
-type ConnectorHealth struct {
-	ConnectorType       string
-	LastOkAt            *time.Time
-	LastErrorAt         *time.Time
-	ConsecutiveFailures int32
-	LastError           *string
-}
-
 type McpSession struct {
-	ID            uuid.UUID
-	TokenHash     string
-	ToolAllowlist []byte
-	Status        string
-	ExpiresAt     time.Time
-	CreatedAt     time.Time
-}
-
-type McpSessionConnection struct {
-	SessionID    uuid.UUID
-	Alias        string
+	ID           uuid.UUID
+	TokenHash    string
+	ApiTokenID   uuid.UUID
 	ConnectionID uuid.UUID
+	ToolSnapshot []byte
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
 }
 
 type OauthAuthorization struct {
@@ -80,26 +65,25 @@ type OauthAuthorization struct {
 	ConnectorType    string
 	StateHash        string
 	PkceVerifier     []byte
-	ConnectionID     *uuid.UUID
+	SecretKeyVersion int32
+	AuthMethod       string
+	ConnectionID     uuid.UUID
+	RedirectUrl      string
 	Status           string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
-	AuthMethod       string
-	Alias            string
-	SecretKeyVersion int32
-	RedirectUrl      string
 }
 
 type ToolRun struct {
-	ID            uuid.UUID
-	ConnectorType string
-	ConnectionID  *uuid.UUID
-	ToolID        string
-	SessionID     *uuid.UUID
-	Status        string
-	Error         *string
-	Input         []byte
-	OutputSummary *string
-	DurationMs    *int32
-	CreatedAt     time.Time
+	ID             uuid.UUID
+	ConnectorType  string
+	ConnectionID   *uuid.UUID
+	ToolID         string
+	SessionID      *uuid.UUID
+	ApiTokenID     *uuid.UUID
+	Status         string
+	ErrorKind      *string
+	UpstreamStatus *int32
+	DurationMs     *int32
+	CreatedAt      time.Time
 }

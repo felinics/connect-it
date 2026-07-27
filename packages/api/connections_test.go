@@ -55,6 +55,7 @@ func newConnServer(t *testing.T) (*httptest.Server, http.Header) {
 					{Key: "token", Label: "Token", InputType: connector.InputText, Required: true},
 				}},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	})
 
 	q := store.New(pool)
@@ -219,6 +220,41 @@ func TestCallbackWithoutRedirectShowsPage(t *testing.T) {
 	n, _ := cbResp.Body.Read(page)
 	if cbResp.StatusCode != http.StatusOK || !strings.Contains(string(page[:n]), "授权完成") {
 		t.Fatalf("无 redirect_url 应渲染完成页: %d %s", cbResp.StatusCode, page[:n])
+	}
+}
+
+func TestOAuthProviderRejectionEndsPendingConnection(t *testing.T) {
+	srv, bh := newConnServer(t)
+
+	_, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/oauth",
+		`{"connector_type":"example_app","auth_method":"oauth","redirect_url":"https://saas.example/oauth/done"}`, bh)
+	var begin struct {
+		ConnectionID     string `json:"connection_id"`
+		AuthorizationURL string `json:"authorization_url"`
+	}
+	if err := json.Unmarshal([]byte(body), &begin); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(begin.AuthorizationURL)
+	state := u.Query().Get("state")
+
+	cbResp, err := noRedirectClient().Get(srv.URL + "/v1/oauth/callback?state=" +
+		url.QueryEscape(state) + "&error=access_denied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cbResp.Body.Close()
+	location := cbResp.Header.Get("Location")
+	if cbResp.StatusCode != http.StatusFound ||
+		!strings.HasPrefix(location, "https://saas.example/oauth/done") ||
+		!strings.Contains(location, "status=error") ||
+		!strings.Contains(location, "code=access_denied") {
+		t.Fatalf("拒绝后应回跳下游: %d %s", cbResp.StatusCode, location)
+	}
+
+	resp, body := doReq(t, http.MethodGet, srv.URL+"/v1/connections/"+begin.ConnectionID, "", bh)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"authorization_failed"`) {
+		t.Fatalf("拒绝后 connection 不应保持 pending: %d %s", resp.StatusCode, body)
 	}
 }
 

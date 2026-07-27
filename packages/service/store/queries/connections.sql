@@ -31,5 +31,12 @@ SET status = $2,
     updated_at = now()
 WHERE id = $1;
 
+-- name: MarkPendingConnectionAuthorizationFailed :exec
+UPDATE connections
+SET status = 'authorization_failed',
+    updated_at = now()
+WHERE id = $1
+  AND status = 'pending';
+
 -- name: DeleteConnection :execrows
 DELETE FROM connections WHERE id = $1;

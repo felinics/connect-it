@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,7 +19,6 @@ import (
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/connsvc"
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/testutil"
@@ -68,6 +68,7 @@ func newEnv(t *testing.T, usePKCE bool) *testEnv {
 				UsePKCE:               usePKCE,
 			}},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	})
 
 	q := store.New(pool)
@@ -153,6 +154,44 @@ func TestBeginWithoutAlias(t *testing.T) {
 	}
 }
 
+func TestConcurrentCallbackClaimsStateOnce(t *testing.T) {
+	env := newEnv(t, false)
+	begin, err := env.svc.Begin(context.Background(), "example_app", "oauth", "acct-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := stateFrom(t, begin.AuthorizationURL)
+
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = env.svc.HandleCallback(context.Background(), state, "code")
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	var succeeded, rejected int
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, oauthsvc.ErrInvalidState):
+			rejected++
+		default:
+			t.Fatalf("callback 返回意外错误: %v", err)
+		}
+	}
+	if succeeded != 1 || rejected != 1 || env.tokenHit.Load() != 1 {
+		t.Fatalf("state 应只兑换一次: success=%d rejected=%d token_hits=%d", succeeded, rejected, env.tokenHit.Load())
+	}
+}
+
 func TestReauthKeepsSameConnection(t *testing.T) {
 	env := newEnv(t, false)
 	ctx := context.Background()
@@ -200,9 +239,6 @@ func TestBeginValidation(t *testing.T) {
 	env := newEnv(t, false)
 	ctx := context.Background()
 
-	if _, err := env.svc.Begin(ctx, "example_app", "oauth", "Bad_Alias", ""); !errors.Is(err, connsvc.ErrInvalidAlias) {
-		t.Fatalf("非法 alias: %v", err)
-	}
 	if _, err := env.svc.Begin(ctx, "nope", "oauth", "", ""); !errors.Is(err, oauthsvc.ErrUnknownConnector) {
 		t.Fatalf("未知 connector: %v", err)
 	}

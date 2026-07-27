@@ -16,8 +16,8 @@ const hue = computed(() => {
       return 'green'
     case 'needs_config':
     case 'reauth_required':
+    case 'authorization_failed':
       return 'orange'
-    case 'degraded':
     case 'config_incompatible':
     case 'definition_missing':
       return 'red'

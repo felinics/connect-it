@@ -1,5 +1,4 @@
-// Package sessions 管理短期 MCP Session：token 签发（256bit 随机 hex，
-// 库中只存 sha256）、解析与绑定查询（spec §11）。
+// Package sessions 管理绑定单个 Connection 的短期 MCP Session。
 package sessions
 
 import (
@@ -10,28 +9,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
-	"strings"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
 const (
-	DefaultTTL = time.Hour
-	MaxTTL     = 24 * time.Hour
+	DefaultTTL           = time.Hour
+	MaxTTL               = 24 * time.Hour
+	toolDiscoveryTimeout = 30 * time.Second
+	maxSnapshotTools     = 1024
+	maxSnapshotBytes     = 2 << 20
 )
+
+var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 var (
-	aliasPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
-	toolIDPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
+	// ErrInvalidSession：token 不存在、过期，或签发它的 API token 已撤销。
+	ErrInvalidSession = errors.New("sessions: invalid session token")
+	ErrToolDiscovery  = errors.New("sessions: tool discovery failed")
 )
-
-// ErrInvalidSession：token 不存在、过期或已吊销。
-var ErrInvalidSession = errors.New("sessions: invalid session token")
 
 // ValidationError 的 Code 直接作为 API 错误码返回。
 type ValidationError struct {
@@ -41,56 +45,53 @@ type ValidationError struct {
 
 func (e *ValidationError) Error() string { return e.Code + ": " + e.Message }
 
-// SessionView 是一个已解析 session 的只读视图。
-// Allowlist 的 key 是暴露名 alias__tool_id；空 map 表示允许全部绑定连接的全部 tool。
+// SessionView 是一个已解析 session 的只读能力快照。
 type SessionView struct {
-	ID        uuid.UUID
-	Bindings  map[string]uuid.UUID
-	Allowlist map[string]bool
-	ExpiresAt time.Time
+	ID           uuid.UUID
+	APITokenID   uuid.UUID
+	ConnectionID uuid.UUID
+	Tools        []*mcp.Tool
+	AllowedTools map[string]bool
+	ExpiresAt    time.Time
+}
+
+type ToolLister interface {
+	ListTools(ctx context.Context, connectionID uuid.UUID) ([]*mcp.Tool, error)
 }
 
 type Service struct {
-	q *store.Queries
+	q      *store.Queries
+	lister ToolLister
 }
 
-func New(q *store.Queries) *Service { return &Service{q: q} }
-
-// SplitExposedName 把暴露名 {alias}__{tool_id} 按第一个 "__" 切开并校验两段字符集。
-func SplitExposedName(name string) (alias, toolID string, ok bool) {
-	i := strings.Index(name, "__")
-	if i < 0 {
-		return "", "", false
-	}
-	alias, toolID = name[:i], name[i+2:]
-	if !aliasPattern.MatchString(alias) || !toolIDPattern.MatchString(toolID) {
-		return "", "", false
-	}
-	return alias, toolID, true
+func New(q *store.Queries, lister ToolLister) *Service {
+	return &Service{q: q, lister: lister}
 }
 
 // Create 签发一个新的 MCP Session token。
 // ttl == 0 时取 DefaultTTL；ttl < 0 或 > MaxTTL 报 invalid_ttl。
-func (s *Service) Create(ctx context.Context, bindings map[string]uuid.UUID, toolAllowlist []string, ttl time.Duration) (token string, err error) {
-	if len(bindings) == 0 {
-		return "", &ValidationError{Code: "empty_bindings", Message: "at least one alias binding is required"}
+func (s *Service) Create(
+	ctx context.Context,
+	apiTokenID uuid.UUID,
+	connectionID uuid.UUID,
+	toolAllowlist []string,
+	ttl time.Duration,
+) (token string, err error) {
+	if len(toolAllowlist) > maxSnapshotTools {
+		return "", &ValidationError{Code: "too_many_tools",
+			Message: fmt.Sprintf("at most %d allowlist entries are allowed", maxSnapshotTools)}
 	}
-	for alias := range bindings {
-		if !aliasPattern.MatchString(alias) {
-			return "", &ValidationError{Code: "invalid_alias",
-				Message: fmt.Sprintf("alias %q must match %s", alias, aliasPattern)}
-		}
-	}
+	requestedTools := make(map[string]bool, len(toolAllowlist))
 	for _, name := range toolAllowlist {
-		alias, _, ok := SplitExposedName(name)
-		if !ok {
+		if !toolNamePattern.MatchString(name) {
 			return "", &ValidationError{Code: "invalid_allowlist",
-				Message: fmt.Sprintf("entry %q is not a valid {alias}__{tool_id} name", name)}
+				Message: fmt.Sprintf("entry %q is not a valid tool name", name)}
 		}
-		if _, bound := bindings[alias]; !bound {
+		if requestedTools[name] {
 			return "", &ValidationError{Code: "invalid_allowlist",
-				Message: fmt.Sprintf("entry %q references unbound alias %q", name, alias)}
+				Message: fmt.Sprintf("entry %q is duplicated", name)}
 		}
+		requestedTools[name] = true
 	}
 	switch {
 	case ttl < 0:
@@ -100,15 +101,22 @@ func (s *Service) Create(ctx context.Context, bindings map[string]uuid.UUID, too
 	case ttl > MaxTTL:
 		return "", &ValidationError{Code: "invalid_ttl", Message: "ttl must not exceed 24h"}
 	}
-	for alias, connID := range bindings {
-		found, err := s.q.ConnectionExistsByID(ctx, connID)
-		if err != nil {
-			return "", err
-		}
-		if !found {
-			return "", &ValidationError{Code: "unknown_connection",
-				Message: fmt.Sprintf("connection %s (alias %q) does not exist", connID, alias)}
-		}
+	connection, err := s.q.GetConnection(ctx, connectionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", &ValidationError{Code: "unknown_connection",
+			Message: fmt.Sprintf("connection %s does not exist", connectionID)}
+	}
+	if err != nil {
+		return "", err
+	}
+	if connection.Status != "active" {
+		return "", &ValidationError{Code: "connection_not_active",
+			Message: fmt.Sprintf("connection %s is %s", connectionID, connection.Status)}
+	}
+
+	toolSnapshot, err := s.discoverTools(ctx, connectionID, requestedTools)
+	if err != nil {
+		return "", err
 	}
 
 	raw := make([]byte, 32) // 256bit
@@ -118,36 +126,94 @@ func (s *Service) Create(ctx context.Context, bindings map[string]uuid.UUID, too
 	token = hex.EncodeToString(raw)
 	sum := sha256.Sum256([]byte(token))
 
-	allowlist := toolAllowlist
-	if allowlist == nil {
-		allowlist = []string{}
-	}
-	allowlistJSON, err := json.Marshal(allowlist)
-	if err != nil {
+	if err := s.q.DeleteExpiredMCPSessions(ctx); err != nil {
 		return "", err
 	}
-
-	// 无事务：session 行先落库，连接绑定行随后插入。
-	// 中途失败时 token 不会返回给调用方，孤儿 session 行不可达、无害。
-	sessionID := uuid.New()
 	if err := s.q.CreateMCPSession(ctx, store.CreateMCPSessionParams{
-		ID:            sessionID,
-		TokenHash:     hex.EncodeToString(sum[:]),
-		ToolAllowlist: allowlistJSON,
-		ExpiresAt:     time.Now().UTC().Add(ttl),
+		ID:           uuid.New(),
+		TokenHash:    hex.EncodeToString(sum[:]),
+		ApiTokenID:   apiTokenID,
+		ConnectionID: connectionID,
+		ToolSnapshot: toolSnapshot,
+		ExpiresAt:    time.Now().UTC().Add(ttl),
 	}); err != nil {
 		return "", err
 	}
-	for alias, connID := range bindings {
-		if err := s.q.AddMCPSessionConnection(ctx, store.AddMCPSessionConnectionParams{
-			SessionID:    sessionID,
-			Alias:        alias,
-			ConnectionID: connID,
-		}); err != nil {
-			return "", err
-		}
-	}
 	return token, nil
+}
+
+func (s *Service) discoverTools(
+	ctx context.Context,
+	connectionID uuid.UUID,
+	requested map[string]bool,
+) ([]byte, error) {
+	if s.lister == nil {
+		return nil, fmt.Errorf("%w: tool lister is not configured", ErrToolDiscovery)
+	}
+	discoveryCtx, cancel := context.WithTimeout(ctx, toolDiscoveryTimeout)
+	defer cancel()
+
+	tools, err := s.lister.ListTools(discoveryCtx, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrToolDiscovery, err)
+	}
+
+	discovered := make([]*mcp.Tool, 0)
+	seen := make(map[string]bool)
+	for _, tool := range tools {
+		if tool == nil {
+			slog.WarnContext(ctx, "skipping upstream MCP tool",
+				slog.String("connection_id", connectionID.String()),
+				slog.String("reason", "nil_tool"))
+			continue
+		}
+		if !toolNamePattern.MatchString(tool.Name) {
+			slog.WarnContext(ctx, "skipping upstream MCP tool",
+				slog.String("connection_id", connectionID.String()),
+				slog.String("tool_name", tool.Name),
+				slog.String("reason", "invalid_name"))
+			continue
+		}
+		if seen[tool.Name] {
+			slog.WarnContext(ctx, "skipping upstream MCP tool",
+				slog.String("connection_id", connectionID.String()),
+				slog.String("tool_name", tool.Name),
+				slog.String("reason", "duplicate_name"))
+			continue
+		}
+		seen[tool.Name] = true
+		copy := *tool
+		discovered = append(discovered, &copy)
+	}
+
+	if len(requested) > 0 {
+		for name := range requested {
+			if !seen[name] {
+				return nil, &ValidationError{Code: "invalid_allowlist",
+					Message: fmt.Sprintf("tool %q was not discovered", name)}
+			}
+		}
+		filtered := discovered[:0]
+		for _, tool := range discovered {
+			if requested[tool.Name] {
+				filtered = append(filtered, tool)
+			}
+		}
+		discovered = filtered
+	}
+	sort.Slice(discovered, func(i, j int) bool { return discovered[i].Name < discovered[j].Name })
+	if len(discovered) > maxSnapshotTools {
+		return nil, fmt.Errorf("%w: snapshot contains more than %d tools",
+			ErrToolDiscovery, maxSnapshotTools)
+	}
+	snapshot, err := json.Marshal(discovered)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode snapshot: %v", ErrToolDiscovery, err)
+	}
+	if len(snapshot) > maxSnapshotBytes {
+		return nil, fmt.Errorf("%w: snapshot exceeds %d bytes", ErrToolDiscovery, maxSnapshotBytes)
+	}
+	return snapshot, nil
 }
 
 // Resolve 把 session token 解析为 SessionView；token 不存在、过期或吊销返回 ErrInvalidSession。
@@ -160,52 +226,28 @@ func (s *Service) Resolve(ctx context.Context, token string) (SessionView, error
 	if err != nil {
 		return SessionView{}, err
 	}
-	if row.Status != "active" {
-		return SessionView{}, ErrInvalidSession
-	}
 	if !row.ExpiresAt.After(time.Now()) {
 		return SessionView{}, ErrInvalidSession
 	}
 
-	var list []string
-	if err := json.Unmarshal(row.ToolAllowlist, &list); err != nil {
-		return SessionView{}, fmt.Errorf("sessions: corrupt tool_allowlist for session %s: %w", row.ID, err)
+	var tools []*mcp.Tool
+	if err := json.Unmarshal(row.ToolSnapshot, &tools); err != nil {
+		return SessionView{}, fmt.Errorf("sessions: corrupt tool_snapshot for session %s: %w", row.ID, err)
 	}
-	allowlist := make(map[string]bool, len(list))
-	for _, name := range list {
-		allowlist[name] = true
-	}
-
-	conns, err := s.q.ListMCPSessionConnections(ctx, row.ID)
-	if err != nil {
-		return SessionView{}, err
-	}
-	bindings := make(map[string]uuid.UUID, len(conns))
-	for _, c := range conns {
-		bindings[c.Alias] = c.ConnectionID
+	allowedTools := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		if tool == nil || tool.Name == "" {
+			return SessionView{}, fmt.Errorf("sessions: corrupt tool_snapshot for session %s", row.ID)
+		}
+		allowedTools[tool.Name] = true
 	}
 
 	return SessionView{
-		ID:        row.ID,
-		Bindings:  bindings,
-		Allowlist: allowlist,
-		ExpiresAt: row.ExpiresAt,
+		ID:           row.ID,
+		APITokenID:   row.ApiTokenID,
+		ConnectionID: row.ConnectionID,
+		Tools:        tools,
+		AllowedTools: allowedTools,
+		ExpiresAt:    row.ExpiresAt,
 	}, nil
-}
-
-// ConnectionConnectorTypes 批量查询连接的 connector_type，供 /mcp 构建工具列表。
-// 不存在的连接（已被删除）不会出现在结果里，由调用方决定如何降级。
-func (s *Service) ConnectionConnectorTypes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
-	if len(ids) == 0 {
-		return map[uuid.UUID]string{}, nil
-	}
-	rows, err := s.q.GetConnectionConnectorTypes(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[uuid.UUID]string, len(rows))
-	for _, r := range rows {
-		out[r.ID] = r.ConnectorType
-	}
-	return out, nil
 }

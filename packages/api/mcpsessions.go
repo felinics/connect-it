@@ -12,9 +12,9 @@ import (
 )
 
 type createMCPSessionRequest struct {
-	Connections   map[string]string `json:"connections"`
-	ToolAllowlist []string          `json:"tool_allowlist"`
-	TTLSeconds    int               `json:"ttl_seconds"`
+	ConnectionID  string   `json:"connection_id"`
+	ToolAllowlist []string `json:"tool_allowlist"`
+	TTLSeconds    int      `json:"ttl_seconds"`
 }
 
 type createMCPSessionResponse struct {
@@ -31,14 +31,15 @@ func registerMCPSessions(g *echo.Group, deps Deps) {
 
 // createMCPSession godoc
 //
-//	@Summary	签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+//	@Summary	签发绑定单个 Connection 的短期 MCP session token
 //	@ID			createMcpSession
 //	@Tags		mcp
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.createMCPSessionRequest	true	"绑定与 allowlist；ttl_seconds 默认 3600、上限 86400"
+//	@Param		body	body		api.createMCPSessionRequest	true	"allowlist 为空时固化签发时发现的全部工具；ttl_seconds 默认 3600、上限 86400"
 //	@Success	201		{object}	api.createMCPSessionResponse
 //	@Failure	400		{object}	api.ErrorResponse
+//	@Failure	502		{object}	api.ErrorResponse
 //	@Security	BearerAuth
 //	@Router		/v1/mcp-sessions [post]
 func createMCPSession(c echo.Context, deps Deps) error {
@@ -46,21 +47,26 @@ func createMCPSession(c echo.Context, deps Deps) error {
 	if err := c.Bind(&req); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid_body", "request body must be valid JSON")
 	}
-	bindings := make(map[string]uuid.UUID, len(req.Connections))
-	for alias, raw := range req.Connections {
-		id, err := uuid.Parse(raw)
-		if err != nil {
-			return writeError(c, http.StatusBadRequest, "invalid_connection_id",
-				"connection id "+raw+" is not a valid UUID")
-		}
-		bindings[alias] = id
+	connectionID, err := uuid.Parse(req.ConnectionID)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid_connection_id",
+			"connection_id must be a valid UUID")
 	}
 	ctx := c.Request().Context()
-	token, err := deps.Sessions.Create(ctx, bindings, req.ToolAllowlist,
+	apiTokenID, ok := requestAPITokenID(c)
+	if !ok {
+		return writeError(c, http.StatusInternalServerError, "internal", "missing API token identity")
+	}
+	token, err := deps.Sessions.Create(ctx, apiTokenID, connectionID, req.ToolAllowlist,
 		time.Duration(req.TTLSeconds)*time.Second)
 	var verr *sessions.ValidationError
 	if errors.As(err, &verr) {
 		return writeError(c, http.StatusBadRequest, verr.Code, verr.Message)
+	}
+	if errors.Is(err, sessions.ErrToolDiscovery) {
+		c.Logger().Error(err)
+		return writeError(c, http.StatusBadGateway, "tool_discovery_failed",
+			"failed to discover tools for the requested connection")
 	}
 	if err != nil {
 		c.Logger().Error(err)

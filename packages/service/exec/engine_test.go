@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
@@ -21,324 +21,207 @@ import (
 	"github.com/memohai/connect-it/packages/service/testutil"
 )
 
-type fakeCall struct {
+type remoteCall struct {
 	endpoint string
-	bearer   string
+	token    string
 	timeout  time.Duration
-	tool     string
-	args     json.RawMessage
+	params   *mcp.CallToolParamsRaw
 }
 
 type fakeMCP struct {
-	calls []fakeCall
-	res   connector.ToolResultData
-	err   error
+	tools     []*mcp.Tool
+	result    *mcp.CallToolResult
+	callErr   error
+	listCalls int
+	calls     []remoteCall
 }
 
-func (f *fakeMCP) CallTool(ctx context.Context, endpoint, bearerToken string, timeout time.Duration, remoteToolName string, args json.RawMessage) (connector.ToolResultData, error) {
-	f.calls = append(f.calls, fakeCall{endpoint, bearerToken, timeout, remoteToolName, args})
-	if f.err != nil {
-		return connector.ToolResultData{}, f.err
-	}
-	return f.res, nil
+func (f *fakeMCP) ListTools(context.Context, string, string, time.Duration) ([]*mcp.Tool, error) {
+	f.listCalls++
+	return f.tools, nil
 }
 
-// testDefinition 覆盖全部分派路径：managed 成功/失败/缺 handler、
-// remote 固定 endpoint、remote self_hosted、remote 带 mapper。
-func testDefinition() connector.Definition {
-	return connector.Definition{
-		Type:                "exec_test",
-		Name:                "Exec Test",
-		ConfigSchemaVersion: 1,
-		ConfigFields: []connector.ConfigField{
-			{Key: "mcp_url", Label: "MCP URL", InputType: connector.InputURL},
-		},
-		AuthMethods: []connector.AuthMethod{
-			{Key: "none", Type: connector.AuthNone, Label: "None"},
-		},
-		RemoteMCPServers: []connector.RemoteMCPServer{
-			{Key: "fixed",
-				Endpoint:       connector.Endpoint{Source: connector.EndpointFixed, URL: "https://mcp.example.com/mcp"},
-				Provenance:     connector.Provenance{Kind: connector.ProvenanceOfficial},
-				RequestTimeout: 5 * time.Second},
-			{Key: "self",
-				Endpoint:       connector.Endpoint{Source: connector.EndpointConfigField, ConfigFieldKey: "mcp_url"},
-				Provenance:     connector.Provenance{Kind: connector.ProvenanceSelfHosted},
-				RequestTimeout: 5 * time.Second},
-		},
-		Tools: []connector.Tool{
-			{ID: "managed_echo", Name: "Managed echo", Risk: connector.RiskRead,
-				Backend: connector.ManagedBackend{HandlerKey: "managed_echo"}},
-			{ID: "managed_boom", Name: "Managed boom", Risk: connector.RiskRead,
-				Backend: connector.ManagedBackend{HandlerKey: "managed_boom"}},
-			{ID: "managed_missing", Name: "Managed missing handler", Risk: connector.RiskRead,
-				Backend: connector.ManagedBackend{HandlerKey: "ghost"}},
-			{ID: "remote_fixed", Name: "Remote fixed", Risk: connector.RiskRead,
-				Backend: connector.RemoteMCPBackend{ServerKey: "fixed", RemoteToolName: "upstream_echo"}},
-			{ID: "remote_self", Name: "Remote self hosted", Risk: connector.RiskRead,
-				Backend: connector.RemoteMCPBackend{ServerKey: "self", RemoteToolName: "upstream_echo"}},
-			{ID: "remote_mapped", Name: "Remote mapped", Risk: connector.RiskRead,
-				Backend: connector.RemoteMCPBackend{ServerKey: "fixed", RemoteToolName: "upstream_echo", InputMapperKey: "in"}},
-		},
-	}
+func (f *fakeMCP) CallTool(_ context.Context, endpoint, token string, timeout time.Duration, params *mcp.CallToolParamsRaw) (*mcp.CallToolResult, error) {
+	f.calls = append(f.calls, remoteCall{endpoint: endpoint, token: token, timeout: timeout, params: params})
+	return f.result, f.callErr
 }
+
+type fakeUpstreamError struct{ statusCode int }
+
+func (e *fakeUpstreamError) Error() string           { return "upstream failed" }
+func (e *fakeUpstreamError) UpstreamStatusCode() int { return e.statusCode }
 
 type harness struct {
-	t            *testing.T
-	ctx          context.Context
-	pool         *pgxpool.Pool
-	q            *store.Queries
-	mcp          *fakeMCP
-	eng          *exec.Engine
-	connID       uuid.UUID
-	managedCalls []connector.ToolCallContext
+	engine      *exec.Engine
+	managedID   uuid.UUID
+	remoteID    uuid.UUID
+	managedCall connector.ManagedCall
+	mcp         *fakeMCP
+	pool        *pgxpool.Pool
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	pool := testutil.NewDB(t)
-	ctx := context.Background()
-	h := &harness{t: t, ctx: ctx, pool: pool, q: store.New(pool)}
-
-	kr, err := crypto.ParseKeyring("1:" + strings.Repeat("11", 32))
+	q := store.New(pool)
+	keyring, err := crypto.ParseKeyring("1:" + strings.Repeat("11", 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg := registry.New()
-	// "ghost" 也作为 handler key 注册通过校验，但运行时 HandlerMap 里没有它，
-	// 用来模拟注册键与运行时 map 的漂移（handler 不存在用例）。
-	reg.MustRegister(testDefinition(), "managed_echo", "managed_boom", "ghost")
-	cfg := configsvc.New(h.q, reg, kr)
 
-	handlers := map[connector.Type]connector.HandlerMap{
-		"exec_test": {
-			"managed_echo": func(ctx context.Context, call connector.ToolCallContext) (connector.ToolResultData, error) {
-				h.managedCalls = append(h.managedCalls, call)
-				return connector.ToolResultData{Text: "managed-ok"}, nil
-			},
-			"managed_boom": func(ctx context.Context, call connector.ToolCallContext) (connector.ToolResultData, error) {
-				return connector.ToolResultData{}, errors.New("handler exploded")
-			},
-		},
+	h := &harness{pool: pool}
+	managedHandler := func(_ context.Context, call connector.ManagedCall) (*mcp.CallToolResult, error) {
+		h.managedCall = call
+		return &mcp.CallToolResult{
+			Content:           []mcp.Content{&mcp.TextContent{Text: "managed-ok"}},
+			StructuredContent: map[string]any{"source": "managed"},
+		}, nil
 	}
-	h.mcp = &fakeMCP{res: connector.ToolResultData{Text: "remote-ok"}}
-	// refresher 传 nil：本文件全部用例走 AuthNone，不会触发 token 刷新
-	//（OAuth 惰性刷新已由计划 3 的测试覆盖）。
-	h.eng = exec.New(h.q, reg, cfg, nil, kr, handlers, h.mcp)
+	reg := registry.New()
+	reg.MustRegister(connector.Definition{
+		Type:                "managed_app",
+		Name:                "Managed",
+		ConfigSchemaVersion: 1,
+		AuthMethods:         []connector.AuthMethod{{Key: "none", Type: connector.AuthNone}},
+		Implementation: connector.Managed{Tools: []connector.ManagedTool{{
+			Tool: mcp.Tool{
+				Name: "echo",
+				InputSchema: map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{"x": map[string]any{"type": "integer"}},
+					"required":             []string{"x"},
+					"additionalProperties": false,
+				},
+			},
+			Handler: managedHandler,
+		}}},
+	})
+	reg.MustRegister(connector.Definition{
+		Type:                "remote_app",
+		Name:                "Remote",
+		ConfigSchemaVersion: 1,
+		AuthMethods:         []connector.AuthMethod{{Key: "none", Type: connector.AuthNone}},
+		Implementation: connector.RemoteMCP{
+			Endpoint:       "https://mcp.example.com",
+			RequestTimeout: 5 * time.Second,
+		},
+	})
 
-	mustExec := func(sql string, args ...any) {
-		t.Helper()
-		if _, err := pool.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("%s: %v", sql, err)
+	h.mcp = &fakeMCP{
+		tools:  []*mcp.Tool{{Name: "dynamic-tool", InputSchema: map[string]any{"type": "object"}}},
+		result: &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "remote-ok"}}},
+	}
+	h.engine = exec.New(q, reg, configsvc.New(q, reg, keyring), nil, keyring, h.mcp)
+	h.managedID = uuid.New()
+	h.remoteID = uuid.New()
+	for id, connectorType := range map[uuid.UUID]string{
+		h.managedID: "managed_app",
+		h.remoteID:  "remote_app",
+	} {
+		if _, err := pool.Exec(t.Context(), `insert into connections
+		  (id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, created_at, updated_at)
+		  values ($1, $2, null, 'none', '\x'::bytea, 1, '{}', '{}', 'active', now(), now())`,
+			id, connectorType); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// 配置行：mcp_url 已填但尚未 verify
-	mustExec(`insert into connector_configs
-	  (connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at)
-	  values ('exec_test', 1, '{"mcp_url":"https://self.internal/mcp"}', '\x'::bytea, 1, now(), now())`)
-	h.connID = uuid.New()
-	mustExec(`insert into connections
-	  (id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, created_at, updated_at)
-	  values ($1, 'exec_test', 'exectest', 'none', '\x'::bytea, 1, '{}', '{}', 'active', now(), now())`, h.connID)
 	return h
 }
 
-func (h *harness) health() (found bool, failures int32) {
-	h.t.Helper()
-	row, err := h.q.GetConnectorHealth(h.ctx, "exec_test")
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, 0
-	}
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	return true, row.ConsecutiveFailures
-}
-
-func (h *harness) lastRun() (status string, errText *string) {
-	h.t.Helper()
-	err := h.pool.QueryRow(h.ctx,
-		`select status, error from tool_runs where connector_type='exec_test' order by created_at desc limit 1`).
-		Scan(&status, &errText)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	return status, errText
-}
-
-func TestManagedSuccess(t *testing.T) {
+func TestManagedAndRemoteDispatch(t *testing.T) {
 	h := newHarness(t)
-	res, err := h.eng.Execute(h.ctx, h.connID, "managed_echo", json.RawMessage(`{"x":1}`))
-	if err != nil || res.Text != "managed-ok" {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	if len(h.managedCalls) != 1 {
-		t.Fatal("handler 未被调用")
-	}
-	call := h.managedCalls[0]
-	if call.ToolID != "managed_echo" || call.Arguments["x"] != float64(1) ||
-		call.Config["mcp_url"] != "https://self.internal/mcp" || call.AccessToken != "" {
-		t.Fatalf("ToolCallContext 不符: %+v", call)
-	}
-	if found, failures := h.health(); !found || failures != 0 {
-		t.Fatalf("health 应记成功: found=%v failures=%d", found, failures)
-	}
-	if status, _ := h.lastRun(); status != "ok" {
-		t.Fatalf("tool_runs 应为 ok: %s", status)
-	}
-}
+	sessionID := uuid.New()
+	apiTokenID := uuid.New()
 
-func TestManagedHandlerError(t *testing.T) {
-	h := newHarness(t)
-	if _, err := h.eng.Execute(h.ctx, h.connID, "managed_boom", nil); err == nil {
-		t.Fatal("handler 报错应透传")
+	managedTools, err := h.engine.ListTools(t.Context(), h.managedID)
+	if err != nil || len(managedTools) != 1 || managedTools[0].Name != "echo" || h.mcp.listCalls != 0 {
+		t.Fatalf("managed tools=%+v listCalls=%d err=%v", managedTools, h.mcp.listCalls, err)
 	}
-	if found, failures := h.health(); !found || failures != 1 {
-		t.Fatalf("health 应记失败: found=%v failures=%d", found, failures)
+	managedResult, err := h.engine.CallTool(t.Context(), sessionID, apiTokenID, h.managedID,
+		&mcp.CallToolParamsRaw{Name: "echo", Arguments: json.RawMessage(`{"x":1}`)})
+	if err != nil || managedResult.Content[0].(*mcp.TextContent).Text != "managed-ok" ||
+		string(h.managedCall.Arguments) != `{"x":1}` {
+		t.Fatalf("managed result=%+v call=%+v err=%v", managedResult, h.managedCall, err)
 	}
-	if status, errText := h.lastRun(); status != "error" || errText == nil {
-		t.Fatalf("tool_runs 应为 error: %s %v", status, errText)
-	}
-}
 
-func TestManagedHandlerMissingIsConfigError(t *testing.T) {
-	h := newHarness(t)
-	_, err := h.eng.Execute(h.ctx, h.connID, "managed_missing", nil)
-	if err == nil || !strings.Contains(err.Error(), "未注册") {
-		t.Fatalf("应为 handler 未注册错误: %v", err)
+	remoteTools, err := h.engine.ListTools(t.Context(), h.remoteID)
+	if err != nil || len(remoteTools) != 1 || remoteTools[0].Name != "dynamic-tool" {
+		t.Fatalf("remote tools=%+v err=%v", remoteTools, err)
 	}
-	if found, _ := h.health(); found {
-		t.Fatal("配置类拒绝不应写 health")
+	params := &mcp.CallToolParamsRaw{Name: "upstream.echo", Arguments: json.RawMessage(`{"message":"hi"}`)}
+	remoteResult, err := h.engine.CallTool(t.Context(), sessionID, apiTokenID, h.remoteID, params)
+	if err != nil || remoteResult != h.mcp.result {
+		t.Fatalf("remote result=%+v err=%v", remoteResult, err)
 	}
-	if status, _ := h.lastRun(); status != "error" {
-		t.Fatal("tool_runs 仍应记录")
-	}
-}
-
-func TestRemoteFixed(t *testing.T) {
-	h := newHarness(t)
-	res, err := h.eng.Execute(h.ctx, h.connID, "remote_fixed", json.RawMessage(`{"m":"hi"}`))
-	if err != nil || res.Text != "remote-ok" {
-		t.Fatalf("res=%+v err=%v", res, err)
+	if h.mcp.listCalls != 1 {
+		t.Fatalf("tools/call must not perform tools/list: listCalls=%d", h.mcp.listCalls)
 	}
 	if len(h.mcp.calls) != 1 {
-		t.Fatal("MCPCaller 未被调用")
+		t.Fatalf("calls=%+v", h.mcp.calls)
 	}
-	c := h.mcp.calls[0]
-	if c.endpoint != "https://mcp.example.com/mcp" || c.tool != "upstream_echo" ||
-		c.timeout != 5*time.Second || string(c.args) != `{"m":"hi"}` {
-		t.Fatalf("调用参数不符: %+v", c)
+	call := h.mcp.calls[0]
+	if call.endpoint != "https://mcp.example.com" || call.timeout != 5*time.Second ||
+		call.params != params {
+		t.Fatalf("remote call=%+v", call)
 	}
-	if found, failures := h.health(); !found || failures != 0 {
-		t.Fatal("health 应记成功")
-	}
-}
-
-func TestRemoteIsErrorCountsAsHealthy(t *testing.T) {
-	h := newHarness(t)
-	h.mcp.res = connector.ToolResultData{Text: "biz-fail", IsError: true}
-	res, err := h.eng.Execute(h.ctx, h.connID, "remote_fixed", nil)
-	if err != nil || !res.IsError {
-		t.Fatalf("IsError 应透传: %+v err=%v", res, err)
-	}
-	if found, failures := h.health(); !found || failures != 0 {
-		t.Fatal("IsError 算连通成功，health 记成功")
-	}
-	if status, _ := h.lastRun(); status != "error" {
-		t.Fatalf("tool_runs 应记 error: %s", status)
-	}
-}
-
-func TestRemoteTransportErrorFailsHealth(t *testing.T) {
-	h := newHarness(t)
-	h.mcp.err = errors.New("connection refused")
-	if _, err := h.eng.Execute(h.ctx, h.connID, "remote_fixed", nil); err == nil {
-		t.Fatal("传输错误应返回")
-	}
-	if found, failures := h.health(); !found || failures != 1 {
-		t.Fatal("传输错误应写 health 失败")
-	}
-}
-
-func TestSelfHostedRequiresVerify(t *testing.T) {
-	h := newHarness(t)
-	_, err := h.eng.Execute(h.ctx, h.connID, "remote_self", nil)
-	if err == nil || !strings.Contains(err.Error(), "mcp:verify") {
-		t.Fatalf("未验证应拒绝并提示 mcp:verify: %v", err)
-	}
-	if found, _ := h.health(); found {
-		t.Fatal("配置类拒绝不应写 health")
-	}
-
-	// 验证通过后可执行
-	if err := h.q.SetConnectorConfigVerified(h.ctx, store.SetConnectorConfigVerifiedParams{
-		ConnectorType: "exec_test", Endpoint: strPtr("https://self.internal/mcp"),
-	}); err != nil {
+	var auditCount int
+	if err := h.pool.QueryRow(t.Context(),
+		`select count(*) from tool_runs where session_id = $1 and api_token_id = $2`,
+		sessionID, apiTokenID).Scan(&auditCount); err != nil {
 		t.Fatal(err)
 	}
-	res, err := h.eng.Execute(h.ctx, h.connID, "remote_self", nil)
-	if err != nil || res.Text != "remote-ok" {
-		t.Fatalf("验证后应可执行: %+v err=%v", res, err)
+	if auditCount != 2 {
+		t.Fatalf("session audit rows=%d", auditCount)
 	}
-	if h.mcp.calls[len(h.mcp.calls)-1].endpoint != "https://self.internal/mcp" {
-		t.Fatalf("应打配置的 endpoint: %+v", h.mcp.calls)
-	}
+}
 
-	// endpoint 变更后重新拒绝
-	if _, err := h.pool.Exec(h.ctx,
-		`update connector_configs set public_config='{"mcp_url":"https://other.internal/mcp"}' where connector_type='exec_test'`); err != nil {
+func TestManagedValidatesInputSchemaBeforeHandler(t *testing.T) {
+	h := newHarness(t)
+	result, err := h.engine.CallTool(t.Context(), uuid.Nil, uuid.Nil, h.managedID,
+		&mcp.CallToolParamsRaw{Name: "echo", Arguments: json.RawMessage(`{"x":"wrong"}`)})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if h.managedCall.Arguments != nil {
+		t.Fatalf("handler 不应被调用: %+v", h.managedCall)
+	}
+	var errorKind string
+	if err := h.pool.QueryRow(t.Context(),
+		`select error_kind from tool_runs where connection_id = $1 order by created_at desc limit 1`,
+		h.managedID).Scan(&errorKind); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.eng.Execute(h.ctx, h.connID, "remote_self", nil); err == nil {
-		t.Fatal("endpoint 变更后应重新要求验证")
+	if errorKind != "invalid_args" {
+		t.Fatalf("error_kind=%q", errorKind)
+	}
+
+	h.mcp.result = nil
+	h.mcp.callErr = &fakeUpstreamError{statusCode: 503}
+	_, err = h.engine.CallTool(t.Context(), uuid.Nil, uuid.Nil, h.remoteID,
+		&mcp.CallToolParamsRaw{Name: "upstream.echo", Arguments: json.RawMessage(`{}`)})
+	if err == nil {
+		t.Fatal("remote call 应返回错误")
+	}
+	var upstreamStatus int
+	if err := h.pool.QueryRow(t.Context(),
+		`select error_kind, upstream_status from tool_runs
+		 where connection_id = $1 order by created_at desc limit 1`,
+		h.remoteID).Scan(&errorKind, &upstreamStatus); err != nil {
+		t.Fatal(err)
+	}
+	if errorKind != "upstream_5xx" || upstreamStatus != 503 {
+		t.Fatalf("error_kind=%q upstream_status=%d", errorKind, upstreamStatus)
 	}
 }
 
-func TestMapperUnimplemented(t *testing.T) {
+func TestUnavailableAndInactive(t *testing.T) {
 	h := newHarness(t)
-	_, err := h.eng.Execute(h.ctx, h.connID, "remote_mapped", nil)
-	if err == nil || !strings.Contains(err.Error(), "mapper 未实现") {
-		t.Fatalf("mapper 应报未实现: %v", err)
-	}
-	if found, _ := h.health(); found {
-		t.Fatal("配置类拒绝不应写 health")
-	}
-}
-
-func TestUnknownTool(t *testing.T) {
-	h := newHarness(t)
-	_, err := h.eng.Execute(h.ctx, h.connID, "nope", nil)
+	_, err := h.engine.CallTool(t.Context(), uuid.Nil, uuid.Nil, h.managedID,
+		&mcp.CallToolParamsRaw{Name: "missing"})
 	if !errors.Is(err, exec.ErrToolUnavailable) {
-		t.Fatalf("未知 tool 应 ErrToolUnavailable: %v", err)
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := h.engine.ListTools(t.Context(), uuid.New()); !errors.Is(err, exec.ErrConnectionNotFound) {
+		t.Fatalf("err=%v", err)
 	}
 }
-
-func TestUnknownConnection(t *testing.T) {
-	h := newHarness(t)
-	if _, err := h.eng.Execute(h.ctx, uuid.New(), "managed_echo", nil); !errors.Is(err, exec.ErrConnectionNotFound) {
-		t.Fatalf("want ErrConnectionNotFound, got %v", err)
-	}
-}
-
-func TestOversizeInputTruncated(t *testing.T) {
-	h := newHarness(t)
-	big, _ := json.Marshal(map[string]string{"blob": strings.Repeat("x", 70*1024)})
-	if _, err := h.eng.Execute(h.ctx, h.connID, "managed_echo", big); err != nil {
-		t.Fatal(err)
-	}
-	var input []byte
-	if err := h.pool.QueryRow(h.ctx,
-		`select input from tool_runs where connector_type='exec_test' order by created_at desc limit 1`).
-		Scan(&input); err != nil {
-		t.Fatal(err)
-	}
-	var marker struct {
-		Truncated     bool `json:"truncated"`
-		OriginalBytes int  `json:"original_bytes"`
-	}
-	if err := json.Unmarshal(input, &marker); err != nil || !marker.Truncated || marker.OriginalBytes != len(big) {
-		t.Fatalf("超限 input 应存标记对象: %s err=%v", input, err)
-	}
-}
-
-func strPtr(s string) *string { return &s }

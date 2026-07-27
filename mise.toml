@@ -13,7 +13,7 @@ sqlc = "1.29.0"
 description = "逐 Go module 运行测试"
 run = '''
 set -e
-for d in packages/*/; do
+for d in packages/*/ sdk/*/; do
   if [ -f "$d/go.mod" ]; then
     echo "==> $d"
     (cd "$d" && go test ./...)
@@ -25,7 +25,7 @@ done
 description = "逐 Go module 运行 go vet"
 run = '''
 set -e
-for d in packages/*/; do
+for d in packages/*/ sdk/*/; do
   if [ -f "$d/go.mod" ]; then
     echo "==> $d"
     (cd "$d" && go vet ./...)

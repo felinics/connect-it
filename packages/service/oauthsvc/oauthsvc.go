@@ -25,7 +25,6 @@ import (
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/connsvc"
 	"github.com/memohai/connect-it/packages/service/credential"
 	"github.com/memohai/connect-it/packages/service/store"
 )
@@ -36,7 +35,6 @@ const CallbackPath = "/v1/oauth/callback"
 const (
 	authorizationTTL = 10 * time.Minute
 	statusPending    = "pending"
-	statusCompleted  = "completed"
 )
 
 var (
@@ -71,6 +69,11 @@ type Service struct {
 	baseURL string
 }
 
+type authorizationDraft struct {
+	url    string
+	params store.CreateOAuthAuthorizationParams
+}
+
 func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *crypto.Keyring, hc *http.Client, baseURL string) *Service {
 	return &Service{q: q, reg: reg, cfg: cfg, kr: kr, hc: hc, baseURL: strings.TrimRight(baseURL, "/")}
 }
@@ -78,8 +81,8 @@ func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *c
 // Begin 创建一条 pending 连接并生成授权 URL。alias 是可选展示标签；
 // redirectURL 是授权完成后回跳给调用方的地址（可为空）。
 func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias, redirectURL string) (BeginResult, error) {
-	if alias != "" && !connsvc.AliasPattern.MatchString(alias) {
-		return BeginResult{}, connsvc.ErrInvalidAlias
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return BeginResult{}, err
 	}
 	def, ok := s.reg.Get(t)
 	if !ok {
@@ -90,7 +93,6 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 		return BeginResult{}, err
 	}
 
-	// pending 连接：ID 当场生成并返回，凭证在回调时写入。
 	connID := uuid.New()
 	emptyCred, keyVersion, err := s.kr.Encrypt(nil, []byte(connID.String()))
 	if err != nil {
@@ -104,7 +106,18 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 	if alias != "" {
 		aliasPtr = &alias
 	}
-	if _, err := s.q.CreateConnection(ctx, store.CreateConnectionParams{
+	draft, err := s.prepareAuthorization(ctx, t, method, connID, redirectURL)
+	if err != nil {
+		return BeginResult{}, err
+	}
+
+	// pending connection 与 authorization 必须一起落库；任何一步失败都不留下孤儿。
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := qtx.CreateConnection(ctx, store.CreateConnectionParams{
 		ID:               connID,
 		ConnectorType:    string(t),
 		Alias:            aliasPtr,
@@ -116,16 +129,20 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 	}); err != nil {
 		return BeginResult{}, err
 	}
-
-	authURL, err := s.createAuthorization(ctx, t, method, alias, connID, redirectURL)
-	if err != nil {
+	if _, err := qtx.CreateOAuthAuthorization(ctx, draft.params); err != nil {
 		return BeginResult{}, err
 	}
-	return BeginResult{ConnectionID: connID, AuthorizationURL: authURL}, nil
+	if err := tx.Commit(ctx); err != nil {
+		return BeginResult{}, err
+	}
+	return BeginResult{ConnectionID: connID, AuthorizationURL: draft.url}, nil
 }
 
 // BeginReauth 对既有连接重新发起授权：ID 不变，回调后覆盖凭证并置 active。
 func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID, redirectURL string) (BeginResult, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return BeginResult{}, err
+	}
 	row, err := s.q.GetConnection(ctx, connectionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -142,62 +159,83 @@ func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID, redir
 	if err != nil {
 		return BeginResult{}, err
 	}
-	alias := ""
-	if row.Alias != nil {
-		alias = *row.Alias
-	}
-	authURL, err := s.createAuthorization(ctx, t, method, alias, row.ID, redirectURL)
+	draft, err := s.prepareAuthorization(ctx, t, method, row.ID, redirectURL)
 	if err != nil {
 		return BeginResult{}, err
 	}
-	return BeginResult{ConnectionID: row.ID, AuthorizationURL: authURL}, nil
+
+	// 同一 connection 同时只保留最新一次 reauth；较早的 state 立即失效。
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	locked, err := qtx.GetConnectionForUpdate(ctx, row.ID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BeginResult{}, ErrConnectionGone
+		}
+		return BeginResult{}, err
+	}
+	if locked.Status == "authorization_failed" {
+		if err := qtx.UpdateConnectionStatus(ctx, store.UpdateConnectionStatusParams{
+			ID: locked.ID, Status: statusPending,
+		}); err != nil {
+			return BeginResult{}, err
+		}
+	}
+	if err := qtx.SupersedeOpenOAuthAuthorizations(ctx, row.ID); err != nil {
+		return BeginResult{}, err
+	}
+	if _, err := qtx.CreateOAuthAuthorization(ctx, draft.params); err != nil {
+		return BeginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BeginResult{}, err
+	}
+	return BeginResult{ConnectionID: row.ID, AuthorizationURL: draft.url}, nil
 }
 
-func (s *Service) createAuthorization(ctx context.Context, t connector.Type, method connector.AuthMethod, alias string, connectionID uuid.UUID, redirectURL string) (string, error) {
+func (s *Service) prepareAuthorization(ctx context.Context, t connector.Type, method connector.AuthMethod, connectionID uuid.UUID, redirectURL string) (authorizationDraft, error) {
 	resolved, err := s.cfg.Resolved(ctx, t)
 	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
-	clientID, _ := resolved["client_id"].(string)
-	if clientID == "" {
-		return "", ErrMissingClient
+	clientID, _, err := ClientCredentials(resolved)
+	if err != nil {
+		return authorizationDraft{}, err
 	}
 	authEndpoint, err := ExpandEndpoint(method.OAuth.AuthorizationEndpoint, resolved)
 	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
 
 	state, err := randomToken()
 	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
 	verifier := ""
 	if method.OAuth.UsePKCE {
 		if verifier, err = randomToken(); err != nil {
-			return "", err
+			return authorizationDraft{}, err
 		}
 	}
 
 	authzID := uuid.New()
 	encVerifier, keyVersion, err := s.kr.Encrypt([]byte(verifier), []byte(authzID.String()))
 	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
-	connID := connectionID
-	if _, err := s.q.CreateOAuthAuthorization(ctx, store.CreateOAuthAuthorizationParams{
+	authzParams := store.CreateOAuthAuthorizationParams{
 		ID:               authzID,
 		ConnectorType:    string(t),
 		StateHash:        hashToken(state),
 		PkceVerifier:     encVerifier,
 		SecretKeyVersion: int32(keyVersion),
 		AuthMethod:       method.Key,
-		Alias:            alias,
-		ConnectionID:     &connID,
+		ConnectionID:     connectionID,
 		RedirectUrl:      redirectURL,
-		Status:           statusPending,
 		ExpiresAt:        time.Now().Add(authorizationTTL),
-	}); err != nil {
-		return "", err
 	}
 
 	params := url.Values{}
@@ -219,26 +257,31 @@ func (s *Service) createAuthorization(ctx context.Context, t connector.Type, met
 	if strings.Contains(authEndpoint, "?") {
 		sep = "&"
 	}
-	return authEndpoint + sep + params.Encode(), nil
+	return authorizationDraft{
+		url:    authEndpoint + sep + params.Encode(),
+		params: authzParams,
+	}, nil
 }
 
 // HandleCallback 核对 state、用授权码换 token，把绑定的连接置 active。
 func (s *Service) HandleCallback(ctx context.Context, state, code string) (CallbackResult, error) {
-	authz, err := s.q.GetOAuthAuthorizationByStateHash(ctx, hashToken(state))
+	authz, err := s.claimAuthorization(ctx, state)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return CallbackResult{}, ErrInvalidState
-		}
 		return CallbackResult{}, err
 	}
 	result := CallbackResult{RedirectURL: authz.RedirectUrl}
-	if authz.Status != statusPending || time.Now().After(authz.ExpiresAt) {
-		return result, ErrInvalidState
-	}
-	if authz.ConnectionID == nil {
-		return result, ErrInvalidState
-	}
-	connID := *authz.ConnectionID
+
+	finished := false
+	defer func() {
+		if finished {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.failAuthorization(cleanupCtx, authz)
+	}()
+
+	connID := authz.ConnectionID
 	result.ConnectionID = connID
 
 	t := connector.Type(authz.ConnectorType)
@@ -254,10 +297,9 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (Callb
 	if err != nil {
 		return result, err
 	}
-	clientID, _ := resolved["client_id"].(string)
-	clientSecret, _ := resolved["client_secret"].(string)
-	if clientID == "" {
-		return result, ErrMissingClient
+	clientID, clientSecret, err := ClientCredentials(resolved)
+	if err != nil {
+		return result, err
 	}
 	verifier, err := s.kr.Decrypt(authz.PkceVerifier, int(authz.SecretKeyVersion), []byte(authz.ID.String()))
 	if err != nil {
@@ -298,7 +340,20 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (Callb
 	if err != nil {
 		return result, err
 	}
-	if err := s.q.UpdateConnectionCredential(ctx, store.UpdateConnectionCredentialParams{
+
+	// connection 更新与 authorization 完成必须原子提交。
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := qtx.GetConnectionForUpdate(ctx, connID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return result, ErrConnectionGone
+		}
+		return result, err
+	}
+	if err := qtx.UpdateConnectionCredential(ctx, store.UpdateConnectionCredentialParams{
 		ID:                   connID,
 		Credential:           ciphertext,
 		SecretKeyVersion:     int32(keyVersion),
@@ -307,14 +362,66 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (Callb
 	}); err != nil {
 		return result, err
 	}
-	if err := s.q.CompleteOAuthAuthorization(ctx, store.CompleteOAuthAuthorizationParams{
-		ID:           authz.ID,
-		Status:       statusCompleted,
-		ConnectionID: &connID,
-	}); err != nil {
+	n, err := qtx.DeleteClaimedOAuthAuthorization(ctx, authz.ID)
+	if err != nil {
+		return result, err
+	}
+	if n != 1 {
+		return result, ErrInvalidState
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	finished = true
+	return result, nil
+}
+
+// RejectCallback 消费 provider 拒绝或取消返回的 state，并结束本次授权。
+func (s *Service) RejectCallback(ctx context.Context, state string) (CallbackResult, error) {
+	authz, err := s.claimAuthorization(ctx, state)
+	if err != nil {
+		return CallbackResult{}, err
+	}
+	result := CallbackResult{ConnectionID: authz.ConnectionID, RedirectURL: authz.RedirectUrl}
+	if err := s.failAuthorization(ctx, authz); err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+func (s *Service) claimAuthorization(ctx context.Context, state string) (store.OauthAuthorization, error) {
+	if state == "" {
+		return store.OauthAuthorization{}, ErrInvalidState
+	}
+	authz, err := s.q.ClaimOAuthAuthorization(ctx, hashToken(state))
+	if errors.Is(err, pgx.ErrNoRows) {
+		// 顺手收敛过期或进程中断的授权；不影响当前 invalid_state 结果。
+		_ = s.q.ExpireOAuthAuthorizations(ctx)
+		return store.OauthAuthorization{}, ErrInvalidState
+	}
+	if err != nil {
+		return store.OauthAuthorization{}, err
+	}
+	return authz, nil
+}
+
+func (s *Service) failAuthorization(ctx context.Context, authz store.OauthAuthorization) error {
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	n, err := qtx.DeleteClaimedOAuthAuthorization(ctx, authz.ID)
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrInvalidState
+	}
+	if err := qtx.MarkPendingConnectionAuthorizationFailed(ctx, authz.ConnectionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func findOAuthMethod(def connector.Definition, key string) (connector.AuthMethod, error) {

@@ -24,18 +24,25 @@ func newCatalog(t *testing.T) (*catalogsvc.Service, context.Context, func(sql st
 		t.Fatal(err)
 	}
 	reg := registry.New()
-	tool := []connector.Tool{{ID: "t", Backend: connector.ManagedBackend{HandlerKey: "t"}}}
+	remote := connector.RemoteMCP{Endpoint: "https://mcp.example.com"}
 	reg.MustRegister(connector.Definition{
-		Type: "ready_app", Name: "Ready", ConfigSchemaVersion: 1, Tools: tool,
-	}, "t")
+		Type: "ready_app", Name: "Ready", ConfigSchemaVersion: 1, Implementation: remote,
+		AuthMethods: []connector.AuthMethod{{
+			Key: "oauth", Label: "OAuth", Type: connector.AuthOAuth2,
+			OAuth: &connector.OAuthConfig{
+				AuthorizationEndpoint: "https://example.com/authorize",
+				TokenEndpoint:         "https://example.com/token",
+			},
+		}},
+	})
 	reg.MustRegister(connector.Definition{
-		Type: "needs_app", Name: "Needs", ConfigSchemaVersion: 1, Tools: tool,
+		Type: "needs_app", Name: "Needs", ConfigSchemaVersion: 1, Implementation: remote,
 		ConfigFields: []connector.ConfigField{
 			{Key: "client_id", Label: "Client ID", InputType: connector.InputText, Required: true},
 		},
-	}, "t")
+	})
 	reg.MustRegister(connector.Definition{
-		Type: "shelf_app", Name: "Shelf", ConfigSchemaVersion: 1,
+		Type: "shelf_app", Name: "Shelf", ConfigSchemaVersion: 1, Implementation: remote,
 	})
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
@@ -55,10 +62,6 @@ func TestListStatuses(t *testing.T) {
 	exec(`insert into connector_configs
 	      (connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at)
 	      values ('ghost_app', 1, '{}', '\x'::bytea, 1, now(), now())`)
-	// ready_app 连续失败 3 次且新鲜 → degraded
-	exec(`insert into connector_health (connector_type, last_error_at, consecutive_failures, last_error)
-	      values ('ready_app', now(), 3, 'boom')`)
-
 	items, err := svc.List(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -68,9 +71,9 @@ func TestListStatuses(t *testing.T) {
 		got[it.Type] = it.Status
 	}
 	want := map[string]status.Status{
-		"ready_app": status.Degraded,
+		"ready_app": status.Ready,
 		"needs_app": status.NeedsConfig,
-		"shelf_app": status.CatalogOnly,
+		"shelf_app": status.Ready,
 		"ghost_app": status.DefinitionMissing,
 	}
 	for typ, st := range want {
@@ -91,8 +94,13 @@ func TestGet(t *testing.T) {
 	svc, ctx, exec := newCatalog(t)
 
 	item, err := svc.Get(ctx, "ready_app")
-	if err != nil || item.Status != status.Ready || item.Name != "Ready" {
+	if err != nil || item.Status != status.Ready || item.Name != "Ready" ||
+		item.Mode != connector.ModeRemoteMCP {
 		t.Fatalf("ready_app: %+v err=%v", item, err)
+	}
+	if len(item.AuthMethods) != 1 || item.AuthMethods[0].Key != "oauth" ||
+		item.AuthMethods[0].Type != connector.AuthOAuth2 {
+		t.Fatalf("ready_app auth methods: %+v", item.AuthMethods)
 	}
 
 	exec(`insert into connector_configs

@@ -161,6 +161,19 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 	return items, nil
 }
 
+const markPendingConnectionAuthorizationFailed = `-- name: MarkPendingConnectionAuthorizationFailed :exec
+UPDATE connections
+SET status = 'authorization_failed',
+    updated_at = now()
+WHERE id = $1
+  AND status = 'pending'
+`
+
+func (q *Queries) MarkPendingConnectionAuthorizationFailed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markPendingConnectionAuthorizationFailed, id)
+	return err
+}
+
 const updateConnectionCredential = `-- name: UpdateConnectionCredential :exec
 UPDATE connections
 SET credential = $2,

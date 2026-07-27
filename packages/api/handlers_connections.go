@@ -93,7 +93,7 @@ func (h *handlers) createAPIKeyConnection(c echo.Context) error {
 
 // getConnection godoc
 //
-//	@Summary	查询连接状态（pending / active / reauth_required …）
+//	@Summary	查询连接状态（pending / active / authorization_failed / reauth_required）
 //	@ID			getConnection
 //	@Tags		connections
 //	@Produce	json

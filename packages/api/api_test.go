@@ -38,8 +38,8 @@ func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 			{Key: "client_id", Label: "Client ID", InputType: connector.InputText, Required: true},
 			{Key: "client_secret", Label: "Client Secret", InputType: connector.InputText, Required: true, Secret: true},
 		},
-		Tools: []connector.Tool{{ID: "t", Backend: connector.ManagedBackend{HandlerKey: "t"}}},
-	}, "t")
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
+	})
 
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
@@ -177,13 +177,6 @@ func TestConfigLifecycle(t *testing.T) {
 	resp, body := doReq(t, http.MethodGet, srv.URL+"/admin/connectors/example_app/config-schema", "", h)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"client_secret"`) {
 		t.Fatalf("schema: %d %s", resp.StatusCode, body)
-	}
-
-	// 校验失败
-	resp, body = doReq(t, http.MethodPost, srv.URL+"/admin/connectors/example_app/config:validate",
-		`{"public":{"bogus":"x"},"secrets":{}}`, h)
-	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "bogus") {
-		t.Fatalf("validate 应 422 且含字段名: %d %s", resp.StatusCode, body)
 	}
 
 	// 写入

@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/service/configsvc"
 )
 
 // TokenResponse 是 token endpoint 标准响应的子集。
@@ -21,16 +20,33 @@ type TokenResponse struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
-// ClientCredentials 从 Resolved 配置中取约定字段 client_id / client_secret。
-// 约定：需要 OAuth 的 Connector 必须声明这两个 ConfigField（client_secret 为 Secret）。
-func ClientCredentials(ctx context.Context, cfg *configsvc.Service, t connector.Type) (clientID, clientSecret string, err error) {
-	resolved, err := cfg.Resolved(ctx, t)
-	if err != nil {
-		return "", "", err
+// TokenEndpointError 是 provider 明确返回的 OAuth 错误。只保留状态码和
+// 标准 error code，避免把 provider 响应中的敏感细节写入日志或审计表。
+type TokenEndpointError struct {
+	StatusCode int
+	OAuthCode  string
+}
+
+func (e *TokenEndpointError) Error() string {
+	if e.OAuthCode != "" {
+		return fmt.Sprintf("oauthsvc: token endpoint 返回 %d (%s)", e.StatusCode, e.OAuthCode)
 	}
-	clientID, _ = resolved["client_id"].(string)
-	clientSecret, _ = resolved["client_secret"].(string)
-	if clientID == "" {
+	return fmt.Sprintf("oauthsvc: token endpoint 返回 %d", e.StatusCode)
+}
+
+func (e *TokenEndpointError) UpstreamStatusCode() int { return e.StatusCode }
+
+// IsInvalidGrant 表示 refresh token 已失效，只有这种错误需要连接重新授权。
+func IsInvalidGrant(err error) bool {
+	var endpointErr *TokenEndpointError
+	return errors.As(err, &endpointErr) && endpointErr.OAuthCode == "invalid_grant"
+}
+
+// ClientCredentials 从 Connector 的 resolved config 读取 OAuth 客户端凭证。
+func ClientCredentials(config map[string]any) (clientID, clientSecret string, err error) {
+	clientID, _ = config["client_id"].(string)
+	clientSecret, _ = config["client_secret"].(string)
+	if clientID == "" || clientSecret == "" {
 		return "", "", ErrMissingClient
 	}
 	return clientID, clientSecret, nil
@@ -65,22 +81,28 @@ func ExchangeToken(ctx context.Context, hc *http.Client, oc *connector.OAuthConf
 	if err != nil {
 		return TokenResponse{}, err
 	}
+	var payload struct {
+		TokenResponse
+		Error string `json:"error"`
+	}
+	jsonErr := json.Unmarshal(body, &payload)
 	if resp.StatusCode != http.StatusOK {
-		return TokenResponse{}, fmt.Errorf("oauthsvc: token endpoint 返回 %d: %s", resp.StatusCode, truncate(body, 256))
+		return TokenResponse{}, &TokenEndpointError{
+			StatusCode: resp.StatusCode,
+			OAuthCode:  payload.Error,
+		}
 	}
-	var tok TokenResponse
-	if err := json.Unmarshal(body, &tok); err != nil {
-		return TokenResponse{}, fmt.Errorf("oauthsvc: token 响应不是 JSON: %w", err)
+	if jsonErr != nil {
+		return TokenResponse{}, fmt.Errorf("oauthsvc: token 响应不是 JSON: %w", jsonErr)
 	}
-	if tok.AccessToken == "" {
+	if payload.Error != "" {
+		return TokenResponse{}, &TokenEndpointError{
+			StatusCode: resp.StatusCode,
+			OAuthCode:  payload.Error,
+		}
+	}
+	if payload.AccessToken == "" {
 		return TokenResponse{}, errors.New("oauthsvc: token 响应缺少 access_token")
 	}
-	return tok, nil
-}
-
-func truncate(b []byte, n int) string {
-	if len(b) > n {
-		b = b[:n]
-	}
-	return string(b)
+	return payload.TokenResponse, nil
 }

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"html"
 	"net/http"
 	"net/url"
 
@@ -26,8 +28,10 @@ func (h *handlers) oauthCallback(c echo.Context) error {
 	if provErr := c.QueryParam("error"); provErr != "" {
 		redirectURL := ""
 		if state != "" {
-			if result, err := h.deps.OAuth.HandleCallback(c.Request().Context(), state, ""); err != nil {
+			if result, err := h.deps.OAuth.RejectCallback(c.Request().Context(), state); err == nil {
 				redirectURL = result.RedirectURL
+			} else if !errors.Is(err, oauthsvc.ErrInvalidState) {
+				c.Logger().Errorf("结束 OAuth 授权失败: %v", err)
 			}
 		}
 		return h.finishCallback(c, redirectURL, "", provErr)
@@ -73,6 +77,8 @@ func (h *handlers) finishCallback(c echo.Context, redirectURL, connectionID, err
 }
 
 func callbackPage(title, body string) string {
+	title = html.EscapeString(title)
+	body = html.EscapeString(body)
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>` +
 		title + `</title></head><body style="font-family:system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center"><div style="text-align:center"><h1 style="font-size:18px">` +
 		title + `</h1><p style="color:#666">` + body + `</p></div></body></html>`

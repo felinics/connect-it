@@ -68,9 +68,7 @@ export type ApiCreateConnectionResponse = {
 };
 
 export type ApiCreateMcpSessionRequest = {
-    connections?: {
-        [key: string]: string;
-    };
+    connection_id?: string;
     tool_allowlist?: Array<string>;
     ttl_seconds?: number;
 };
@@ -108,15 +106,6 @@ export type ApiReauthRequest = {
     redirect_url?: string;
 };
 
-export type ApiValidateConfigRequest = {
-    public?: {
-        [key: string]: unknown;
-    };
-    secrets?: {
-        [key: string]: string;
-    };
-};
-
 export type AuthsvcApiTokenView = {
     created_at?: string;
     id?: string;
@@ -124,15 +113,27 @@ export type AuthsvcApiTokenView = {
     revoked_at?: string;
 };
 
+export type CatalogsvcAuthMethodSummary = {
+    key?: string;
+    label?: string;
+    type?: ConnectorAuthMethodType;
+};
+
 export type CatalogsvcItem = {
+    auth_methods?: Array<CatalogsvcAuthMethodSummary>;
     categories?: Array<string>;
     description?: string;
     homepage_url?: string;
     icon_url?: string;
+    mode?: ConnectorMode;
     name?: string;
     status?: StatusStatus;
     type?: string;
 };
+
+export type ConnectorAuthMethodType = 'none' | 'oauth2' | 'api_key' | 'custom_credential';
+
+export type ConnectorMode = 'remote_mcp' | 'managed';
 
 export type ConnsvcConnectionView = {
     alias?: string;
@@ -143,7 +144,7 @@ export type ConnsvcConnectionView = {
     status?: string;
 };
 
-export type StatusStatus = 'catalog_only' | 'needs_config' | 'config_incompatible' | 'ready' | 'degraded' | 'deprecated' | 'definition_missing';
+export type StatusStatus = 'needs_config' | 'config_incompatible' | 'ready' | 'deprecated' | 'definition_missing';
 
 export type ChangePasswordData = {
     /**
@@ -492,73 +493,6 @@ export type GetConfigSchemaResponses = {
 
 export type GetConfigSchemaResponse = GetConfigSchemaResponses[keyof GetConfigSchemaResponses];
 
-export type ValidateConfigData = {
-    /**
-     * 待校验配置
-     */
-    body: ApiValidateConfigRequest;
-    path: {
-        /**
-         * connector_type
-         */
-        type: string;
-    };
-    query?: never;
-    url: '/admin/connectors/{type}/config:validate';
-};
-
-export type ValidateConfigErrors = {
-    /**
-     * Not Found
-     */
-    404: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
-     */
-    422: ApiErrorResponse;
-};
-
-export type ValidateConfigError = ValidateConfigErrors[keyof ValidateConfigErrors];
-
-export type ValidateConfigResponses = {
-    /**
-     * No Content
-     */
-    204: unknown;
-};
-
-export type VerifyMcpData = {
-    body?: never;
-    path: {
-        /**
-         * connector_type
-         */
-        type: string;
-    };
-    query?: never;
-    url: '/admin/connectors/{type}/mcp:verify';
-};
-
-export type VerifyMcpErrors = {
-    /**
-     * Not Found
-     */
-    404: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
-     */
-    422: ApiErrorResponse;
-};
-
-export type VerifyMcpError = VerifyMcpErrors[keyof VerifyMcpErrors];
-
-export type VerifyMcpResponses = {
-    /**
-     * No Content
-     */
-    204: unknown;
-};
-
 export type LoginData = {
     /**
      * 用户名与密码
@@ -815,7 +749,7 @@ export type GetConnectorResponse = GetConnectorResponses[keyof GetConnectorRespo
 
 export type CreateMcpSessionData = {
     /**
-     * 绑定与 allowlist；ttl_seconds 默认 3600、上限 86400
+     * allowlist 为空时固化签发时发现的全部工具；ttl_seconds 默认 3600、上限 86400
      */
     body: ApiCreateMcpSessionRequest;
     path?: never;
@@ -828,6 +762,10 @@ export type CreateMcpSessionErrors = {
      * Bad Request
      */
     400: ApiErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ApiErrorResponse;
 };
 
 export type CreateMcpSessionError = CreateMcpSessionErrors[keyof CreateMcpSessionErrors];

@@ -2,6 +2,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -11,43 +12,32 @@ import (
 )
 
 var (
-	typePattern   = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	toolIDPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
+	typePattern     = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 )
 
 type Registry struct {
-	defs        map[connector.Type]connector.Definition
-	handlerKeys map[connector.Type]map[string]bool
+	defs map[connector.Type]connector.Definition
 }
 
 func New() *Registry {
-	return &Registry{
-		defs:        map[connector.Type]connector.Definition{},
-		handlerKeys: map[connector.Type]map[string]bool{},
-	}
+	return &Registry{defs: map[connector.Type]connector.Definition{}}
 }
 
 // Register 校验并登记一个 Definition。
-// managedHandlerKeys 是该 Connector 在 managed.go 中注册的 handler key 集合，
-// 用于校验 ManagedBackend 引用的 handler 确实存在。
-func (r *Registry) Register(def connector.Definition, managedHandlerKeys ...string) error {
+func (r *Registry) Register(def connector.Definition) error {
 	if _, exists := r.defs[def.Type]; exists {
 		return fmt.Errorf("connector %q: type 重复注册", def.Type)
 	}
-	keys := map[string]bool{}
-	for _, k := range managedHandlerKeys {
-		keys[k] = true
-	}
-	if err := validate(def, keys); err != nil {
+	if err := validate(def); err != nil {
 		return err
 	}
 	r.defs[def.Type] = def
-	r.handlerKeys[def.Type] = keys
 	return nil
 }
 
-func (r *Registry) MustRegister(def connector.Definition, managedHandlerKeys ...string) {
-	if err := r.Register(def, managedHandlerKeys...); err != nil {
+func (r *Registry) MustRegister(def connector.Definition) {
+	if err := r.Register(def); err != nil {
 		panic(err)
 	}
 }
@@ -66,7 +56,7 @@ func (r *Registry) All() []connector.Definition {
 	return out
 }
 
-func validate(def connector.Definition, handlerKeys map[string]bool) error {
+func validate(def connector.Definition) error {
 	if !typePattern.MatchString(string(def.Type)) {
 		return fmt.Errorf("connector %q: type 必须匹配 %s", def.Type, typePattern)
 	}
@@ -108,59 +98,45 @@ func validate(def connector.Definition, handlerKeys map[string]bool) error {
 		}
 	}
 
-	serverKeys := map[string]bool{}
-	for _, s := range def.RemoteMCPServers {
-		if s.Key == "" {
-			return fmt.Errorf("connector %q: MCP server key 不能为空", def.Type)
+	switch impl := def.Implementation.(type) {
+	case connector.RemoteMCP:
+		u, err := url.Parse(impl.Endpoint)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("connector %q: remote MCP endpoint 必须是 https URL", def.Type)
 		}
-		if serverKeys[s.Key] {
-			return fmt.Errorf("connector %q: MCP server %q 重复", def.Type, s.Key)
+		if impl.RequestTimeout < 0 {
+			return fmt.Errorf("connector %q: remote MCP RequestTimeout 不能为负数", def.Type)
 		}
-		serverKeys[s.Key] = true
-		switch s.Endpoint.Source {
-		case connector.EndpointFixed:
-			u, err := url.Parse(s.Endpoint.URL)
-			if err != nil || u.Scheme != "https" || u.Host == "" {
-				return fmt.Errorf("connector %q: MCP server %q 的固定 endpoint 必须是 https URL", def.Type, s.Key)
-			}
-		case connector.EndpointConfigField:
-			if s.Provenance.Kind != connector.ProvenanceSelfHosted {
-				return fmt.Errorf("connector %q: MCP server %q 从配置取 endpoint 仅允许 self_hosted", def.Type, s.Key)
-			}
-			if !fieldKeys[s.Endpoint.ConfigFieldKey] {
-				return fmt.Errorf("connector %q: MCP server %q 引用的配置字段 %q 不存在", def.Type, s.Key, s.Endpoint.ConfigFieldKey)
-			}
-		default:
-			return fmt.Errorf("connector %q: MCP server %q 的 Endpoint.Source 非法", def.Type, s.Key)
+	case connector.Managed:
+		if len(impl.Tools) == 0 {
+			return fmt.Errorf("connector %q: managed implementation 至少需要一个 tool", def.Type)
 		}
-	}
-
-	toolIDs := map[string]bool{}
-	for _, tl := range def.Tools {
-		if !toolIDPattern.MatchString(tl.ID) {
-			return fmt.Errorf("connector %q: tool ID %q 必须匹配 %s", def.Type, tl.ID, toolIDPattern)
-		}
-		if toolIDs[tl.ID] {
-			return fmt.Errorf("connector %q: tool %q 重复", def.Type, tl.ID)
-		}
-		toolIDs[tl.ID] = true
-		switch b := tl.Backend.(type) {
-		case connector.RemoteMCPBackend:
-			if !serverKeys[b.ServerKey] {
-				return fmt.Errorf("connector %q: tool %q 引用的 MCP server %q 不存在", def.Type, tl.ID, b.ServerKey)
+		toolNames := map[string]bool{}
+		for _, managedTool := range impl.Tools {
+			tool := managedTool.Tool
+			if !toolNamePattern.MatchString(tool.Name) {
+				return fmt.Errorf("connector %q: tool name %q 必须匹配 %s", def.Type, tool.Name, toolNamePattern)
 			}
-			if b.RemoteToolName == "" {
-				return fmt.Errorf("connector %q: tool %q 缺少 RemoteToolName", def.Type, tl.ID)
+			if toolNames[tool.Name] {
+				return fmt.Errorf("connector %q: tool %q 重复", def.Type, tool.Name)
 			}
-		case connector.ManagedBackend:
-			if !handlerKeys[b.HandlerKey] {
-				return fmt.Errorf("connector %q: tool %q 引用的 managed handler %q 未注册", def.Type, tl.ID, b.HandlerKey)
+			toolNames[tool.Name] = true
+			if managedTool.Handler == nil {
+				return fmt.Errorf("connector %q: tool %q 缺少 Handler", def.Type, tool.Name)
 			}
-		case nil:
-			return fmt.Errorf("connector %q: tool %q 缺少 Backend", def.Type, tl.ID)
-		default:
-			return fmt.Errorf("connector %q: tool %q 的 Backend 类型未知", def.Type, tl.ID)
+			if err := validateObjectSchema(tool.InputSchema); err != nil {
+				return fmt.Errorf("connector %q: tool %q InputSchema: %w", def.Type, tool.Name, err)
+			}
+			if tool.OutputSchema != nil {
+				if err := validateObjectSchema(tool.OutputSchema); err != nil {
+					return fmt.Errorf("connector %q: tool %q OutputSchema: %w", def.Type, tool.Name, err)
+				}
+			}
 		}
+	case nil:
+		return fmt.Errorf("connector %q: 缺少 Implementation", def.Type)
+	default:
+		return fmt.Errorf("connector %q: Implementation 必须是 RemoteMCP 或 Managed 值", def.Type)
 	}
 
 	seenFrom := map[int]bool{}
@@ -172,6 +148,24 @@ func validate(def connector.Definition, handlerKeys map[string]bool) error {
 			return fmt.Errorf("connector %q: upgrader FromVersion %d 重复", def.Type, up.FromVersion)
 		}
 		seenFrom[up.FromVersion] = true
+	}
+	return nil
+}
+
+func validateObjectSchema(schema any) error {
+	if schema == nil {
+		return fmt.Errorf("不能为空")
+	}
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Errorf("不是合法 JSON: %w", err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil || object == nil {
+		return fmt.Errorf("必须是 JSON object")
+	}
+	if object["type"] != "object" {
+		return fmt.Errorf(`type 必须是 "object"`)
 	}
 	return nil
 }

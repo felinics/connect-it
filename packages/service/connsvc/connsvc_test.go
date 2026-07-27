@@ -30,6 +30,7 @@ func testDef() connector.Definition {
 				TokenEndpoint:         "https://example.com/token",
 			}},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	}
 }
 
@@ -53,7 +54,6 @@ func TestCreateAPIKeyValidation(t *testing.T) {
 		fields  map[string]string
 		wantErr error
 	}{
-		{"alias 非法", "example_app", "pat", "Bad_Alias", nil, connsvc.ErrInvalidAlias},
 		{"未知 connector", "nope", "pat", "a1", nil, connsvc.ErrUnknownConnector},
 		{"未知 auth method", "example_app", "nope", "a1", nil, connsvc.ErrUnknownAuthMethod},
 		{"oauth method 不能走 api-key", "example_app", "oauth", "a1", nil, connsvc.ErrWrongAuthType},
@@ -84,6 +84,29 @@ func TestConnectionLifecycle(t *testing.T) {
 
 	id, err := s.CreateAPIKey(ctx, "example_app", "pat", "acct-1", map[string]string{"token": "tok_abc"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	pendingID := uuid.New()
+	if _, err := pool.Exec(ctx, `insert into connections
+		(id, connector_type, alias, auth_method, credential, secret_key_version,
+		 profile, scopes, status, created_at, updated_at)
+		values ($1, 'example_app', null, 'oauth', '\x', 1, '{}', '{}', 'pending', now(), now())`,
+		pendingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into oauth_authorizations
+		(id, connector_type, state_hash, pkce_verifier, secret_key_version,
+		 auth_method, connection_id, redirect_url, status, expires_at, created_at)
+		values ($1, 'example_app', $2, '\x', 1, 'oauth', $3, '', 'pending',
+		        now() - interval '1 minute', now())`,
+		uuid.New(), uuid.NewString(), pendingID); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := s.Get(ctx, pendingID)
+	if err != nil || expired.Status != "authorization_failed" {
+		t.Fatalf("轮询应收敛过期授权: %+v err=%v", expired, err)
+	}
+	if err := s.Delete(ctx, pendingID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,8 +149,27 @@ func TestConnectionLifecycle(t *testing.T) {
 	if err != nil || view.ID != id {
 		t.Fatalf("get: %+v err=%v", view, err)
 	}
+	apiTokenID, sessionID := uuid.New(), uuid.New()
+	if _, err := pool.Exec(ctx, `insert into api_tokens (id, name, token_hash, created_at)
+		values ($1, 'test', $2, now())`, apiTokenID, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `insert into mcp_sessions
+		(id, token_hash, api_token_id, connection_id, tool_snapshot, expires_at, created_at)
+		values ($1, $2, $3, $4, '[]', now() + interval '1 hour', now())`,
+		sessionID, uuid.NewString(), apiTokenID, id); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Delete(ctx, id); err != nil {
 		t.Fatal(err)
+	}
+	var sessionsLeft int
+	if err := pool.QueryRow(ctx,
+		`select count(*) from mcp_sessions where id = $1`, sessionID).Scan(&sessionsLeft); err != nil {
+		t.Fatal(err)
+	}
+	if sessionsLeft != 0 {
+		t.Fatal("删除 connection 应同时撤销绑定它的 MCP session")
 	}
 	if err := s.Delete(ctx, id); !errors.Is(err, connsvc.ErrNotFound) {
 		t.Fatalf("重复删除应 ErrNotFound, got %v", err)

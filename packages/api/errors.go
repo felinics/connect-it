@@ -39,8 +39,7 @@ func mapServiceError(c echo.Context, err error) error {
 		return writeError(c, http.StatusConflict, "conflict", "配置已被修改，请刷新后重试")
 	case errors.Is(err, configsvc.ErrIncompatible):
 		return writeError(c, http.StatusConflict, "config_incompatible", "数据库配置版本比当前代码新")
-	case errors.Is(err, connsvc.ErrInvalidAlias),
-		errors.Is(err, connsvc.ErrUnknownAuthMethod),
+	case errors.Is(err, connsvc.ErrUnknownAuthMethod),
 		errors.Is(err, connsvc.ErrWrongAuthType),
 		errors.Is(err, connsvc.ErrInvalidFields),
 		errors.Is(err, oauthsvc.ErrUnknownAuthMethod),

@@ -444,88 +444,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/admin/connectors/{type}/config:validate": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "admin"
-                ],
-                "summary": "仅校验配置不落库",
-                "operationId": "validateConfig",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "connector_type",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "待校验配置",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.validateConfigRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable Entity",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/connectors/{type}/mcp:verify": {
-            "post": {
-                "tags": [
-                    "admin"
-                ],
-                "summary": "实测 Connector 的全部 Remote MCP server 并比对 tool 映射",
-                "operationId": "verifyMcp",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "connector_type",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "422": {
-                        "description": "Unprocessable Entity",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/login": {
             "post": {
                 "consumes": [
@@ -698,7 +616,7 @@ const docTemplate = `{
                 "tags": [
                     "connections"
                 ],
-                "summary": "查询连接状态（pending / active / reauth_required …）",
+                "summary": "查询连接状态（pending / active / authorization_failed / reauth_required）",
                 "operationId": "getConnection",
                 "parameters": [
                     {
@@ -898,11 +816,11 @@ const docTemplate = `{
                 "tags": [
                     "mcp"
                 ],
-                "summary": "签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）",
+                "summary": "签发绑定单个 Connection 的短期 MCP session token",
                 "operationId": "createMcpSession",
                 "parameters": [
                     {
-                        "description": "绑定与 allowlist；ttl_seconds 默认 3600、上限 86400",
+                        "description": "allowlist 为空时固化签发时发现的全部工具；ttl_seconds 默认 3600、上限 86400",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -920,6 +838,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -1120,11 +1044,8 @@ const docTemplate = `{
         "api.createMCPSessionRequest": {
             "type": "object",
             "properties": {
-                "connections": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                "connection_id": {
+                    "type": "string"
                 },
                 "tool_allowlist": {
                     "type": "array",
@@ -1204,21 +1125,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.validateConfigRequest": {
-            "type": "object",
-            "properties": {
-                "public": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "secrets": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "authsvc.APITokenView": {
             "type": "object",
             "properties": {
@@ -1236,9 +1142,29 @@ const docTemplate = `{
                 }
             }
         },
+        "catalogsvc.AuthMethodSummary": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/connector.AuthMethodType"
+                }
+            }
+        },
         "catalogsvc.Item": {
             "type": "object",
             "properties": {
+                "auth_methods": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalogsvc.AuthMethodSummary"
+                    }
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -1254,6 +1180,9 @@ const docTemplate = `{
                 "icon_url": {
                     "type": "string"
                 },
+                "mode": {
+                    "$ref": "#/definitions/connector.Mode"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1264,6 +1193,32 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "connector.AuthMethodType": {
+            "type": "string",
+            "enum": [
+                "none",
+                "oauth2",
+                "api_key",
+                "custom_credential"
+            ],
+            "x-enum-varnames": [
+                "AuthNone",
+                "AuthOAuth2",
+                "AuthAPIKey",
+                "AuthCustomCredential"
+            ]
+        },
+        "connector.Mode": {
+            "type": "string",
+            "enum": [
+                "remote_mcp",
+                "managed"
+            ],
+            "x-enum-varnames": [
+                "ModeRemoteMCP",
+                "ModeManaged"
+            ]
         },
         "connsvc.ConnectionView": {
             "type": "object",
@@ -1291,20 +1246,16 @@ const docTemplate = `{
         "status.Status": {
             "type": "string",
             "enum": [
-                "catalog_only",
                 "needs_config",
                 "config_incompatible",
                 "ready",
-                "degraded",
                 "deprecated",
                 "definition_missing"
             ],
             "x-enum-varnames": [
-                "CatalogOnly",
                 "NeedsConfig",
                 "ConfigIncompatible",
                 "Ready",
-                "Degraded",
                 "Deprecated",
                 "DefinitionMissing"
             ]

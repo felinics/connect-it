@@ -102,10 +102,8 @@ definitions:
     type: object
   api.createMCPSessionRequest:
     properties:
-      connections:
-        additionalProperties:
-          type: string
-        type: object
+      connection_id:
+        type: string
       tool_allowlist:
         items:
           type: string
@@ -156,16 +154,6 @@ definitions:
       redirect_url:
         type: string
     type: object
-  api.validateConfigRequest:
-    properties:
-      public:
-        additionalProperties: {}
-        type: object
-      secrets:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
   authsvc.APITokenView:
     properties:
       created_at:
@@ -177,8 +165,21 @@ definitions:
       revoked_at:
         type: string
     type: object
+  catalogsvc.AuthMethodSummary:
+    properties:
+      key:
+        type: string
+      label:
+        type: string
+      type:
+        $ref: '#/definitions/connector.AuthMethodType'
+    type: object
   catalogsvc.Item:
     properties:
+      auth_methods:
+        items:
+          $ref: '#/definitions/catalogsvc.AuthMethodSummary'
+        type: array
       categories:
         items:
           type: string
@@ -189,6 +190,8 @@ definitions:
         type: string
       icon_url:
         type: string
+      mode:
+        $ref: '#/definitions/connector.Mode'
       name:
         type: string
       status:
@@ -196,6 +199,26 @@ definitions:
       type:
         type: string
     type: object
+  connector.AuthMethodType:
+    enum:
+    - none
+    - oauth2
+    - api_key
+    - custom_credential
+    type: string
+    x-enum-varnames:
+    - AuthNone
+    - AuthOAuth2
+    - AuthAPIKey
+    - AuthCustomCredential
+  connector.Mode:
+    enum:
+    - remote_mcp
+    - managed
+    type: string
+    x-enum-varnames:
+    - ModeRemoteMCP
+    - ModeManaged
   connsvc.ConnectionView:
     properties:
       alias:
@@ -213,20 +236,16 @@ definitions:
     type: object
   status.Status:
     enum:
-    - catalog_only
     - needs_config
     - config_incompatible
     - ready
-    - degraded
     - deprecated
     - definition_missing
     type: string
     x-enum-varnames:
-    - CatalogOnly
     - NeedsConfig
     - ConfigIncompatible
     - Ready
-    - Degraded
     - Deprecated
     - DefinitionMissing
 info:
@@ -517,60 +536,6 @@ paths:
       summary: Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）
       tags:
       - admin
-  /admin/connectors/{type}/config:validate:
-    post:
-      consumes:
-      - application/json
-      operationId: validateConfig
-      parameters:
-      - description: connector_type
-        in: path
-        name: type
-        required: true
-        type: string
-      - description: 待校验配置
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/api.validateConfigRequest'
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      summary: 仅校验配置不落库
-      tags:
-      - admin
-  /admin/connectors/{type}/mcp:verify:
-    post:
-      operationId: verifyMcp
-      parameters:
-      - description: connector_type
-        in: path
-        name: type
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      summary: 实测 Connector 的全部 Remote MCP server 并比对 tool 映射
-      tags:
-      - admin
   /admin/login:
     post:
       consumes:
@@ -650,7 +615,7 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: 查询连接状态（pending / active / reauth_required …）
+      summary: 查询连接状态（pending / active / authorization_failed / reauth_required）
       tags:
       - connections
   /v1/connections/{id}/reauth:
@@ -801,7 +766,7 @@ paths:
       - application/json
       operationId: createMcpSession
       parameters:
-      - description: 绑定与 allowlist；ttl_seconds 默认 3600、上限 86400
+      - description: allowlist 为空时固化签发时发现的全部工具；ttl_seconds 默认 3600、上限 86400
         in: body
         name: body
         required: true
@@ -818,9 +783,13 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: 签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+      summary: 签发绑定单个 Connection 的短期 MCP session token
       tags:
       - mcp
   /v1/oauth/callback:

@@ -33,17 +33,12 @@ func (s *Service) ConfigState(ctx context.Context, t connector.Type) (status.Con
 	for k := range secrets {
 		set[k] = true
 	}
-	st := status.ConfigState{
+	return status.ConfigState{
 		Exists:        true,
 		SchemaVersion: int(row.ConfigSchemaVersion),
 		PublicValues:  pub,
 		SecretKeysSet: set,
-	}
-	if row.McpVerifiedAt != nil && row.McpVerifiedEndpoint != nil {
-		st.MCPVerified = true
-		st.MCPVerifiedEndpoint = *row.McpVerifiedEndpoint
-	}
-	return st, nil
+	}, nil
 }
 
 // Resolved 返回执行层可直接使用的配置：defaults→public→secrets 依次覆盖合并；

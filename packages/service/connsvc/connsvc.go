@@ -19,11 +19,7 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-// AliasPattern 是 alias 的合法形式（spec §7）。
-var AliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
-
 var (
-	ErrInvalidAlias      = errors.New("connsvc: alias 必须匹配 ^[a-z0-9][a-z0-9-]{0,31}$")
 	ErrUnknownConnector  = errors.New("connsvc: 未知 connector type")
 	ErrUnknownAuthMethod = errors.New("connsvc: 未知 auth method")
 	ErrWrongAuthType     = errors.New("connsvc: auth method 不是 api_key / custom_credential")
@@ -54,9 +50,6 @@ type ConnectionView struct {
 // CreateAPIKey 创建一条 api_key / custom_credential 连接并返回其持久 ID。
 // alias 是可选展示标签（空串表示不设）。
 func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethodKey, alias string, fields map[string]string) (uuid.UUID, error) {
-	if alias != "" && !AliasPattern.MatchString(alias) {
-		return uuid.Nil, ErrInvalidAlias
-	}
 	def, ok := s.reg.Get(t)
 	if !ok {
 		return uuid.Nil, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
@@ -109,6 +102,9 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 }
 
 func (s *Service) List(ctx context.Context) ([]ConnectionView, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListConnections(ctx)
 	if err != nil {
 		return nil, err
@@ -121,6 +117,9 @@ func (s *Service) List(ctx context.Context) ([]ConnectionView, error) {
 }
 
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (ConnectionView, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return ConnectionView{}, err
+	}
 	row, err := s.q.GetConnection(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -184,4 +183,3 @@ func validateFields(defs []connector.ConfigField, got map[string]string) error {
 	}
 	return nil
 }
-
