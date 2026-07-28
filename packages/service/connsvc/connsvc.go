@@ -19,7 +19,7 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-// AliasPattern 是 alias 的合法形式（spec §7）。
+// AliasPattern 是可选 Connection 展示标签的合法形式。
 var AliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 var (
@@ -109,6 +109,9 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 }
 
 func (s *Service) List(ctx context.Context) ([]ConnectionView, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListConnections(ctx)
 	if err != nil {
 		return nil, err
@@ -121,6 +124,9 @@ func (s *Service) List(ctx context.Context) ([]ConnectionView, error) {
 }
 
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (ConnectionView, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return ConnectionView{}, err
+	}
 	row, err := s.q.GetConnection(ctx, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -181,7 +187,18 @@ func validateFields(defs []connector.ConfigField, got map[string]string) error {
 				return fmt.Errorf("%w: 字段 %q 不符合 %s", ErrInvalidFields, f.Key, f.Validation.Pattern)
 			}
 		}
+		if ok && v != "" && len(f.Validation.Options) > 0 {
+			valid := false
+			for _, option := range f.Validation.Options {
+				if v == option {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				return fmt.Errorf("%w: 字段 %q 不是允许的选项", ErrInvalidFields, f.Key)
+			}
+		}
 	}
 	return nil
 }
-

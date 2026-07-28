@@ -3,8 +3,9 @@
 package connector
 
 import (
-	"encoding/json"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Type 是稳定的平台标识（snake_case），如 "github"、"one_drive"。
@@ -20,21 +21,73 @@ type Definition struct {
 	IconURL             string
 	ConfigSchemaVersion int
 
-	ConfigFields     []ConfigField
-	AuthMethods      []AuthMethod
-	RemoteMCPServers []RemoteMCPServer
-	Tools            []Tool
+	ConfigFields   []ConfigField
+	AuthMethods    []AuthMethod
+	Implementation Implementation
 
 	ConfigUpgraders []ConfigUpgrader
 
 	Deprecated bool
 }
 
+type Mode string
+
+const (
+	ModeRemoteMCP Mode = "remote_mcp"
+	ModeManaged   Mode = "managed"
+)
+
+func (d Definition) Mode() Mode {
+	if d.Implementation == nil {
+		return ""
+	}
+	return d.Implementation.Mode()
+}
+
+// Implementation is exactly one of RemoteMCP or Managed.
+type Implementation interface {
+	Mode() Mode
+	isImplementation()
+}
+
+// RemoteMCP exposes the tools discovered from one upstream MCP server.
+type RemoteMCP struct {
+	// Exactly one of Endpoint or EndpointSelector is configured.
+	Endpoint         string
+	EndpointSelector *RemoteMCPEndpointSelector
+	// AuthorizationScheme defaults to Bearer. It is only needed when an
+	// official server defines a distinct token scheme, such as Sentry-Bearer.
+	AuthorizationScheme string
+	RequestTimeout      time.Duration
+}
+
+// RemoteMCPEndpointSelector chooses among code-defined official endpoints
+// using one InputSelect provider config field.
+type RemoteMCPEndpointSelector struct {
+	ConfigField string
+	Endpoints   map[string]string
+}
+
+func (RemoteMCP) Mode() Mode        { return ModeRemoteMCP }
+func (RemoteMCP) isImplementation() {}
+
+// Managed exposes locally implemented tools backed by an HTTP API or SDK.
+type Managed struct {
+	Tools []ManagedTool
+}
+
+func (Managed) Mode() Mode        { return ModeManaged }
+func (Managed) isImplementation() {}
+
+type ManagedTool struct {
+	Tool    mcp.Tool
+	Handler ManagedHandler
+}
+
 type ConfigInputType string
 
 const (
 	InputText   ConfigInputType = "text"
-	InputURL    ConfigInputType = "url"
 	InputSelect ConfigInputType = "select"
 )
 
@@ -68,16 +121,31 @@ type TokenEndpointAuth string
 const (
 	TokenAuthBasic TokenEndpointAuth = "client_secret_basic"
 	TokenAuthPost  TokenEndpointAuth = "client_secret_post"
+	TokenAuthNone  TokenEndpointAuth = "none"
+)
+
+type OAuthMode string
+
+const (
+	// OAuthModeMCP discovers the OAuth server from the remote MCP endpoint and
+	// registers connect-it as a client dynamically. It does not require an
+	// administrator-provided client_id or client_secret.
+	OAuthModeMCP OAuthMode = "mcp"
 )
 
 type OAuthConfig struct {
+	// Mode is empty for a provider-specific, statically configured OAuth app.
+	// OAuthModeMCP enables the native MCP OAuth discovery flow.
+	Mode                  OAuthMode
 	AuthorizationEndpoint string
 	TokenEndpoint         string
 	Scopes                []string
-	UsePKCE               bool
-	TokenEndpointAuth     TokenEndpointAuth
-	ExtraAuthParams       map[string]string
-	ProfileResolverKey    string
+	// ScopeSeparator defaults to one space. Some providers, notably Slack,
+	// require a comma-separated scope parameter.
+	ScopeSeparator    string
+	UsePKCE           bool
+	TokenEndpointAuth TokenEndpointAuth
+	ExtraAuthParams   map[string]string
 }
 
 type AuthMethod struct {
@@ -88,94 +156,6 @@ type AuthMethod struct {
 	OAuth *OAuthConfig
 	// CredentialFields 是 api_key / custom_credential 需要用户填写的字段。
 	CredentialFields []ConfigField
-}
-
-type EndpointSource string
-
-const (
-	EndpointFixed       EndpointSource = "fixed"
-	EndpointConfigField EndpointSource = "config_field"
-)
-
-type Endpoint struct {
-	Source         EndpointSource
-	URL            string // Source == EndpointFixed 时使用，必须为 https
-	ConfigFieldKey string // Source == EndpointConfigField 时引用的 ConfigField
-}
-
-type MCPAuthBinding struct {
-	Scheme string // 目前仅 "bearer"
-}
-
-type ProvenanceKind string
-
-const (
-	ProvenanceOfficial   ProvenanceKind = "official"
-	ProvenanceThirdParty ProvenanceKind = "third_party"
-	ProvenanceSelfHosted ProvenanceKind = "self_hosted"
-)
-
-type Stability string
-
-const (
-	StabilityStable       Stability = "stable"
-	StabilityPreview      Stability = "preview"
-	StabilityExperimental Stability = "experimental"
-)
-
-type Provenance struct {
-	Kind             ProvenanceKind
-	Publisher        string
-	DocsURL          string
-	SourceURL        string
-	ReviewedAt       string // YYYY-MM-DD
-	AllowedHostnames []string
-	Stability        Stability
-}
-
-type RemoteMCPServer struct {
-	Key            string
-	Endpoint       Endpoint
-	AuthBinding    MCPAuthBinding
-	Provenance     Provenance
-	RequestTimeout time.Duration
-}
-
-type ToolRisk string
-
-const (
-	RiskRead        ToolRisk = "read"
-	RiskWrite       ToolRisk = "write"
-	RiskDestructive ToolRisk = "destructive"
-)
-
-// ToolBackend 是 tagged union：RemoteMCPBackend 或 ManagedBackend。
-type ToolBackend interface{ isToolBackend() }
-
-type RemoteMCPBackend struct {
-	ServerKey       string
-	RemoteToolName  string
-	InputMapperKey  string
-	OutputMapperKey string
-}
-
-func (RemoteMCPBackend) isToolBackend() {}
-
-type ManagedBackend struct {
-	HandlerKey string
-}
-
-func (ManagedBackend) isToolBackend() {}
-
-type Tool struct {
-	ID             string // ^[a-z0-9_]+$
-	Name           string
-	Description    string
-	InputSchema    json.RawMessage
-	OutputSchema   json.RawMessage
-	RequiredScopes []string
-	Risk           ToolRisk
-	Backend        ToolBackend
 }
 
 // ConfigUpgrader 把管理员配置从 FromVersion 升级到 FromVersion+1。

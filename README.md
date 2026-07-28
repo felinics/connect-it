@@ -1,183 +1,189 @@
 # connect-it
 
-connect-it 是一个内部使用的有状态 Connector 服务（Go）。它集中管理第三方平台
-（GitHub、Gmail、OneDrive、Google Ads）的授权凭证与 Tool 执行，通过一个聚合
-MCP 端点（Streamable HTTP）暴露给内部应用，并内置 Vue 3 管理界面用于连接器
-配置、OAuth 授权与健康监控。
+connect-it 是一个自部署的内部 Connector 网关。它集中保存第三方平台凭证，通过
+REST API 管理 Connection，并通过一个聚合的 MCP Streamable HTTP 端点向可信
+下游暴露工具。
 
-核心特性：
+## Connector 模型
 
-- **代码即事实源**：Connector Definition 编译进二进制，数据库只存管理员配置与
-  连接状态；新增／修改 Connector 不需要数据库 migration。
-- **独立容器部署**：web（nginx 托管界面并反代 API）、server（Go 单二进制，
-  migration 启动时自动执行）、postgres 三容器。
-- **单租户**：一个部署一套配置；同类型多连接靠唯一 alias 区分。
-- **聚合 /mcp**：短期 session token 限定可见连接与 Tool allowlist，工具名
-  `{alias}__{tool_id}`。
-- **Swagger + SDK**：swag 注释生成 OpenAPI，`packages/sdk` 由 Hey API 生成
-  TypeScript 客户端供前端使用。
+每个 Connector Definition 只能选择一种实现：
 
-## 仓库结构
+- `remote_mcp`：连接代码中指定的上游 MCP Server，在签发 Session 时通过
+  `tools/list` 动态发现工具，`tools/call` 原样转发参数和结果。
+- `managed`：当平台没有可用的 Remote MCP 时，由 connect-it 使用 REST API
+  或 SDK 定义并实现工具。
+
+两种实现不在同一个 Connector 内混用。Remote MCP 的工具由上游 Server 定义，
+Managed 的工具由 connect-it 定义。
+
+### 为什么这样设计
+
+旧模型同时在 Definition 中声明 Remote MCP Server、静态工具 schema、后端映射
+和参数转换器。connect-it 因此需要重复描述上游已经通过 `tools/list` 提供的
+信息，工具变化后两边的定义可能不一致；尚未实现的转换器也增加了无效代码。
+
+现在按照“工具由谁定义和维护”划分职责：
+
+- 上游有可用 MCP Server 时，connect-it 不再复制工具定义，只负责凭证注入、
+  动态发现和协议透传。
+- 上游没有可用 MCP Server 时，connect-it 才拥有工具定义，并通过 REST API
+  或 SDK 实现它们。
+
+不采用混合模式，是因为同一 Connector 同时拥有“上游动态工具”和“本地附加
+工具”后，会重新出现工具重名、schema 不一致、权限难以判断和版本不同步等问题。
+需要新增能力时，应由上游 MCP 增加工具，或者将该 Connector 明确实现为
+Managed，而不是在代理层增加另一套工具。
+
+部分 Managed Connector 使用通用的 `api_request` 工具访问官方 REST API。
+启用这类工具，等同于允许下游使用该凭证访问对应 REST API 的完整能力；
+`tool_allowlist` 只能允许或拒绝整个工具，不能按 HTTP method 或 path 进一步限制。
+
+这个选择减少的是需要理解和维护的概念，不一定会减少第一次修改的代码量。
+Registry 和执行层只需处理两种明确实现，新增 Provider 也不需要再增加新的
+后端或转换器类型。
+
+OAuth 也分为两类：
+
+- Provider OAuth：使用预先配置的 OAuth App，适用于 Managed Provider，以及
+  不支持 MCP 原生 OAuth 的上游。
+- MCP 原生 OAuth：从 Remote MCP endpoint 发现 OAuth metadata，使用 PKCE 和
+  Dynamic Client Registration；仅在上游支持时不需要管理员配置 Client ID 和
+  Client Secret。
+
+## Connection 与 MCP Session
+
+Connection 是长期凭证句柄。第三方 access token、refresh token 或 API Key 只
+保存在 connect-it；下游只持久化 `connection_id`，并自行管理它属于哪个用户或
+Bot。
+
+MCP Session 是一份短期且不可变的工具清单，可以同时包含多个 Connection：
+
+1. 下游提交 `namespace → connection_id` 映射。
+2. connect-it 并发发现所有 Connection 的工具。
+3. 工具以 `namespace__tool_name` 暴露并固化到 Session。
+4. 下游使用短期 Session Token 访问统一的 `/mcp`。
+
+保存这份工具清单，是为了保证同一个 Session 的 `tools/list` 与 `tools/call`
+始终对应同一批工具。即使上游在会话期间增加或删除工具，已经签发的 Session
+也不会随之改变。Session 按完整快照签发；任何一个 Connection 的工具发现失败，
+本次签发都会失败，不会生成只包含部分 Connection 的 Session。
+
+省略 `tool_allowlist` 表示允许本次签发时发现到的全部工具；显式 allowlist 中的
+每个工具都必须存在，否则拒绝签发。撤销签发 Session 的 API Token、删除其中的
+Connection 或 Session 到期，都会使 Session 失效。
+
+## 目录
 
 ```text
 packages/
-├── core/        Go：Definition 类型、Registry、加密、状态机（纯库）
-├── connectors/  Go：github / gmail / onedrive / googleads 各 provider
-├── service/     Go：sqlc store、migrations、OAuth、token 刷新、Tool 执行、MCP
-├── api/         Go：Echo 路由、swagger、程序入口
-├── sdk/         TypeScript SDK（openapi-ts 生成，产物提交仓库）
-├── ui/          git submodule → github.com/memohai/ui（设计系统）
-└── web/         Vite + Vue 3 管理界面
-docker/          server.Dockerfile、web.Dockerfile、nginx.conf、docker-compose.yml
+├── core/        Connector Definition、Registry、加密与公共类型
+├── connectors/  Remote MCP 与 Managed Provider
+├── service/     配置、Connection、OAuth、Token、执行与 MCP Session
+├── api/         Echo API、程序入口和 OpenAPI
+├── sdk/         管理界面使用的、根据 OpenAPI 生成的 TypeScript SDK
+├── ui/          git submodule → github.com/memohai/ui
+└── web/         Vue 3 管理界面
+sdk/
+└── go/          面向可信下游服务的手写 Go SDK
+docker/          Dockerfile、nginx 和 Compose
 ```
 
-无 go.work：Go module 间用 go.mod `replace` 相对路径互引，clone 即可构建。
-**clone 必须带 `--recursive`**（packages/ui 是 submodule）。
+仓库没有 `go.work`；Go module 通过相对 `replace` 互相引用。clone 时需带
+`--recursive`，因为 `packages/ui` 是 submodule。
 
-## 快速开始
-
-### 方式一：本地开发（mise）
+## 本地开发
 
 ```bash
-mise install                 # go 1.25 / node 22 / pnpm 10 / sqlc
-pnpm install                 # 前端 workspace 依赖
-mise run db-up               # 启动测试 postgres（localhost:5433）
-mise run dev                 # 起 API（http://localhost:8080，admin/admin123）
-pnpm --dir packages/web run dev   # 另开终端起前端（Vite 代理 API 到 8080）
+mise install
+pnpm install
+mise run db-up
+mise run dev
 ```
 
-### 方式二：Docker Compose（web + server + postgres 三容器）
+API 默认监听 `http://localhost:8080`，开发管理员账号为 `admin` / `admin123`。
+另开终端启动前端：
 
 ```bash
-mise run docker-up           # 构建两个镜像并启动三个服务，等待健康
-open http://localhost:8080   # 管理界面（nginx；默认密码见 docker/docker-compose.yml）
+pnpm --dir packages/web run dev
+```
+
+完整 Docker 环境：
+
+```bash
+mise run docker-up
+open http://localhost:8080
 mise run docker-down
 ```
 
-server 容器不对外发布端口，全部流量（含内部应用的 `/v1`、`/mcp` 机器调用）
-经 web 容器的 nginx 反代进入。
-
-部署到任何会活过当前终端会话的环境前，把 compose 文件里所有标着
-`CHANGE ME` 的值全部换掉。
+项目仍处于 pre-1.0 开发阶段，migration 只维护当前空库 schema，不承诺旧开发
+数据库原地升级。
 
 ## 环境变量
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | 是 | Postgres 连接串（`postgres://…`） |
-| `CONNECT_IT_SECRET_KEY` | 是 | AES-256-GCM 密钥环，格式 `1:<64位hex>`，可逗号分隔多版本轮换 |
-| `COOKIE_SECRET` | 是 | 管理会话 cookie 的 HMAC 密钥 |
-| `CONNECT_IT_BASE_URL` | 是 | 对外可达地址，OAuth 回调由它拼出 |
-| `CONNECT_IT_ADMIN_PASSWORD` | 首次 | 首次启动 seed admin 账号（用户名 `admin`） |
-| `LISTEN_ADDR` | 否 | 监听地址，默认 `:8080` |
-| `TEST_DATABASE_URL` | 测试 | 集成测试用库；未设置时相关用例 skip |
+| `DATABASE_URL` | 是 | PostgreSQL 连接串 |
+| `CONNECT_IT_SECRET_KEY` | 是 | AES-256-GCM 密钥环，例如 `1:<64 位 hex>` |
+| `COOKIE_SECRET` | 是 | 管理会话 Cookie 的 HMAC 密钥 |
+| `CONNECT_IT_BASE_URL` | 是 | 对外地址，用于生成 OAuth callback |
+| `CONNECT_IT_ADMIN_PASSWORD` | 首次启动 | 初始化 `admin` 账号 |
+| `LISTEN_ADDR` | 否 | 默认 `:8080` |
+| `TEST_DATABASE_URL` | 测试 | Go 集成测试数据库；未设置时相关测试跳过 |
 
-## mise 任务
+## 常用任务
 
 | 任务 | 作用 |
 |---|---|
-| `test` / `vet` | 逐 Go module 测试 / vet |
-| `db-up` / `db-down` | 起停本地测试 postgres（5433） |
-| `sqlc` | 重新生成 store 层 |
-| `swagger` | 由 swag 注释生成 `packages/api/docs`（改路由后必跑） |
-| `sdk` | 由 swagger.json 重新生成 TypeScript SDK（改路由后必跑） |
-| `build-web` | 构建前端（产物 `packages/web/dist`） |
-| `dev` | 本地起 API |
-| `docker-build` / `docker-up` / `docker-down` | 镜像构建与 compose 起停 |
+| `mise run test` | 测试所有 Go module，包括下游 Go SDK |
+| `mise run vet` | vet 所有 Go module，包括下游 Go SDK |
+| `mise run sqlc` | 重新生成 store |
+| `mise run swagger` | 重新生成 OpenAPI |
+| `mise run sdk` | 重新生成 TypeScript SDK |
+| `mise run build-web` | 构建管理界面 |
+| `mise run docker-build` | 构建 server 和 web 镜像 |
 
-## 接入指南（内部应用 / SaaS 后端）
+## 下游接入
 
-完整链路四步。第 1 步在管理台做一次，其余全部是机器 API。
-
-### 1. 拿 API Token
-
-管理台「API Token」页创建，明文只显示一次（`cit_` 前缀）。它是你们后端调
-`/v1/*` 的凭证。
-
-### 2. 为终端用户创建连接（拿到 connection_id）
+在管理端创建 API Token，然后创建 Connection：
 
 ```bash
-# OAuth 类：立即返回持久 connection_id（pending）＋授权 URL
-curl -X POST $BASE/v1/connections/oauth \
-  -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"connector_type":"github","auth_method":"oauth",
-       "redirect_url":"https://your-app.example/oauth/done"}'
-# => {"connection_id":"…","authorization_url":"…"}
+curl -X POST "$BASE/v1/connections/oauth" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"connector_type":"github","auth_method":"oauth"}'
 ```
 
-把 `authorization_url` 跳给终端用户；用户同意后回调把连接置 `active`，并
-302 到你的 `redirect_url?status=connected&connection_id=…`（也可轮询
-`GET /v1/connections/{id}`）。**connection_id 就是句柄**——它属于哪个用户，
-由你们自己的库来记。api_key 类走 `POST /v1/connections/api-key`，同样直接
-返回 connection_id。
+终端用户完成授权后，connect-it 显示本地完成页；下游通过
+`GET /v1/connections/{id}` 查询 Connection 状态。
 
-### 3. 签发 MCP session
+将当前 Bot 启用的 Connection 聚合成一个 MCP Session：
 
 ```bash
-curl -X POST $BASE/v1/mcp-sessions \
-  -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"connections":{"gh":"<connection_id>"},
-       "tool_allowlist":["gh__list_issues"],   # 可省略＝放行全部
+curl -X POST "$BASE/v1/mcp-sessions" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"connections":{"github":"<github_connection_id>",
+                      "notion":"<notion_connection_id>"},
        "ttl_seconds":3600}'
-# => {"token":"<session_token>","expires_at":"…"}
 ```
 
-`connections` 的 key 是你临时起的绑定名，决定这个 session 里工具名的前缀
-（`gh__list_issues`）。session 是短期的（默认 1h，上限 24h），给一次对话/任务
-签一个。
+随后使用返回的 Session Token 连接 `/mcp`：
 
-### 4. 用 session token 连接 /mcp
-
-`/mcp` 是标准 **MCP Streamable HTTP** 端点。任何支持该传输的 MCP 客户端都能
-连，唯一要求：**每个请求带 `Authorization: Bearer <session_token>`**。
-
-TypeScript（官方 `@modelcontextprotocol/sdk`）：
-
-```ts
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-
-const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
-  requestInit: { headers: { Authorization: `Bearer ${sessionToken}` } },
-})
-const client = new Client({ name: 'your-app', version: '1.0.0' })
-await client.connect(transport)
-
-const { tools } = await client.listTools()          // [{ name: "gh__list_issues", … }]
-const result = await client.callTool({
-  name: 'gh__list_issues',
-  arguments: { owner: 'memohai', repo: 'connect-it' },
-})
+```text
+Authorization: Bearer <session_token>
 ```
 
-Claude Code 等支持 HTTP MCP 的客户端：
+Go 下游优先使用 [`sdk/go`](sdk/README.md)；它负责控制面请求和短期 MCP Session
+Token 的内存缓存，`tools/list` 与 `tools/call` 仍直接使用官方 MCP SDK。
 
-```bash
-claude mcp add --transport http connect-it $BASE/mcp \
-  --header "Authorization: Bearer $SESSION_TOKEN"
-```
+REST API 文档在服务启动后的 `/swagger/index.html`。
 
-裸 JSON-RPC（调试用）：
+## 安全边界
 
-```bash
-curl -X POST $BASE/mcp \
-  -H "Authorization: Bearer $SESSION_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-        "protocolVersion":"2025-06-18","capabilities":{},
-        "clientInfo":{"name":"debug","version":"0"}}}'
-# 然后同样方式发 {"method":"tools/list"} / {"method":"tools/call", …}
-```
-
-错误约定：session 缺失/过期/吊销 → HTTP 401（`invalid_session`），重新签发即可；
-工具已被 Definition 下线 → 工具级错误 `tool_unavailable`；连接凭证失效 →
-执行结果报错，同时 `GET /v1/connections/{id}` 会显示 `reauth_required`，用
-`POST /v1/connections/{id}/reauth` 生成新授权链接给用户。
-
-## 文档
-
-- 设计 spec：`docs/superpowers/specs/2026-07-22-connect-it-design.md`
-- 实施计划：`docs/superpowers/plans/`
-- REST API 文档：服务启动后访问 `/swagger/index.html`（`/mcp` 是 MCP 协议
-  端点，不在 swagger 内，见上方接入指南）
+- API Token 是部署级权限，能够管理本实例中的全部 Connection 并签发 Session，
+  不是按 Connection 隔离的用户凭证。它只保存在可信下游服务端，不能发送给浏览器。
+- Remote MCP endpoint 固定在代码中的 Definition 内，并强制使用 HTTPS。
+- 出站凭证请求不会跨 Origin 跟随重定向。
+- `tool_runs` 只记录调用归属、耗时、错误分类和上游状态码，不保存参数、结果或
+  原始错误文本。
+- 注册 Remote MCP Connector 表示信任该上游返回的工具 schema 与 description。

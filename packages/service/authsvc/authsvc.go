@@ -111,18 +111,18 @@ func (s *Service) CreateAPIToken(ctx context.Context, name string) (string, uuid
 	return plaintext, id, nil
 }
 
-func (s *Service) VerifyAPIToken(ctx context.Context, token string) (bool, error) {
+func (s *Service) VerifyAPIToken(ctx context.Context, token string) (uuid.UUID, bool, error) {
 	if !strings.HasPrefix(token, tokenPrefix) {
-		return false, nil
+		return uuid.Nil, false, nil
 	}
-	_, err := s.q.GetAPITokenByHash(ctx, hashToken(token))
+	row, err := s.q.GetAPITokenByHash(ctx, hashToken(token))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return uuid.Nil, false, nil
 	}
 	if err != nil {
-		return false, err
+		return uuid.Nil, false, err
 	}
-	return true, nil
+	return row.ID, true, nil
 }
 
 func (s *Service) ListAPITokens(ctx context.Context) ([]APITokenView, error) {

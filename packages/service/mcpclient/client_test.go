@@ -3,10 +3,10 @@ package mcpclient_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"slices"
-	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,18 +23,16 @@ type echoOutput struct {
 	Echoed string `json:"echoed"`
 }
 
-// newUpstream 用官方 SDK 起一个真实的 Streamable HTTP MCP server（httptest），
-// 注册 echo 与 always_fail 两个工具；wantAuth 非空时校验 Authorization 头。
 func newUpstream(t *testing.T, wantAuth string) *httptest.Server {
 	t.Helper()
 	server := mcp.NewServer(&mcp.Implementation{Name: "fake-upstream", Version: "0.0.1"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "echo", Description: "回显 message"},
+	mcp.AddTool(server, &mcp.Tool{Name: "echo", Description: "echo message"},
 		func(ctx context.Context, req *mcp.CallToolRequest, in echoInput) (*mcp.CallToolResult, echoOutput, error) {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + in.Message}},
 			}, echoOutput{Echoed: in.Message}, nil
 		})
-	mcp.AddTool(server, &mcp.Tool{Name: "always_fail", Description: "恒返回 IsError"},
+	mcp.AddTool(server, &mcp.Tool{Name: "always_fail"},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct{}) (*mcp.CallToolResult, any, error) {
 			return &mcp.CallToolResult{
 				IsError: true,
@@ -42,100 +40,95 @@ func newUpstream(t *testing.T, wantAuth string) *httptest.Server {
 			}, nil, nil
 		})
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if wantAuth != "" && r.Header.Get("Authorization") != wantAuth {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		handler.ServeHTTP(w, r)
 	}))
-	t.Cleanup(ts.Close)
-	return ts
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = upstream.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	t.Cleanup(upstream.Close)
+	return upstream
 }
 
-func TestCallToolEndToEnd(t *testing.T) {
-	ts := newUpstream(t, "Bearer secret-token")
-	res, err := mcpclient.CallTool(context.Background(), ts.URL, "secret-token",
-		5*time.Second, "echo", json.RawMessage(`{"message":"hi"}`))
+func TestListAndCallTool(t *testing.T) {
+	upstream := newUpstream(t, "Bearer secret-token")
+	tools, err := mcpclient.ListTools(t.Context(), upstream.URL, "secret-token", "Bearer", 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.IsError {
-		t.Fatal("echo 不应返回 IsError")
+	if len(tools) != 2 || tools[0].Name == "" || tools[0].InputSchema == nil {
+		t.Fatalf("tools=%+v", tools)
 	}
-	if res.Text != "echo:hi" {
-		t.Fatalf("Text 不符: %q", res.Text)
-	}
-	var structured map[string]any
-	if err := json.Unmarshal(res.Structured, &structured); err != nil {
-		t.Fatalf("Structured 应为 JSON: %v; raw=%s", err, res.Structured)
-	}
-	if structured["echoed"] != "hi" {
-		t.Fatalf("structured: %s", res.Structured)
-	}
-}
 
-func TestCallToolIsError(t *testing.T) {
-	ts := newUpstream(t, "")
-	res, err := mcpclient.CallTool(context.Background(), ts.URL, "",
-		5*time.Second, "always_fail", json.RawMessage(`{}`))
+	result, err := mcpclient.CallTool(t.Context(), upstream.URL, "secret-token", "Bearer", 5*time.Second,
+		&mcp.CallToolParamsRaw{Name: "echo", Arguments: json.RawMessage(`{"message":"hi"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.IsError {
-		t.Fatal("always_fail 应返回 IsError")
+	if result.IsError || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
 	}
-	if !strings.Contains(res.Text, "boom") {
-		t.Fatalf("text: %s", res.Text)
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || text.Text != "echo:hi" {
+		t.Fatalf("content=%+v", result.Content)
+	}
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok || structured["echoed"] != "hi" {
+		t.Fatalf("structured=%+v", result.StructuredContent)
 	}
 }
 
-func TestCallToolWrongTokenFails(t *testing.T) {
-	ts := newUpstream(t, "Bearer right")
-	_, err := mcpclient.CallTool(context.Background(), ts.URL, "wrong",
-		5*time.Second, "echo", json.RawMessage(`{"message":"x"}`))
+func TestCallToolPreservesIsError(t *testing.T) {
+	upstream := newUpstream(t, "")
+	result, err := mcpclient.CallTool(context.Background(), upstream.URL, "", "Bearer", 5*time.Second,
+		&mcp.CallToolParamsRaw{Name: "always_fail", Arguments: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestBearerTokenDoesNotFollowRedirect(t *testing.T) {
+	var targetHit atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHit.Store(true)
+		http.Error(w, "unexpected redirect target", http.StatusInternalServerError)
+	}))
+	defer target.Close()
+
+	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = redirect.Client().Transport
+	defer func() { http.DefaultTransport = previousTransport }()
+
+	_, err := mcpclient.ListTools(t.Context(), redirect.URL, "secret-token", "Bearer", time.Second)
 	if err == nil {
-		t.Fatal("错误 token 应导致握手失败")
+		t.Fatal("重定向不应被当作成功的 MCP 握手")
+	}
+	var upstreamErr *mcpclient.UpstreamError
+	if !errors.As(err, &upstreamErr) ||
+		upstreamErr.UpstreamStatusCode() != http.StatusTemporaryRedirect {
+		t.Fatalf("upstream error=%T %v", err, err)
+	}
+	if targetHit.Load() {
+		t.Fatal("Bearer token 请求跟随了重定向")
 	}
 }
 
-func TestCallToolUnknownToolErrors(t *testing.T) {
-	ts := newUpstream(t, "")
-	res, err := mcpclient.CallTool(context.Background(), ts.URL, "",
-		5*time.Second, "nope", json.RawMessage(`{}`))
-	if err == nil && !res.IsError {
-		t.Fatalf("调用不存在的 tool 应报错: res=%+v", res)
-	}
-}
-
-func TestListToolsEndToEnd(t *testing.T) {
-	ts := newUpstream(t, "Bearer secret-token")
-	names, err := mcpclient.ListTools(context.Background(), ts.URL, "secret-token", 5*time.Second)
-	if err != nil {
+func TestCustomAuthorizationScheme(t *testing.T) {
+	upstream := newUpstream(t, "Sentry-Bearer secret-token")
+	if _, err := mcpclient.ListTools(
+		t.Context(), upstream.URL, "secret-token", "Sentry-Bearer", 5*time.Second,
+	); err != nil {
 		t.Fatal(err)
-	}
-	slices.Sort(names)
-	if !slices.Equal(names, []string{"always_fail", "echo"}) {
-		t.Fatalf("names: %v", names)
-	}
-}
-
-func TestCheckEndpoint(t *testing.T) {
-	cases := []struct {
-		endpoint      string
-		allowInsecure bool
-		wantErr       bool
-	}{
-		{"https://mcp.internal/mcp", false, false},
-		{"http://mcp.internal/mcp", false, true},
-		{"http://mcp.internal/mcp", true, false},
-		{"ftp://mcp.internal/mcp", true, true},
-		{"not a url", false, true},
-	}
-	for _, tc := range cases {
-		err := mcpclient.CheckEndpoint(tc.endpoint, tc.allowInsecure)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("CheckEndpoint(%q, %v) = %v, wantErr=%v", tc.endpoint, tc.allowInsecure, err, tc.wantErr)
-		}
 	}
 }

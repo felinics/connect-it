@@ -75,6 +75,7 @@ func newEnv(t *testing.T) *env {
 					{Key: "token", Label: "Token", InputType: connector.InputText, Required: true},
 				}},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	})
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
@@ -260,6 +261,36 @@ func TestRefreshFailureMarksReauth(t *testing.T) {
 	}
 	if e.tokenHit.Load() != hits {
 		t.Fatal("拒绝路径不应再打 endpoint")
+	}
+}
+
+func TestTransientRefreshFailureKeepsConnectionActive(t *testing.T) {
+	e := newEnv(t)
+	e.respMu.Lock()
+	e.respCode = http.StatusServiceUnavailable
+	e.respBody = map[string]any{"error": "temporarily_unavailable"}
+	e.respMu.Unlock()
+	id := e.seedOAuth(t, -time.Minute)
+
+	if _, err := e.r.AccessToken(context.Background(), id); err == nil ||
+		errors.Is(err, tokens.ErrReauthRequired) {
+		t.Fatalf("临时故障应返回可重试错误而非 ErrReauthRequired: %v", err)
+	}
+	row, err := e.q.GetConnection(context.Background(), id)
+	if err != nil || row.Status != "active" {
+		t.Fatalf("临时故障后 connection 应保持 active: %+v err=%v", row, err)
+	}
+
+	e.respMu.Lock()
+	e.respCode = http.StatusOK
+	e.respBody = map[string]any{"access_token": "at-retry", "expires_in": 3600}
+	e.respMu.Unlock()
+	got, err := e.r.AccessToken(context.Background(), id)
+	if err != nil || got != "at-retry" {
+		t.Fatalf("后续调用应可重试成功: token=%q err=%v", got, err)
+	}
+	if e.tokenHit.Load() != 2 {
+		t.Fatalf("应请求两次 token endpoint: %d", e.tokenHit.Load())
 	}
 }
 

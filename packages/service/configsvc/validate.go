@@ -40,7 +40,7 @@ func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[
 			return &ValidationError{Field: key, Reason: "未知的 Secret 配置字段"}
 		}
 		if val == "" {
-			continue // 空串＝删除，必填与否由下面的必填检查兜底
+			continue // 空字符串表示删除；下面的必填检查会决定是否允许删除。
 		}
 		if err := checkValue(f, val); err != nil {
 			return err
@@ -57,7 +57,7 @@ func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[
 			continue
 		}
 		if f.DefaultValue != nil {
-			continue // 默认值兜底，永不缺失
+			continue // 已定义默认值，不要求管理员再次配置。
 		}
 		if v, _ := public[f.Key].(string); v == "" {
 			return &ValidationError{Field: f.Key, Reason: "必填字段缺失"}

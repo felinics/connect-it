@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button, toast } from '@felinic/ui'
+import { toast } from '@felinic/ui'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -11,8 +11,6 @@ import {
   getConfigSchema,
   listConnectors,
   putConfig,
-  validateConfig,
-  verifyMcp,
 } from '../api/endpoints'
 import type { CatalogItem, ConfigField, ConnectorConfig } from '../api/types'
 import ArmButton from '../components/ArmButton.vue'
@@ -67,28 +65,6 @@ async function onSave(payload: ConfigPayload) {
   }
 }
 
-async function onValidate(payload: ConfigPayload) {
-  try {
-    await validateConfig(type.value, payload)
-    toast.success(t('connector.validateOk'))
-  } catch (e) {
-    reportError(e, t('connector.validateFailed'))
-  }
-}
-
-async function onVerify() {
-  busy.value = true
-  try {
-    await verifyMcp(type.value)
-    await reload()
-    toast.success(t('connector.verifyOk'))
-  } catch (e) {
-    reportError(e, t('connector.verifyFailed'))
-  } finally {
-    busy.value = false
-  }
-}
-
 async function onDelete() {
   busy.value = true
   try {
@@ -109,9 +85,6 @@ async function onDelete() {
       <SettingsRow :label="t('connector.currentStatus')" :description="t('connector.currentStatusDesc')">
         <StatusBadge :status="item?.status ?? ''" />
       </SettingsRow>
-      <SettingsRow :label="t('connector.verifyRow')" :description="t('connector.verifyDesc')">
-        <Button size="sm" variant="outline" :disabled="busy" @click="onVerify">{{ t('connector.verify') }}</Button>
-      </SettingsRow>
       <SettingsRow v-if="config" :label="t('connector.deleteConfig')" :description="t('connector.deleteConfigDesc')">
         <ArmButton :label="t('connector.deleteConfig')" :disabled="busy" @confirm="onDelete" />
       </SettingsRow>
@@ -124,7 +97,6 @@ async function onDelete() {
         :config="config"
         :busy="busy"
         @save="onSave"
-        @validate="onValidate"
       />
       <SettingsRow v-else :label="t('connector.noFields')" />
     </SettingsSection>

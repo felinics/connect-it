@@ -68,12 +68,12 @@ func main() {
 	queries := store.New(pool)
 	configSvc := configsvc.New(queries, reg, keyring)
 	authSvc := authsvc.New(queries)
-	catalogSvc := catalogsvc.New(queries, reg, configSvc)
+	catalogSvc := catalogsvc.New(reg, configSvc)
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	oauthSvc := oauthsvc.New(queries, reg, configSvc, keyring, httpClient, baseURL)
 	connSvc := connsvc.New(queries, reg, keyring)
 	refresher := tokens.New(queries, reg, configSvc, keyring, httpClient)
-	engine := exec.New(queries, reg, configSvc, refresher, keyring, connectors.AllHandlers(), mcpclient.Client{})
+	engine := exec.New(queries, reg, configSvc, refresher, keyring, mcpclient.Client{})
 
 	if err := authSvc.EnsureAdminFromEnv(ctx); err != nil {
 		log.Fatalf("初始化 admin 账号: %v", err)
@@ -88,8 +88,7 @@ func main() {
 		OAuth:        oauthSvc,
 		Conns:        connSvc,
 		Exec:         engine,
-		MCPTools:     mcpclient.Client{},
-		Sessions:     sessions.New(queries),
+		Sessions:     sessions.New(queries, engine),
 		CookieSecret: []byte(cookieSecret),
 	})
 	log.Printf("connect-it 监听 %s", addr)

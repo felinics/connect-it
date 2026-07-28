@@ -12,6 +12,36 @@ import (
 	"github.com/google/uuid"
 )
 
+const activateOAuthConnection = `-- name: ActivateOAuthConnection :exec
+UPDATE connections
+SET credential = $2,
+    secret_key_version = $3,
+    status = 'active',
+    access_token_expires_at = $4,
+    oauth_client_id = $5,
+    updated_at = now()
+WHERE id = $1
+`
+
+type ActivateOAuthConnectionParams struct {
+	ID                   uuid.UUID
+	Credential           []byte
+	SecretKeyVersion     int32
+	AccessTokenExpiresAt *time.Time
+	OauthClientID        *uuid.UUID
+}
+
+func (q *Queries) ActivateOAuthConnection(ctx context.Context, arg ActivateOAuthConnectionParams) error {
+	_, err := q.db.Exec(ctx, activateOAuthConnection,
+		arg.ID,
+		arg.Credential,
+		arg.SecretKeyVersion,
+		arg.AccessTokenExpiresAt,
+		arg.OauthClientID,
+	)
+	return err
+}
+
 const createConnection = `-- name: CreateConnection :one
 INSERT INTO connections (
   id, connector_type, alias, auth_method, credential, secret_key_version,
@@ -19,7 +49,7 @@ INSERT INTO connections (
 ) VALUES (
   $1, $2, $3, $4, $5, $6, '{}', $7, $8, $9, now(), now()
 )
-RETURNING id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at
+RETURNING id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, oauth_client_id, created_at, updated_at
 `
 
 type CreateConnectionParams struct {
@@ -58,6 +88,7 @@ func (q *Queries) CreateConnection(ctx context.Context, arg CreateConnectionPara
 		&i.Scopes,
 		&i.Status,
 		&i.AccessTokenExpiresAt,
+		&i.OauthClientID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -77,7 +108,7 @@ func (q *Queries) DeleteConnection(ctx context.Context, id uuid.UUID) (int64, er
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections WHERE id = $1
+SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, oauth_client_id, created_at, updated_at FROM connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id uuid.UUID) (Connection, error) {
@@ -94,6 +125,7 @@ func (q *Queries) GetConnection(ctx context.Context, id uuid.UUID) (Connection, 
 		&i.Scopes,
 		&i.Status,
 		&i.AccessTokenExpiresAt,
+		&i.OauthClientID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -101,7 +133,7 @@ func (q *Queries) GetConnection(ctx context.Context, id uuid.UUID) (Connection, 
 }
 
 const getConnectionForUpdate = `-- name: GetConnectionForUpdate :one
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections WHERE id = $1 FOR UPDATE
+SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, oauth_client_id, created_at, updated_at FROM connections WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetConnectionForUpdate(ctx context.Context, id uuid.UUID) (Connection, error) {
@@ -118,6 +150,7 @@ func (q *Queries) GetConnectionForUpdate(ctx context.Context, id uuid.UUID) (Con
 		&i.Scopes,
 		&i.Status,
 		&i.AccessTokenExpiresAt,
+		&i.OauthClientID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -125,7 +158,7 @@ func (q *Queries) GetConnectionForUpdate(ctx context.Context, id uuid.UUID) (Con
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, created_at, updated_at FROM connections ORDER BY created_at DESC
+SELECT id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, access_token_expires_at, oauth_client_id, created_at, updated_at FROM connections ORDER BY created_at DESC
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -148,6 +181,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.Scopes,
 			&i.Status,
 			&i.AccessTokenExpiresAt,
+			&i.OauthClientID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -159,6 +193,19 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markPendingConnectionAuthorizationFailed = `-- name: MarkPendingConnectionAuthorizationFailed :exec
+UPDATE connections
+SET status = 'authorization_failed',
+    updated_at = now()
+WHERE id = $1
+  AND status = 'pending'
+`
+
+func (q *Queries) MarkPendingConnectionAuthorizationFailed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markPendingConnectionAuthorizationFailed, id)
+	return err
 }
 
 const updateConnectionCredential = `-- name: UpdateConnectionCredential :exec

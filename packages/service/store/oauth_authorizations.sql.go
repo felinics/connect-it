@@ -12,32 +12,42 @@ import (
 	"github.com/google/uuid"
 )
 
-const completeOAuthAuthorization = `-- name: CompleteOAuthAuthorization :exec
+const claimOAuthAuthorization = `-- name: ClaimOAuthAuthorization :one
 UPDATE oauth_authorizations
-SET status = $2,
-    connection_id = $3
-WHERE id = $1
+SET status = 'processing'
+WHERE state_hash = $1
+  AND status = 'pending'
+  AND expires_at >= now()
+RETURNING id, connector_type, state_hash, pkce_verifier, secret_key_version, auth_method, connection_id, oauth_client_id, status, expires_at, created_at
 `
 
-type CompleteOAuthAuthorizationParams struct {
-	ID           uuid.UUID
-	Status       string
-	ConnectionID *uuid.UUID
-}
-
-func (q *Queries) CompleteOAuthAuthorization(ctx context.Context, arg CompleteOAuthAuthorizationParams) error {
-	_, err := q.db.Exec(ctx, completeOAuthAuthorization, arg.ID, arg.Status, arg.ConnectionID)
-	return err
+func (q *Queries) ClaimOAuthAuthorization(ctx context.Context, stateHash string) (OauthAuthorization, error) {
+	row := q.db.QueryRow(ctx, claimOAuthAuthorization, stateHash)
+	var i OauthAuthorization
+	err := row.Scan(
+		&i.ID,
+		&i.ConnectorType,
+		&i.StateHash,
+		&i.PkceVerifier,
+		&i.SecretKeyVersion,
+		&i.AuthMethod,
+		&i.ConnectionID,
+		&i.OauthClientID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const createOAuthAuthorization = `-- name: CreateOAuthAuthorization :one
 INSERT INTO oauth_authorizations (
   id, connector_type, state_hash, pkce_verifier, secret_key_version,
-  auth_method, alias, connection_id, redirect_url, status, expires_at, created_at
+  auth_method, connection_id, oauth_client_id, status, expires_at, created_at
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()
+  $1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, now()
 )
-RETURNING id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url
+RETURNING id, connector_type, state_hash, pkce_verifier, secret_key_version, auth_method, connection_id, oauth_client_id, status, expires_at, created_at
 `
 
 type CreateOAuthAuthorizationParams struct {
@@ -47,10 +57,8 @@ type CreateOAuthAuthorizationParams struct {
 	PkceVerifier     []byte
 	SecretKeyVersion int32
 	AuthMethod       string
-	Alias            string
-	ConnectionID     *uuid.UUID
-	RedirectUrl      string
-	Status           string
+	ConnectionID     uuid.UUID
+	OauthClientID    *uuid.UUID
 	ExpiresAt        time.Time
 }
 
@@ -62,10 +70,8 @@ func (q *Queries) CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthA
 		arg.PkceVerifier,
 		arg.SecretKeyVersion,
 		arg.AuthMethod,
-		arg.Alias,
 		arg.ConnectionID,
-		arg.RedirectUrl,
-		arg.Status,
+		arg.OauthClientID,
 		arg.ExpiresAt,
 	)
 	var i OauthAuthorization
@@ -74,48 +80,60 @@ func (q *Queries) CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthA
 		&i.ConnectorType,
 		&i.StateHash,
 		&i.PkceVerifier,
+		&i.SecretKeyVersion,
+		&i.AuthMethod,
 		&i.ConnectionID,
+		&i.OauthClientID,
 		&i.Status,
 		&i.ExpiresAt,
 		&i.CreatedAt,
-		&i.AuthMethod,
-		&i.Alias,
-		&i.SecretKeyVersion,
-		&i.RedirectUrl,
 	)
 	return i, err
 }
 
-const deleteExpiredOAuthAuthorizations = `-- name: DeleteExpiredOAuthAuthorizations :exec
+const deleteClaimedOAuthAuthorization = `-- name: DeleteClaimedOAuthAuthorization :execrows
 DELETE FROM oauth_authorizations
-WHERE expires_at < now() AND status = 'pending'
+WHERE id = $1
+  AND status = 'processing'
 `
 
-func (q *Queries) DeleteExpiredOAuthAuthorizations(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredOAuthAuthorizations)
+func (q *Queries) DeleteClaimedOAuthAuthorization(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteClaimedOAuthAuthorization, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const expireOAuthAuthorizations = `-- name: ExpireOAuthAuthorizations :exec
+WITH expired AS (
+  DELETE FROM oauth_authorizations
+  WHERE (status = 'pending' AND expires_at < now())
+     OR (status = 'processing' AND expires_at < now() - interval '1 minute')
+  RETURNING connection_id
+)
+UPDATE connections
+SET status = 'authorization_failed',
+    updated_at = now()
+WHERE id IN (
+  SELECT connection_id
+  FROM expired
+)
+  AND status = 'pending'
+`
+
+func (q *Queries) ExpireOAuthAuthorizations(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, expireOAuthAuthorizations)
 	return err
 }
 
-const getOAuthAuthorizationByStateHash = `-- name: GetOAuthAuthorizationByStateHash :one
-SELECT id, connector_type, state_hash, pkce_verifier, connection_id, status, expires_at, created_at, auth_method, alias, secret_key_version, redirect_url FROM oauth_authorizations WHERE state_hash = $1
+const supersedeOpenOAuthAuthorizations = `-- name: SupersedeOpenOAuthAuthorizations :exec
+DELETE FROM oauth_authorizations
+WHERE connection_id = $1
+  AND status IN ('pending', 'processing')
 `
 
-func (q *Queries) GetOAuthAuthorizationByStateHash(ctx context.Context, stateHash string) (OauthAuthorization, error) {
-	row := q.db.QueryRow(ctx, getOAuthAuthorizationByStateHash, stateHash)
-	var i OauthAuthorization
-	err := row.Scan(
-		&i.ID,
-		&i.ConnectorType,
-		&i.StateHash,
-		&i.PkceVerifier,
-		&i.ConnectionID,
-		&i.Status,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.AuthMethod,
-		&i.Alias,
-		&i.SecretKeyVersion,
-		&i.RedirectUrl,
-	)
-	return i, err
+func (q *Queries) SupersedeOpenOAuthAuthorizations(ctx context.Context, connectionID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, supersedeOpenOAuthAuthorizations, connectionID)
+	return err
 }

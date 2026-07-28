@@ -20,7 +20,6 @@ export type ApiBeginOAuthRequest = {
     alias?: string;
     auth_method?: string;
     connector_type?: string;
-    redirect_url?: string;
 };
 
 export type ApiBeginOAuthResponse = {
@@ -104,19 +103,6 @@ export type ApiPutConfigRequest = {
     };
 };
 
-export type ApiReauthRequest = {
-    redirect_url?: string;
-};
-
-export type ApiValidateConfigRequest = {
-    public?: {
-        [key: string]: unknown;
-    };
-    secrets?: {
-        [key: string]: string;
-    };
-};
-
 export type AuthsvcApiTokenView = {
     created_at?: string;
     id?: string;
@@ -124,15 +110,42 @@ export type AuthsvcApiTokenView = {
     revoked_at?: string;
 };
 
+export type CatalogsvcAuthMethodSummary = {
+    credential_fields?: Array<CatalogsvcCredentialField>;
+    key?: string;
+    label?: string;
+    type?: ConnectorAuthMethodType;
+};
+
+export type CatalogsvcCredentialField = {
+    default_value?: string;
+    description?: string;
+    input_type?: ConnectorConfigInputType;
+    key?: string;
+    label?: string;
+    options?: Array<string>;
+    pattern?: string;
+    required?: boolean;
+    secret?: boolean;
+};
+
 export type CatalogsvcItem = {
+    auth_methods?: Array<CatalogsvcAuthMethodSummary>;
     categories?: Array<string>;
     description?: string;
     homepage_url?: string;
     icon_url?: string;
+    mode?: ConnectorMode;
     name?: string;
     status?: StatusStatus;
     type?: string;
 };
+
+export type ConnectorAuthMethodType = 'none' | 'oauth2' | 'api_key' | 'custom_credential';
+
+export type ConnectorConfigInputType = 'text' | 'select';
+
+export type ConnectorMode = 'remote_mcp' | 'managed';
 
 export type ConnsvcConnectionView = {
     alias?: string;
@@ -143,7 +156,7 @@ export type ConnsvcConnectionView = {
     status?: string;
 };
 
-export type StatusStatus = 'catalog_only' | 'needs_config' | 'config_incompatible' | 'ready' | 'degraded' | 'deprecated' | 'definition_missing';
+export type StatusStatus = 'needs_config' | 'config_incompatible' | 'ready' | 'deprecated' | 'definition_missing';
 
 export type ChangePasswordData = {
     /**
@@ -492,73 +505,6 @@ export type GetConfigSchemaResponses = {
 
 export type GetConfigSchemaResponse = GetConfigSchemaResponses[keyof GetConfigSchemaResponses];
 
-export type ValidateConfigData = {
-    /**
-     * 待校验配置
-     */
-    body: ApiValidateConfigRequest;
-    path: {
-        /**
-         * connector_type
-         */
-        type: string;
-    };
-    query?: never;
-    url: '/admin/connectors/{type}/config:validate';
-};
-
-export type ValidateConfigErrors = {
-    /**
-     * Not Found
-     */
-    404: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
-     */
-    422: ApiErrorResponse;
-};
-
-export type ValidateConfigError = ValidateConfigErrors[keyof ValidateConfigErrors];
-
-export type ValidateConfigResponses = {
-    /**
-     * No Content
-     */
-    204: unknown;
-};
-
-export type VerifyMcpData = {
-    body?: never;
-    path: {
-        /**
-         * connector_type
-         */
-        type: string;
-    };
-    query?: never;
-    url: '/admin/connectors/{type}/mcp:verify';
-};
-
-export type VerifyMcpErrors = {
-    /**
-     * Not Found
-     */
-    404: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
-     */
-    422: ApiErrorResponse;
-};
-
-export type VerifyMcpError = VerifyMcpErrors[keyof VerifyMcpErrors];
-
-export type VerifyMcpResponses = {
-    /**
-     * No Content
-     */
-    204: unknown;
-};
-
 export type LoginData = {
     /**
      * 用户名与密码
@@ -637,7 +583,7 @@ export type CreateApiKeyConnectionResponse = CreateApiKeyConnectionResponses[key
 
 export type BeginOAuthConnectionData = {
     /**
-     * alias 为可选展示标签；redirect_url 为授权完成后回跳调用方的地址（可选）
+     * alias 为可选展示标签
      */
     body: ApiBeginOAuthRequest;
     path?: never;
@@ -726,10 +672,7 @@ export type GetConnectionResponses = {
 export type GetConnectionResponse = GetConnectionResponses[keyof GetConnectionResponses];
 
 export type ReauthConnectionData = {
-    /**
-     * redirect_url 可选
-     */
-    body?: ApiReauthRequest;
+    body?: never;
     path: {
         /**
          * connection id（uuid）
@@ -815,7 +758,7 @@ export type GetConnectorResponse = GetConnectorResponses[keyof GetConnectorRespo
 
 export type CreateMcpSessionData = {
     /**
-     * 绑定与 allowlist；ttl_seconds 默认 3600、上限 86400
+     * connections 为 namespace→connection_id；allowlist 使用 namespace__tool 名称
      */
     body: ApiCreateMcpSessionRequest;
     path?: never;
@@ -828,6 +771,10 @@ export type CreateMcpSessionErrors = {
      * Bad Request
      */
     400: ApiErrorResponse;
+    /**
+     * Bad Gateway
+     */
+    502: ApiErrorResponse;
 };
 
 export type CreateMcpSessionError = CreateMcpSessionErrors[keyof CreateMcpSessionErrors];
@@ -859,4 +806,11 @@ export type OauthCallbackData = {
         error?: string;
     };
     url: '/v1/oauth/callback';
+};
+
+export type OauthCallbackResponses = {
+    /**
+     * OK
+     */
+    200: unknown;
 };

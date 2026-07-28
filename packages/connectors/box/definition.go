@@ -1,0 +1,49 @@
+// Package box defines the official hosted Box MCP connector.
+package box
+
+import (
+	"time"
+
+	"github.com/memohai/connect-it/packages/core/connector"
+)
+
+var Definition = connector.Definition{
+	Type:                "box",
+	Name:                "Box",
+	Description:         "Box 云内容管理与协作平台",
+	Categories:          []string{"storage", "productivity"},
+	HomepageURL:         "https://www.box.com",
+	IconURL:             "https://cdn.simpleicons.org/box/_/e5e5e5",
+	ConfigSchemaVersion: 1,
+	ConfigFields: []connector.ConfigField{
+		{
+			Key:         "client_id",
+			Label:       "OAuth Client ID",
+			InputType:   connector.InputText,
+			Required:    true,
+			Description: "Box Platform App 的 Client ID。",
+		},
+		{
+			Key:         "client_secret",
+			Label:       "OAuth Client Secret",
+			InputType:   connector.InputText,
+			Required:    true,
+			Secret:      true,
+			Description: "Box Platform App 的 Client Secret。",
+		},
+	},
+	AuthMethods: []connector.AuthMethod{{
+		Key:   "oauth",
+		Type:  connector.AuthOAuth2,
+		Label: "Box OAuth",
+		OAuth: &connector.OAuthConfig{
+			AuthorizationEndpoint: "https://account.box.com/api/oauth2/authorize",
+			TokenEndpoint:         "https://api.box.com/oauth2/token",
+			TokenEndpointAuth:     connector.TokenAuthPost,
+		},
+	}},
+	Implementation: connector.RemoteMCP{
+		Endpoint:       "https://mcp.box.com",
+		RequestTimeout: 30 * time.Second,
+	},
+}

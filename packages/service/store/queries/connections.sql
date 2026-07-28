@@ -25,11 +25,28 @@ SET credential = $2,
     updated_at = now()
 WHERE id = $1;
 
+-- name: ActivateOAuthConnection :exec
+UPDATE connections
+SET credential = $2,
+    secret_key_version = $3,
+    status = 'active',
+    access_token_expires_at = $4,
+    oauth_client_id = $5,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: UpdateConnectionStatus :exec
 UPDATE connections
 SET status = $2,
     updated_at = now()
 WHERE id = $1;
+
+-- name: MarkPendingConnectionAuthorizationFailed :exec
+UPDATE connections
+SET status = 'authorization_failed',
+    updated_at = now()
+WHERE id = $1
+  AND status = 'pending';
 
 -- name: DeleteConnection :execrows
 DELETE FROM connections WHERE id = $1;

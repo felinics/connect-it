@@ -35,11 +35,6 @@ type putConfigRequest struct {
 	IfMatch string            `json:"if_match"`
 }
 
-type validateConfigRequest struct {
-	Public  map[string]any    `json:"public"`
-	Secrets map[string]string `json:"secrets"`
-}
-
 type authMethodDTO struct {
 	Key              string           `json:"key"`
 	Label            string           `json:"label"`
@@ -183,29 +178,6 @@ func (h *handlers) putConfig(c echo.Context) error {
 //	@Router		/admin/connectors/{type}/config [delete]
 func (h *handlers) deleteConfig(c echo.Context) error {
 	if err := h.deps.Config.Delete(c.Request().Context(), connector.Type(c.Param("type"))); err != nil {
-		return mapServiceError(c, err)
-	}
-	return c.NoContent(http.StatusNoContent)
-}
-
-// validateConfig godoc
-//
-//	@Summary	仅校验配置不落库
-//	@ID			validateConfig
-//	@Tags		admin
-//	@Accept		json
-//	@Param		type	path	string						true	"connector_type"
-//	@Param		body	body	api.validateConfigRequest	true	"待校验配置"
-//	@Success	204
-//	@Failure	404	{object}	api.ErrorResponse
-//	@Failure	422	{object}	api.ErrorResponse
-//	@Router		/admin/connectors/{type}/config:validate [post]
-func (h *handlers) validateConfig(c echo.Context) error {
-	var req validateConfigRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
-	}
-	if err := h.deps.Config.Validate(connector.Type(c.Param("type")), req.Public, req.Secrets); err != nil {
 		return mapServiceError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)

@@ -26,6 +26,7 @@ func newValidateService(t *testing.T) *configsvc.Service {
 				Validation: connector.FieldValidation{Pattern: `^[0-9]+$`}},
 			{Key: "api_key", Label: "API Key", InputType: connector.InputText, Secret: true},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	})
 	return configsvc.New(nil, r, nil)
 }

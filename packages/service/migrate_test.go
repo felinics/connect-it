@@ -47,9 +47,8 @@ func newTestSchema(t *testing.T) string {
 }
 
 var wantTables = []string{
-	"admin_account", "api_tokens", "connector_configs", "connections",
-	"oauth_authorizations", "mcp_sessions", "mcp_session_connections",
-	"connector_health", "tool_runs",
+	"admin_account", "api_tokens", "connector_configs", "oauth_clients", "connections",
+	"oauth_authorizations", "mcp_sessions", "tool_runs",
 }
 
 func tableExists(t *testing.T, dbURL, table string) bool {

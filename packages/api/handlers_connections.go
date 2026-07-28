@@ -13,16 +13,11 @@ type beginOAuthRequest struct {
 	ConnectorType string `json:"connector_type"`
 	AuthMethod    string `json:"auth_method"`
 	Alias         string `json:"alias"`
-	RedirectURL   string `json:"redirect_url"`
 }
 
 type beginOAuthResponse struct {
 	ConnectionID     uuid.UUID `json:"connection_id"`
 	AuthorizationURL string    `json:"authorization_url"`
-}
-
-type reauthRequest struct {
-	RedirectURL string `json:"redirect_url"`
 }
 
 type createAPIKeyRequest struct {
@@ -43,7 +38,7 @@ type createConnectionResponse struct {
 //	@Tags		connections
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.beginOAuthRequest	true	"alias 为可选展示标签；redirect_url 为授权完成后回跳调用方的地址（可选）"
+//	@Param		body	body		api.beginOAuthRequest	true	"alias 为可选展示标签"
 //	@Success	201		{object}	api.beginOAuthResponse
 //	@Failure	404		{object}	api.ErrorResponse
 //	@Failure	422		{object}	api.ErrorResponse
@@ -55,7 +50,7 @@ func (h *handlers) beginOAuthConnection(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
 	}
 	result, err := h.deps.OAuth.Begin(c.Request().Context(),
-		connector.Type(req.ConnectorType), req.AuthMethod, req.Alias, req.RedirectURL)
+		connector.Type(req.ConnectorType), req.AuthMethod, req.Alias)
 	if err != nil {
 		return mapServiceError(c, err)
 	}
@@ -119,10 +114,8 @@ func (h *handlers) getConnection(c echo.Context) error {
 //	@Summary	对既有连接重新发起授权（ID 不变）
 //	@ID			reauthConnection
 //	@Tags		connections
-//	@Accept		json
 //	@Produce	json
 //	@Param		id		path		string				true	"connection id（uuid）"
-//	@Param		body	body		api.reauthRequest	false	"redirect_url 可选"
 //	@Success	200		{object}	api.beginOAuthResponse
 //	@Failure	404		{object}	api.ErrorResponse
 //	@Security	BearerAuth
@@ -132,9 +125,7 @@ func (h *handlers) reauthConnection(c echo.Context) error {
 	if err != nil {
 		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
 	}
-	var req reauthRequest
-	_ = c.Bind(&req) // body 可省略
-	result, err := h.deps.OAuth.BeginReauth(c.Request().Context(), id, req.RedirectURL)
+	result, err := h.deps.OAuth.BeginReauth(c.Request().Context(), id)
 	if err != nil {
 		return mapServiceError(c, err)
 	}
@@ -198,7 +189,7 @@ func (h *handlers) adminReauthConnection(c echo.Context) error {
 	if err != nil {
 		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
 	}
-	result, err := h.deps.OAuth.BeginReauth(c.Request().Context(), id, "")
+	result, err := h.deps.OAuth.BeginReauth(c.Request().Context(), id)
 	if err != nil {
 		return mapServiceError(c, err)
 	}

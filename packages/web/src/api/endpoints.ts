@@ -34,13 +34,6 @@ export const putConfig = (
 
 export const deleteConfig = (type: string) => unwrap(sdk.deleteConfig({ path: { type } }))
 
-export const validateConfig = (
-  type: string,
-  body: { public: Record<string, unknown>; secrets: Record<string, string> },
-) => unwrap(sdk.validateConfig({ path: { type }, body }))
-
-export const verifyMcp = (type: string) => unwrap(sdk.verifyMcp({ path: { type } }))
-
 export const listConnections = () => unwrap(sdk.listConnections())
 
 export const adminDeleteConnection = (id: string) =>

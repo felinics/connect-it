@@ -41,6 +41,7 @@ func rwDefinition() connector.Definition {
 			{Key: "tenant", Label: "Tenant", InputType: connector.InputText, Required: true, DefaultValue: strPtr("common")},
 			{Key: "api_key", Label: "API Key", InputType: connector.InputText, Secret: true},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	}
 }
 
@@ -239,6 +240,7 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 		ConfigFields: []connector.ConfigField{
 			{Key: "old_name", Label: "Old", InputType: connector.InputText},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	}
 	regV1 := registry.New()
 	regV1.MustRegister(v1)
@@ -254,6 +256,7 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 		ConfigFields: []connector.ConfigField{
 			{Key: "new_name", Label: "New", InputType: connector.InputText},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 		ConfigUpgraders: []connector.ConfigUpgrader{{
 			FromVersion: 1,
 			Upgrade: func(public, secret map[string]any) (map[string]any, map[string]any, error) {
@@ -287,7 +290,7 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 }
 
 func TestConfigStateMapping(t *testing.T) {
-	s, pool := newRWService(t, rwDefinition())
+	s, _ := newRWService(t, rwDefinition())
 	ctx := context.Background()
 
 	st, err := s.ConfigState(ctx, "example_app")
@@ -303,16 +306,7 @@ func TestConfigStateMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !st.Exists || st.SchemaVersion != 1 || st.PublicValues["client_id"] != "abc" ||
-		!st.SecretKeysSet["client_secret"] || st.MCPVerified {
+		!st.SecretKeysSet["client_secret"] {
 		t.Fatalf("映射不符: %+v", st)
-	}
-
-	if _, err := pool.Exec(ctx,
-		"update connector_configs set mcp_verified_endpoint = 'https://x/mcp', mcp_verified_at = now() where connector_type = 'example_app'"); err != nil {
-		t.Fatal(err)
-	}
-	st, err = s.ConfigState(ctx, "example_app")
-	if err != nil || !st.MCPVerified || st.MCPVerifiedEndpoint != "https://x/mcp" {
-		t.Fatalf("verified 映射不符: %+v err=%v", st, err)
 	}
 }
