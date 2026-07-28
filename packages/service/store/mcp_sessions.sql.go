@@ -28,70 +28,49 @@ func (q *Queries) AddMCPSessionConnection(ctx context.Context, arg AddMCPSession
 	return err
 }
 
-const connectionExistsByID = `-- name: ConnectionExistsByID :one
-SELECT EXISTS (SELECT 1 FROM connections WHERE id = $1) AS found
-`
-
-func (q *Queries) ConnectionExistsByID(ctx context.Context, id uuid.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, connectionExistsByID, id)
-	var found bool
-	err := row.Scan(&found)
-	return found, err
-}
-
 const createMCPSession = `-- name: CreateMCPSession :exec
-INSERT INTO mcp_sessions (id, token_hash, tool_allowlist, status, expires_at, created_at)
-VALUES ($1, $2, $3, 'active', $4, now())
+INSERT INTO mcp_sessions (
+  id, token_hash, api_token_id, tool_snapshot, expires_at, created_at
+)
+VALUES ($1, $2, $3, $4, $5, now())
 `
 
 type CreateMCPSessionParams struct {
-	ID            uuid.UUID
-	TokenHash     string
-	ToolAllowlist []byte
-	ExpiresAt     time.Time
+	ID           uuid.UUID
+	TokenHash    string
+	ApiTokenID   uuid.UUID
+	ToolSnapshot []byte
+	ExpiresAt    time.Time
 }
 
 func (q *Queries) CreateMCPSession(ctx context.Context, arg CreateMCPSessionParams) error {
 	_, err := q.db.Exec(ctx, createMCPSession,
 		arg.ID,
 		arg.TokenHash,
-		arg.ToolAllowlist,
+		arg.ApiTokenID,
+		arg.ToolSnapshot,
 		arg.ExpiresAt,
 	)
 	return err
 }
 
-const getConnectionConnectorTypes = `-- name: GetConnectionConnectorTypes :many
-SELECT id, connector_type FROM connections WHERE id = ANY($1::uuid[])
+const deleteExpiredMCPSessions = `-- name: DeleteExpiredMCPSessions :exec
+DELETE FROM mcp_sessions
+WHERE expires_at <= now()
+   OR api_token_id IN (SELECT id FROM api_tokens WHERE revoked_at IS NOT NULL)
 `
 
-type GetConnectionConnectorTypesRow struct {
-	ID            uuid.UUID
-	ConnectorType string
-}
-
-func (q *Queries) GetConnectionConnectorTypes(ctx context.Context, ids []uuid.UUID) ([]GetConnectionConnectorTypesRow, error) {
-	rows, err := q.db.Query(ctx, getConnectionConnectorTypes, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetConnectionConnectorTypesRow
-	for rows.Next() {
-		var i GetConnectionConnectorTypesRow
-		if err := rows.Scan(&i.ID, &i.ConnectorType); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) DeleteExpiredMCPSessions(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteExpiredMCPSessions)
+	return err
 }
 
 const getMCPSessionByTokenHash = `-- name: GetMCPSessionByTokenHash :one
-SELECT id, token_hash, tool_allowlist, status, expires_at, created_at FROM mcp_sessions WHERE token_hash = $1
+SELECT s.id, s.token_hash, s.api_token_id, s.tool_snapshot, s.expires_at, s.created_at
+FROM mcp_sessions s
+JOIN api_tokens t ON t.id = s.api_token_id
+WHERE s.token_hash = $1
+  AND t.revoked_at IS NULL
 `
 
 func (q *Queries) GetMCPSessionByTokenHash(ctx context.Context, tokenHash string) (McpSession, error) {
@@ -100,8 +79,8 @@ func (q *Queries) GetMCPSessionByTokenHash(ctx context.Context, tokenHash string
 	err := row.Scan(
 		&i.ID,
 		&i.TokenHash,
-		&i.ToolAllowlist,
-		&i.Status,
+		&i.ApiTokenID,
+		&i.ToolSnapshot,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 	)
@@ -109,7 +88,10 @@ func (q *Queries) GetMCPSessionByTokenHash(ctx context.Context, tokenHash string
 }
 
 const listMCPSessionConnections = `-- name: ListMCPSessionConnections :many
-SELECT session_id, alias, connection_id FROM mcp_session_connections WHERE session_id = $1
+SELECT session_id, alias, connection_id
+FROM mcp_session_connections
+WHERE session_id = $1
+ORDER BY alias
 `
 
 func (q *Queries) ListMCPSessionConnections(ctx context.Context, sessionID uuid.UUID) ([]McpSessionConnection, error) {

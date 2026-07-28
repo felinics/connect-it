@@ -25,7 +25,6 @@ import (
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/connsvc"
 	"github.com/memohai/connect-it/packages/service/credential"
 	"github.com/memohai/connect-it/packages/service/store"
 )
@@ -36,7 +35,6 @@ const CallbackPath = "/v1/oauth/callback"
 const (
 	authorizationTTL = 10 * time.Minute
 	statusPending    = "pending"
-	statusCompleted  = "completed"
 )
 
 var (
@@ -55,13 +53,6 @@ type BeginResult struct {
 	AuthorizationURL string
 }
 
-// CallbackResult 是回调处理的结果；RedirectURL 为发起时调用方登记的回跳地址
-// （可为空，表示落在 connect-it 的默认完成页）。
-type CallbackResult struct {
-	ConnectionID uuid.UUID
-	RedirectURL  string
-}
-
 type Service struct {
 	q       *store.Queries
 	reg     *registry.Registry
@@ -71,15 +62,20 @@ type Service struct {
 	baseURL string
 }
 
+type authorizationDraft struct {
+	url    string
+	scopes []string
+	params store.CreateOAuthAuthorizationParams
+}
+
 func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *crypto.Keyring, hc *http.Client, baseURL string) *Service {
 	return &Service{q: q, reg: reg, cfg: cfg, kr: kr, hc: hc, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
-// Begin 创建一条 pending 连接并生成授权 URL。alias 是可选展示标签；
-// redirectURL 是授权完成后回跳给调用方的地址（可为空）。
-func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias, redirectURL string) (BeginResult, error) {
-	if alias != "" && !connsvc.AliasPattern.MatchString(alias) {
-		return BeginResult{}, connsvc.ErrInvalidAlias
+// Begin 创建一条 pending 连接并生成授权 URL。alias 是可选展示标签。
+func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias string) (BeginResult, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return BeginResult{}, err
 	}
 	def, ok := s.reg.Get(t)
 	if !ok {
@@ -90,21 +86,31 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 		return BeginResult{}, err
 	}
 
-	// pending 连接：ID 当场生成并返回，凭证在回调时写入。
 	connID := uuid.New()
 	emptyCred, keyVersion, err := s.kr.Encrypt(nil, []byte(connID.String()))
 	if err != nil {
 		return BeginResult{}, err
 	}
-	scopes := method.OAuth.Scopes
-	if scopes == nil {
-		scopes = []string{}
-	}
 	var aliasPtr *string
 	if alias != "" {
 		aliasPtr = &alias
 	}
-	if _, err := s.q.CreateConnection(ctx, store.CreateConnectionParams{
+	draft, err := s.prepareAuthorization(ctx, t, method, connID)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	scopes := draft.scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+
+	// pending connection 与 authorization 必须一起落库；任何一步失败都不留下孤儿。
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := qtx.CreateConnection(ctx, store.CreateConnectionParams{
 		ID:               connID,
 		ConnectorType:    string(t),
 		Alias:            aliasPtr,
@@ -116,16 +122,20 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 	}); err != nil {
 		return BeginResult{}, err
 	}
-
-	authURL, err := s.createAuthorization(ctx, t, method, alias, connID, redirectURL)
-	if err != nil {
+	if _, err := qtx.CreateOAuthAuthorization(ctx, draft.params); err != nil {
 		return BeginResult{}, err
 	}
-	return BeginResult{ConnectionID: connID, AuthorizationURL: authURL}, nil
+	if err := tx.Commit(ctx); err != nil {
+		return BeginResult{}, err
+	}
+	return BeginResult{ConnectionID: connID, AuthorizationURL: draft.url}, nil
 }
 
 // BeginReauth 对既有连接重新发起授权：ID 不变，回调后覆盖凭证并置 active。
-func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID, redirectURL string) (BeginResult, error) {
+func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID) (BeginResult, error) {
+	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
+		return BeginResult{}, err
+	}
 	row, err := s.q.GetConnection(ctx, connectionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -142,62 +152,76 @@ func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID, redir
 	if err != nil {
 		return BeginResult{}, err
 	}
-	alias := ""
-	if row.Alias != nil {
-		alias = *row.Alias
-	}
-	authURL, err := s.createAuthorization(ctx, t, method, alias, row.ID, redirectURL)
+	draft, err := s.prepareAuthorization(ctx, t, method, row.ID)
 	if err != nil {
 		return BeginResult{}, err
 	}
-	return BeginResult{ConnectionID: row.ID, AuthorizationURL: authURL}, nil
+
+	// 同一 connection 同时只保留最新一次 reauth；较早的 state 立即失效。
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return BeginResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	locked, err := qtx.GetConnectionForUpdate(ctx, row.ID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BeginResult{}, ErrConnectionGone
+		}
+		return BeginResult{}, err
+	}
+	if locked.Status == "authorization_failed" || locked.Status == "reauth_required" {
+		if err := qtx.UpdateConnectionStatus(ctx, store.UpdateConnectionStatusParams{
+			ID: locked.ID, Status: statusPending,
+		}); err != nil {
+			return BeginResult{}, err
+		}
+	}
+	if err := qtx.SupersedeOpenOAuthAuthorizations(ctx, row.ID); err != nil {
+		return BeginResult{}, err
+	}
+	if _, err := qtx.CreateOAuthAuthorization(ctx, draft.params); err != nil {
+		return BeginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BeginResult{}, err
+	}
+	return BeginResult{ConnectionID: row.ID, AuthorizationURL: draft.url}, nil
 }
 
-func (s *Service) createAuthorization(ctx context.Context, t connector.Type, method connector.AuthMethod, alias string, connectionID uuid.UUID, redirectURL string) (string, error) {
-	resolved, err := s.cfg.Resolved(ctx, t)
+func (s *Service) prepareAuthorization(ctx context.Context, t connector.Type, method connector.AuthMethod, connectionID uuid.UUID) (authorizationDraft, error) {
+	authEndpoint, clientID, resource, scopes, oauthClientID, usePKCE, err :=
+		s.authorizationParameters(ctx, t, method)
 	if err != nil {
-		return "", err
-	}
-	clientID, _ := resolved["client_id"].(string)
-	if clientID == "" {
-		return "", ErrMissingClient
-	}
-	authEndpoint, err := ExpandEndpoint(method.OAuth.AuthorizationEndpoint, resolved)
-	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
 
 	state, err := randomToken()
 	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
 	verifier := ""
-	if method.OAuth.UsePKCE {
+	if usePKCE {
 		if verifier, err = randomToken(); err != nil {
-			return "", err
+			return authorizationDraft{}, err
 		}
 	}
 
 	authzID := uuid.New()
 	encVerifier, keyVersion, err := s.kr.Encrypt([]byte(verifier), []byte(authzID.String()))
 	if err != nil {
-		return "", err
+		return authorizationDraft{}, err
 	}
-	connID := connectionID
-	if _, err := s.q.CreateOAuthAuthorization(ctx, store.CreateOAuthAuthorizationParams{
+	authzParams := store.CreateOAuthAuthorizationParams{
 		ID:               authzID,
 		ConnectorType:    string(t),
 		StateHash:        hashToken(state),
 		PkceVerifier:     encVerifier,
 		SecretKeyVersion: int32(keyVersion),
 		AuthMethod:       method.Key,
-		Alias:            alias,
-		ConnectionID:     &connID,
-		RedirectUrl:      redirectURL,
-		Status:           statusPending,
+		ConnectionID:     connectionID,
+		OauthClientID:    oauthClientID,
 		ExpiresAt:        time.Now().Add(authorizationTTL),
-	}); err != nil {
-		return "", err
 	}
 
 	params := url.Values{}
@@ -205,12 +229,19 @@ func (s *Service) createAuthorization(ctx context.Context, t connector.Type, met
 	params.Set("client_id", clientID)
 	params.Set("redirect_uri", s.baseURL+CallbackPath)
 	params.Set("state", state)
-	if len(method.OAuth.Scopes) > 0 {
-		params.Set("scope", strings.Join(method.OAuth.Scopes, " "))
+	if len(scopes) > 0 {
+		separator := method.OAuth.ScopeSeparator
+		if separator == "" {
+			separator = " "
+		}
+		params.Set("scope", strings.Join(scopes, separator))
 	}
-	if method.OAuth.UsePKCE {
+	if usePKCE {
 		params.Set("code_challenge", s256Challenge(verifier))
 		params.Set("code_challenge_method", "S256")
+	}
+	if resource != "" {
+		params.Set("resource", resource)
 	}
 	for k, v := range method.OAuth.ExtraAuthParams {
 		params.Set(k, v)
@@ -219,66 +250,148 @@ func (s *Service) createAuthorization(ctx context.Context, t connector.Type, met
 	if strings.Contains(authEndpoint, "?") {
 		sep = "&"
 	}
-	return authEndpoint + sep + params.Encode(), nil
+	return authorizationDraft{
+		url:    authEndpoint + sep + params.Encode(),
+		scopes: scopes,
+		params: authzParams,
+	}, nil
+}
+
+func (s *Service) authorizationParameters(
+	ctx context.Context,
+	t connector.Type,
+	method connector.AuthMethod,
+) (
+	authEndpoint string,
+	clientID string,
+	resource string,
+	scopes []string,
+	oauthClientID *uuid.UUID,
+	usePKCE bool,
+	err error,
+) {
+	resolved, err := s.cfg.Resolved(ctx, t)
+	if err != nil {
+		return "", "", "", nil, nil, false, err
+	}
+	if method.OAuth.Mode != connector.OAuthModeMCP {
+		clientID, _, err = ClientCredentials(resolved)
+		if err != nil {
+			return "", "", "", nil, nil, false, err
+		}
+		authEndpoint, err = ExpandEndpoint(method.OAuth.AuthorizationEndpoint, resolved)
+		return authEndpoint, clientID, "", method.OAuth.Scopes, nil,
+			method.OAuth.UsePKCE, err
+	}
+
+	def, ok := s.reg.Get(t)
+	if !ok {
+		return "", "", "", nil, nil, false,
+			fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+	}
+	remote, ok := def.Implementation.(connector.RemoteMCP)
+	if !ok {
+		return "", "", "", nil, nil, false,
+			fmt.Errorf("%w: connector 不是 remote MCP", ErrMCPDiscovery)
+	}
+	endpoint, err := resolveRemoteEndpoint(remote, resolved)
+	if err != nil {
+		return "", "", "", nil, nil, false,
+			fmt.Errorf("%w: %v", ErrMCPDiscovery, err)
+	}
+	discovery, client, err := s.resolveMCPClient(ctx, t, endpoint)
+	if err != nil {
+		return "", "", "", nil, nil, false, err
+	}
+	clientRef := client.ID
+	return discovery.AuthorizationEndpoint, client.ClientID, discovery.Resource,
+		discovery.Scopes, &clientRef, true, nil
 }
 
 // HandleCallback 核对 state、用授权码换 token，把绑定的连接置 active。
-func (s *Service) HandleCallback(ctx context.Context, state, code string) (CallbackResult, error) {
-	authz, err := s.q.GetOAuthAuthorizationByStateHash(ctx, hashToken(state))
+func (s *Service) HandleCallback(ctx context.Context, state, code string) error {
+	authz, err := s.claimAuthorization(ctx, state)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return CallbackResult{}, ErrInvalidState
+		return err
+	}
+
+	finished := false
+	defer func() {
+		if finished {
+			return
 		}
-		return CallbackResult{}, err
-	}
-	result := CallbackResult{RedirectURL: authz.RedirectUrl}
-	if authz.Status != statusPending || time.Now().After(authz.ExpiresAt) {
-		return result, ErrInvalidState
-	}
-	if authz.ConnectionID == nil {
-		return result, ErrInvalidState
-	}
-	connID := *authz.ConnectionID
-	result.ConnectionID = connID
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.failAuthorization(cleanupCtx, authz)
+	}()
+
+	connID := authz.ConnectionID
 
 	t := connector.Type(authz.ConnectorType)
 	def, ok := s.reg.Get(t)
 	if !ok {
-		return result, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+		return fmt.Errorf("%w: %s", ErrUnknownConnector, t)
 	}
 	method, err := findOAuthMethod(def, authz.AuthMethod)
 	if err != nil {
-		return result, err
-	}
-	resolved, err := s.cfg.Resolved(ctx, t)
-	if err != nil {
-		return result, err
-	}
-	clientID, _ := resolved["client_id"].(string)
-	clientSecret, _ := resolved["client_secret"].(string)
-	if clientID == "" {
-		return result, ErrMissingClient
+		return err
 	}
 	verifier, err := s.kr.Decrypt(authz.PkceVerifier, int(authz.SecretKeyVersion), []byte(authz.ID.String()))
 	if err != nil {
-		return result, err
+		return err
+	}
+
+	var (
+		clientID, clientSecret, resource string
+		oc                               connector.OAuthConfig
+		usePKCE                          bool
+	)
+	if method.OAuth.Mode == connector.OAuthModeMCP {
+		if authz.OauthClientID == nil {
+			return errors.New("oauthsvc: MCP OAuth authorization 缺少 client registration")
+		}
+		client, err := LoadMCPClient(ctx, s.q, s.kr, *authz.OauthClientID)
+		if err != nil {
+			return err
+		}
+		if client.ConnectorType != t {
+			return errors.New("oauthsvc: MCP OAuth client registration 不属于当前 connector")
+		}
+		clientID, clientSecret, resource = client.ClientID, client.ClientSecret, client.Resource
+		oc = connector.OAuthConfig{
+			TokenEndpoint:     client.TokenEndpoint,
+			TokenEndpointAuth: client.TokenEndpointAuth,
+		}
+		usePKCE = true
+	} else {
+		resolved, err := s.cfg.Resolved(ctx, t)
+		if err != nil {
+			return err
+		}
+		clientID, clientSecret, err = ClientCredentials(resolved)
+		if err != nil {
+			return err
+		}
+		oc = *method.OAuth
+		if oc.TokenEndpoint, err = ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
+			return err
+		}
+		usePKCE = method.OAuth.UsePKCE
 	}
 
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
 	form.Set("redirect_uri", s.baseURL+CallbackPath)
-	if method.OAuth.UsePKCE {
+	if usePKCE {
 		form.Set("code_verifier", string(verifier))
 	}
-	// {tenant} 类占位符在调用前展开；OAuthConfig 本身保持纯数据。
-	oc := *method.OAuth
-	if oc.TokenEndpoint, err = ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
-		return result, err
+	if resource != "" {
+		form.Set("resource", resource)
 	}
 	tok, err := ExchangeToken(ctx, s.hc, &oc, clientID, clientSecret, form)
 	if err != nil {
-		return result, err
+		return err
 	}
 
 	now := time.Now()
@@ -288,7 +401,7 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (Callb
 	}
 	plain, err := cred.Marshal()
 	if err != nil {
-		return result, err
+		return err
 	}
 	var expiresAt *time.Time
 	if !cred.ExpiresAt.IsZero() {
@@ -296,25 +409,89 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (Callb
 	}
 	ciphertext, keyVersion, err := s.kr.Encrypt(plain, []byte(connID.String()))
 	if err != nil {
-		return result, err
+		return err
 	}
-	if err := s.q.UpdateConnectionCredential(ctx, store.UpdateConnectionCredentialParams{
+
+	// connection 更新与 authorization 完成必须原子提交。
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := qtx.GetConnectionForUpdate(ctx, connID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrConnectionGone
+		}
+		return err
+	}
+	if err := qtx.ActivateOAuthConnection(ctx, store.ActivateOAuthConnectionParams{
 		ID:                   connID,
 		Credential:           ciphertext,
 		SecretKeyVersion:     int32(keyVersion),
-		Status:               "active",
 		AccessTokenExpiresAt: expiresAt,
+		OauthClientID:        authz.OauthClientID,
 	}); err != nil {
-		return result, err
+		return err
 	}
-	if err := s.q.CompleteOAuthAuthorization(ctx, store.CompleteOAuthAuthorizationParams{
-		ID:           authz.ID,
-		Status:       statusCompleted,
-		ConnectionID: &connID,
-	}); err != nil {
-		return result, err
+	n, err := qtx.DeleteClaimedOAuthAuthorization(ctx, authz.ID)
+	if err != nil {
+		return err
 	}
-	return result, nil
+	if n != 1 {
+		return ErrInvalidState
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	finished = true
+	return nil
+}
+
+// RejectCallback 消费 provider 拒绝或取消返回的 state，并结束本次授权。
+func (s *Service) RejectCallback(ctx context.Context, state string) error {
+	authz, err := s.claimAuthorization(ctx, state)
+	if err != nil {
+		return err
+	}
+	if err := s.failAuthorization(ctx, authz); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) claimAuthorization(ctx context.Context, state string) (store.OauthAuthorization, error) {
+	if state == "" {
+		return store.OauthAuthorization{}, ErrInvalidState
+	}
+	authz, err := s.q.ClaimOAuthAuthorization(ctx, hashToken(state))
+	if errors.Is(err, pgx.ErrNoRows) {
+		// 顺手收敛过期或进程中断的授权；不影响当前 invalid_state 结果。
+		_ = s.q.ExpireOAuthAuthorizations(ctx)
+		return store.OauthAuthorization{}, ErrInvalidState
+	}
+	if err != nil {
+		return store.OauthAuthorization{}, err
+	}
+	return authz, nil
+}
+
+func (s *Service) failAuthorization(ctx context.Context, authz store.OauthAuthorization) error {
+	tx, qtx, err := s.q.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	n, err := qtx.DeleteClaimedOAuthAuthorization(ctx, authz.ID)
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrInvalidState
+	}
+	if err := qtx.MarkPendingConnectionAuthorizationFailed(ctx, authz.ConnectionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func findOAuthMethod(def connector.Definition, key string) (connector.AuthMethod, error) {
@@ -327,6 +504,19 @@ func findOAuthMethod(def connector.Definition, key string) (connector.AuthMethod
 		}
 	}
 	return connector.AuthMethod{}, fmt.Errorf("%w: %s", ErrUnknownAuthMethod, key)
+}
+
+func resolveRemoteEndpoint(remote connector.RemoteMCP, config map[string]any) (string, error) {
+	if remote.EndpointSelector == nil {
+		return remote.Endpoint, nil
+	}
+	field := remote.EndpointSelector.ConfigField
+	option, _ := config[field].(string)
+	endpoint, ok := remote.EndpointSelector.Endpoints[option]
+	if !ok {
+		return "", fmt.Errorf("remote MCP endpoint option %q 无效", option)
+	}
+	return endpoint, nil
 }
 
 // randomToken 返回 256bit 随机数的 base64url（43 字符，可直接用作 PKCE verifier）。

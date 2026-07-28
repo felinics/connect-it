@@ -23,7 +23,7 @@ func (q *Queries) DeleteConnectorConfig(ctx context.Context, connectorType strin
 }
 
 const getConnectorConfig = `-- name: GetConnectorConfig :one
-SELECT connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at FROM connector_configs WHERE connector_type = $1
+SELECT connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at FROM connector_configs WHERE connector_type = $1
 `
 
 func (q *Queries) GetConnectorConfig(ctx context.Context, connectorType string) (ConnectorConfig, error) {
@@ -35,8 +35,6 @@ func (q *Queries) GetConnectorConfig(ctx context.Context, connectorType string) 
 		&i.PublicConfig,
 		&i.SecretConfig,
 		&i.SecretKeyVersion,
-		&i.McpVerifiedEndpoint,
-		&i.McpVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -44,7 +42,7 @@ func (q *Queries) GetConnectorConfig(ctx context.Context, connectorType string) 
 }
 
 const listConnectorConfigs = `-- name: ListConnectorConfigs :many
-SELECT connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at FROM connector_configs ORDER BY connector_type
+SELECT connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at FROM connector_configs ORDER BY connector_type
 `
 
 func (q *Queries) ListConnectorConfigs(ctx context.Context) ([]ConnectorConfig, error) {
@@ -62,8 +60,6 @@ func (q *Queries) ListConnectorConfigs(ctx context.Context) ([]ConnectorConfig, 
 			&i.PublicConfig,
 			&i.SecretConfig,
 			&i.SecretKeyVersion,
-			&i.McpVerifiedEndpoint,
-			&i.McpVerifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -85,7 +81,7 @@ UPDATE connector_configs SET
   secret_key_version = $5,
   updated_at = now()
 WHERE connector_type = $1 AND updated_at = $6
-RETURNING connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at
+RETURNING connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at
 `
 
 type UpdateConnectorConfigIfMatchParams struct {
@@ -113,8 +109,6 @@ func (q *Queries) UpdateConnectorConfigIfMatch(ctx context.Context, arg UpdateCo
 		&i.PublicConfig,
 		&i.SecretConfig,
 		&i.SecretKeyVersion,
-		&i.McpVerifiedEndpoint,
-		&i.McpVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -132,7 +126,7 @@ ON CONFLICT (connector_type) DO UPDATE SET
   secret_config = EXCLUDED.secret_config,
   secret_key_version = EXCLUDED.secret_key_version,
   updated_at = now()
-RETURNING connector_type, config_schema_version, public_config, secret_config, secret_key_version, mcp_verified_endpoint, mcp_verified_at, created_at, updated_at
+RETURNING connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at
 `
 
 type UpsertConnectorConfigParams struct {
@@ -158,8 +152,6 @@ func (q *Queries) UpsertConnectorConfig(ctx context.Context, arg UpsertConnector
 		&i.PublicConfig,
 		&i.SecretConfig,
 		&i.SecretKeyVersion,
-		&i.McpVerifiedEndpoint,
-		&i.McpVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -2,270 +2,146 @@ package connectors_test
 
 import (
 	"encoding/json"
-	"os"
-	"strings"
 	"testing"
 
 	connectors "github.com/memohai/connect-it/packages/connectors"
+	"github.com/memohai/connect-it/packages/connectors/restproviders"
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/registry"
 )
 
-func newRegistry(t *testing.T) *registry.Registry {
+func definitions(t *testing.T) *registry.Registry {
 	t.Helper()
 	r := registry.New()
-	connectors.RegisterAll(r) // 非法 definition 会 panic，测试即失败
+	connectors.RegisterAll(r)
 	return r
 }
 
-func TestRegisterAll(t *testing.T) {
-	r := newRegistry(t)
-	for _, typ := range []connector.Type{"github", "gmail", "one_drive", "google_ads"} {
-		if _, ok := r.Get(typ); !ok {
-			t.Errorf("%s 未注册", typ)
-		}
+func TestRegisterAllAndModes(t *testing.T) {
+	r := definitions(t)
+	const providerCount = 112
+	want := map[connector.Type]connector.Mode{
+		"airtable":        connector.ModeRemoteMCP,
+		"asana":           connector.ModeRemoteMCP,
+		"box":             connector.ModeRemoteMCP,
+		"cloudflare":      connector.ModeRemoteMCP,
+		"datadog":         connector.ModeRemoteMCP,
+		"dropbox":         connector.ModeRemoteMCP,
+		"github":          connector.ModeRemoteMCP,
+		"gmail":           connector.ModeRemoteMCP,
+		"gitlab":          connector.ModeRemoteMCP,
+		"google_ads":      connector.ModeManaged,
+		"google_calendar": connector.ModeRemoteMCP,
+		"google_chat":     connector.ModeRemoteMCP,
+		"google_docs":     connector.ModeRemoteMCP,
+		"google_drive":    connector.ModeRemoteMCP,
+		"google_people":   connector.ModeRemoteMCP,
+		"google_sheets":   connector.ModeRemoteMCP,
+		"google_slides":   connector.ModeRemoteMCP,
+		"hubspot":         connector.ModeRemoteMCP,
+		"intercom":        connector.ModeRemoteMCP,
+		"linear":          connector.ModeRemoteMCP,
+		"monday":          connector.ModeRemoteMCP,
+		"notion":          connector.ModeRemoteMCP,
+		"one_drive":       connector.ModeManaged,
+		"posthog":         connector.ModeRemoteMCP,
+		"postman":         connector.ModeRemoteMCP,
+		"sentry":          connector.ModeRemoteMCP,
+		"slack":           connector.ModeRemoteMCP,
+		"stripe":          connector.ModeRemoteMCP,
+		"supabase":        connector.ModeRemoteMCP,
+		"youtube":         connector.ModeManaged,
 	}
-	if len(r.All()) != 4 {
-		t.Fatalf("应注册 4 个 connector: %d", len(r.All()))
+	for _, def := range restproviders.Definitions {
+		want[def.Type] = connector.ModeManaged
+	}
+	if len(want) != providerCount || len(r.All()) != providerCount {
+		t.Fatalf("got registry=%d expected-map=%d providers", len(r.All()), len(want))
+	}
+	for connectorType, mode := range want {
+		def, ok := r.Get(connectorType)
+		if !ok || def.Mode() != mode {
+			t.Fatalf("%s: found=%v mode=%q", connectorType, ok, def.Mode())
+		}
 	}
 }
 
-// 目录名必须等于 connector_type 去掉下划线的形式，且一一对应。
-func TestDirectoryMatchesRegisteredTypes(t *testing.T) {
-	r := newRegistry(t)
-
-	want := map[string]bool{}
-	for _, def := range r.All() {
-		want[strings.ReplaceAll(string(def.Type), "_", "")] = true
+func TestRemoteEndpoints(t *testing.T) {
+	r := definitions(t)
+	cases := map[connector.Type]string{
+		"airtable":        "https://mcp.airtable.com/mcp",
+		"asana":           "https://mcp.asana.com/v2/mcp",
+		"box":             "https://mcp.box.com",
+		"cloudflare":      "https://mcp.cloudflare.com/mcp",
+		"dropbox":         "https://mcp.dropbox.com/mcp",
+		"github":          "https://api.githubcopilot.com/mcp/",
+		"gmail":           "https://gmailmcp.googleapis.com/mcp/v1",
+		"gitlab":          "https://gitlab.com/api/v4/mcp",
+		"google_calendar": "https://calendarmcp.googleapis.com/mcp/v1",
+		"google_chat":     "https://chatmcp.googleapis.com/mcp/v1",
+		"google_docs":     "https://docsmcp.googleapis.com/mcp/v1",
+		"google_drive":    "https://drivemcp.googleapis.com/mcp/v1",
+		"google_people":   "https://people.googleapis.com/mcp/v1",
+		"google_sheets":   "https://sheetsmcp.googleapis.com/mcp/v1",
+		"google_slides":   "https://slidesmcp.googleapis.com/mcp/v1",
+		"hubspot":         "https://mcp.hubspot.com/",
+		"intercom":        "https://mcp.intercom.com/mcp",
+		"linear":          "https://mcp.linear.app/mcp",
+		"monday":          "https://mcp.monday.com/mcp",
+		"notion":          "https://mcp.notion.com/mcp",
+		"posthog":         "https://mcp.posthog.com/mcp",
+		"postman":         "https://mcp.postman.com/mcp",
+		"sentry":          "https://mcp.sentry.dev/mcp",
+		"slack":           "https://mcp.slack.com/mcp",
+		"stripe":          "https://mcp.stripe.com",
+		"supabase":        "https://mcp.supabase.com/mcp",
 	}
-
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]bool{}
-	for _, e := range entries {
-		if e.IsDir() {
-			got[e.Name()] = true
-		}
-	}
-
-	for dir := range got {
-		if !want[dir] {
-			t.Errorf("目录 %q 没有对应的注册 connector", dir)
-		}
-	}
-	for typ := range want {
-		if !got[typ] {
-			t.Errorf("注册的 connector %q 没有对应目录", typ)
+	for connectorType, endpoint := range cases {
+		def, _ := r.Get(connectorType)
+		remote := def.Implementation.(connector.RemoteMCP)
+		if remote.Endpoint != endpoint {
+			t.Fatalf("%s endpoint=%q", connectorType, remote.Endpoint)
 		}
 	}
 }
 
-// 全部 tool：InputSchema 合法 JSON object；RemoteMCPBackend 的 mapper key 留空（第一期契约）。
-func TestToolSchemasAndMapperKeys(t *testing.T) {
-	r := newRegistry(t)
-	for _, def := range r.All() {
-		for _, tool := range def.Tools {
+func TestSelectedRemoteEndpoints(t *testing.T) {
+	r := definitions(t)
+	def, _ := r.Get("datadog")
+	remote := def.Implementation.(connector.RemoteMCP)
+	if remote.EndpointSelector == nil ||
+		remote.EndpointSelector.Endpoints["us1"] != "https://mcp.datadoghq.com/v1/mcp" ||
+		remote.EndpointSelector.Endpoints["eu1"] != "https://mcp.datadoghq.eu/v1/mcp" {
+		t.Fatalf("datadog endpoint selector=%+v", remote.EndpointSelector)
+	}
+}
+
+func TestManagedTools(t *testing.T) {
+	r := definitions(t)
+	want := map[connector.Type]int{
+		"one_drive":  2,
+		"google_ads": 2,
+		"youtube":    4,
+	}
+	for connectorType, toolCount := range want {
+		def, _ := r.Get(connectorType)
+		managed := def.Implementation.(connector.Managed)
+		if len(managed.Tools) != toolCount {
+			t.Fatalf("%s: got %d tools", connectorType, len(managed.Tools))
+		}
+		for _, managedTool := range managed.Tools {
+			if managedTool.Handler == nil {
+				t.Fatalf("%s: %s handler is nil", connectorType, managedTool.Tool.Name)
+			}
+			data, err := json.Marshal(managedTool.Tool.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
 			var schema map[string]any
-			if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
-				t.Errorf("%s/%s InputSchema 不是合法 JSON: %v", def.Type, tool.ID, err)
-				continue
+			if err := json.Unmarshal(data, &schema); err != nil || schema["type"] != "object" {
+				t.Fatalf("%s: %s schema=%s err=%v",
+					connectorType, managedTool.Tool.Name, data, err)
 			}
-			if schema["type"] != "object" {
-				t.Errorf("%s/%s InputSchema 顶层应为 object", def.Type, tool.ID)
-			}
-			if b, ok := tool.Backend.(connector.RemoteMCPBackend); ok {
-				if b.InputMapperKey != "" || b.OutputMapperKey != "" {
-					t.Errorf("%s/%s 的 mapper key 第一期必须留空", def.Type, tool.ID)
-				}
-			}
-		}
-	}
-}
-
-func TestGitHubDefinition(t *testing.T) {
-	r := newRegistry(t)
-	def, _ := r.Get("github")
-
-	methods := map[string]connector.AuthMethodType{}
-	for _, m := range def.AuthMethods {
-		methods[m.Key] = m.Type
-	}
-	if methods["oauth"] != connector.AuthOAuth2 || methods["pat"] != connector.AuthAPIKey {
-		t.Fatalf("github 应有 oauth+pat 双 auth method: %+v", methods)
-	}
-	// OAuth 配置字段全部可选：PAT 路径独立可用，github 无配置也是 ready
-	for _, f := range def.ConfigFields {
-		if f.Required {
-			t.Errorf("github 配置字段 %s 应为可选", f.Key)
-		}
-	}
-	if len(def.RemoteMCPServers) != 1 ||
-		def.RemoteMCPServers[0].Endpoint.URL != "https://api.githubcopilot.com/mcp/" {
-		t.Fatalf("github 应指向官方 remote MCP: %+v", def.RemoteMCPServers)
-	}
-	if len(def.Tools) != 5 {
-		t.Fatalf("github 应有 5 个 tool: %d", len(def.Tools))
-	}
-	for _, tool := range def.Tools {
-		if _, ok := tool.Backend.(connector.RemoteMCPBackend); !ok {
-			t.Errorf("github tool %s 应为 RemoteMCPBackend", tool.ID)
-		}
-	}
-}
-
-func TestGmailDefinition(t *testing.T) {
-	r := newRegistry(t)
-	def, _ := r.Get("gmail")
-
-	secretByKey := map[string]bool{}
-	for _, f := range def.ConfigFields {
-		secretByKey[f.Key] = f.Secret
-	}
-	for key, wantSecret := range map[string]bool{"client_id": false, "client_secret": true, "project_id": false} {
-		got, ok := secretByKey[key]
-		if !ok {
-			t.Errorf("缺配置字段 %s", key)
-			continue
-		}
-		if got != wantSecret {
-			t.Errorf("字段 %s 的 Secret 应为 %v", key, wantSecret)
-		}
-	}
-
-	// 混合 backend：至少 1 个 remote＋2 个 managed
-	var remote, managed int
-	for _, tool := range def.Tools {
-		switch tool.Backend.(type) {
-		case connector.RemoteMCPBackend:
-			remote++
-		case connector.ManagedBackend:
-			managed++
-		}
-	}
-	if remote < 1 || managed < 2 {
-		t.Fatalf("gmail 应混合 remote(%d)+managed(%d)", remote, managed)
-	}
-
-	h := connectors.AllHandlers()["gmail"]
-	for _, key := range []string{"list_messages", "send_message"} {
-		if h[key] == nil {
-			t.Errorf("gmail managed handler %q 未接线", key)
-		}
-	}
-	// refresh token 参数
-	extra := def.AuthMethods[0].OAuth.ExtraAuthParams
-	if extra["access_type"] != "offline" || extra["prompt"] != "consent" {
-		t.Fatalf("google oauth 需 access_type=offline&prompt=consent: %v", extra)
-	}
-}
-
-func TestOneDriveDefinition(t *testing.T) {
-	r := newRegistry(t)
-	def, _ := r.Get("one_drive")
-
-	var tenant *connector.ConfigField
-	for i := range def.ConfigFields {
-		if def.ConfigFields[i].Key == "tenant" {
-			tenant = &def.ConfigFields[i]
-		}
-	}
-	if tenant == nil {
-		t.Fatal("缺 tenant 字段")
-	}
-	if tenant.Secret || tenant.DefaultValue == nil || *tenant.DefaultValue != "common" {
-		t.Fatalf("tenant 应为非 Secret 且默认 common: %+v", tenant)
-	}
-
-	if len(def.AuthMethods) != 1 || def.AuthMethods[0].Type != connector.AuthOAuth2 {
-		t.Fatalf("one_drive 应只有一个 oauth2 auth method: %+v", def.AuthMethods)
-	}
-	oauth := def.AuthMethods[0].OAuth
-	if !strings.Contains(oauth.AuthorizationEndpoint, "{tenant}") ||
-		!strings.Contains(oauth.TokenEndpoint, "{tenant}") {
-		t.Fatalf("microsoft endpoint 应含 {tenant} 占位符: %+v", oauth)
-	}
-	if !oauth.UsePKCE {
-		t.Fatal("microsoft oauth 应启用 PKCE")
-	}
-
-	if len(def.RemoteMCPServers) != 0 {
-		t.Fatal("one_drive 不应有 remote MCP server")
-	}
-	if len(def.Tools) == 0 {
-		t.Fatal("one_drive 应至少有一个 tool")
-	}
-	for _, tool := range def.Tools {
-		if _, ok := tool.Backend.(connector.ManagedBackend); !ok {
-			t.Errorf("one_drive tool %s 应为 ManagedBackend", tool.ID)
-		}
-	}
-
-	h := connectors.AllHandlers()["one_drive"]
-	for _, key := range []string{"list_drive_items", "upload_file"} {
-		if h[key] == nil {
-			t.Errorf("one_drive managed handler %q 未接线", key)
-		}
-	}
-}
-
-func TestGoogleAdsDefinition(t *testing.T) {
-	r := newRegistry(t)
-	def, _ := r.Get("google_ads")
-
-	secretByKey := map[string]bool{}
-	for _, f := range def.ConfigFields {
-		secretByKey[f.Key] = f.Secret
-	}
-	for key, wantSecret := range map[string]bool{
-		"client_id":       false,
-		"client_secret":   true,
-		"project_id":      false,
-		"developer_token": true,
-		"customer_id":     false,
-		"mcp_url":         false,
-	} {
-		got, ok := secretByKey[key]
-		if !ok {
-			t.Errorf("缺配置字段 %s", key)
-			continue
-		}
-		if got != wantSecret {
-			t.Errorf("字段 %s 的 Secret 应为 %v", key, wantSecret)
-		}
-	}
-
-	if len(def.AuthMethods) != 1 || def.AuthMethods[0].Type != connector.AuthOAuth2 {
-		t.Fatalf("google_ads 应只有一个 oauth2 auth method: %+v", def.AuthMethods)
-	}
-	scopes := def.AuthMethods[0].OAuth.Scopes
-	if len(scopes) != 1 || scopes[0] != "https://www.googleapis.com/auth/adwords" {
-		t.Fatalf("scope 应为 adwords: %v", scopes)
-	}
-
-	if len(def.RemoteMCPServers) != 1 {
-		t.Fatal("google_ads 应恰有一个 remote MCP server")
-	}
-	srv := def.RemoteMCPServers[0]
-	if srv.Endpoint.Source != connector.EndpointConfigField || srv.Endpoint.ConfigFieldKey != "mcp_url" {
-		t.Fatalf("endpoint 应取自 mcp_url 配置字段: %+v", srv.Endpoint)
-	}
-	if srv.Provenance.Kind != connector.ProvenanceSelfHosted {
-		t.Fatalf("provenance 应为 self_hosted: %+v", srv.Provenance)
-	}
-
-	if len(def.Tools) == 0 {
-		t.Fatal("google_ads 应至少有一个 tool")
-	}
-	for _, tool := range def.Tools {
-		b, ok := tool.Backend.(connector.RemoteMCPBackend)
-		if !ok {
-			t.Errorf("google_ads tool %s 应为 RemoteMCPBackend", tool.ID)
-			continue
-		}
-		if b.ServerKey != "self_hosted" {
-			t.Errorf("tool %s 应指向 self_hosted server", tool.ID)
 		}
 	}
 }

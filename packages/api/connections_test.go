@@ -55,12 +55,13 @@ func newConnServer(t *testing.T) (*httptest.Server, http.Header) {
 					{Key: "token", Label: "Token", InputType: connector.InputText, Required: true},
 				}},
 		},
+		Implementation: connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
 	})
 
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
 	auth := authsvc.New(q)
-	cat := catalogsvc.New(q, reg, cfg)
+	cat := catalogsvc.New(reg, cfg)
 	oauth := oauthsvc.New(q, reg, cfg, kr, provider.Client(), "http://connect.test")
 	conns := connsvc.New(q, reg, kr)
 
@@ -89,12 +90,6 @@ func newConnServer(t *testing.T) (*httptest.Server, http.Header) {
 	bh := http.Header{}
 	bh.Set("Authorization", "Bearer "+plaintext)
 	return srv, bh
-}
-
-func noRedirectClient() *http.Client {
-	return &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
 }
 
 func TestV1APIKeyConnectionLifecycle(t *testing.T) {
@@ -140,12 +135,12 @@ func TestV1APIKeyConnectionLifecycle(t *testing.T) {
 	}
 }
 
-func TestV1OAuthFlowWithRedirect(t *testing.T) {
+func TestV1OAuthFlow(t *testing.T) {
 	srv, bh := newConnServer(t)
 
 	// 发起：立即拿到 pending 连接 ID＋授权 URL
 	resp, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/oauth",
-		`{"connector_type":"example_app","auth_method":"oauth","alias":"user-42-gh","redirect_url":"https://saas.example/oauth/done"}`, bh)
+		`{"connector_type":"example_app","auth_method":"oauth","alias":"user-42-gh"}`, bh)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("begin: %d %s", resp.StatusCode, body)
 	}
@@ -163,23 +158,21 @@ func TestV1OAuthFlowWithRedirect(t *testing.T) {
 		t.Fatalf("pending 状态: %d %s", resp.StatusCode, body)
 	}
 
-	// 终端用户完成授权 → 回调 302 回 SaaS 登记的 redirect_url，带 connection_id
+	// 终端用户完成授权 → Connect-It 显示完成页，下游继续轮询 connection 状态。
 	u, err := url.Parse(begin.AuthorizationURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := u.Query().Get("state")
-	cbResp, err := noRedirectClient().Get(srv.URL + "/v1/oauth/callback?state=" + url.QueryEscape(state) + "&code=abc")
+	cbResp, err := http.Get(srv.URL + "/v1/oauth/callback?state=" + url.QueryEscape(state) + "&code=abc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cbResp.Body.Close()
-	loc := cbResp.Header.Get("Location")
-	if cbResp.StatusCode != http.StatusFound ||
-		!strings.HasPrefix(loc, "https://saas.example/oauth/done") ||
-		!strings.Contains(loc, "status=connected") ||
-		!strings.Contains(loc, "connection_id="+begin.ConnectionID) {
-		t.Fatalf("回调应 302 回 redirect_url: %d %s", cbResp.StatusCode, loc)
+	defer cbResp.Body.Close()
+	page := make([]byte, 4096)
+	n, _ := cbResp.Body.Read(page)
+	if cbResp.StatusCode != http.StatusOK || !strings.Contains(string(page[:n]), "授权完成") {
+		t.Fatalf("回调应显示完成页: %d %s", cbResp.StatusCode, page[:n])
 	}
 
 	// 状态变 active
@@ -190,18 +183,19 @@ func TestV1OAuthFlowWithRedirect(t *testing.T) {
 
 	// reauth：同一 ID 再发起
 	resp, body = doReq(t, http.MethodPost, srv.URL+"/v1/connections/"+begin.ConnectionID+"/reauth",
-		`{"redirect_url":"https://saas.example/back"}`, bh)
+		"", bh)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, begin.ConnectionID) {
 		t.Fatalf("reauth: %d %s", resp.StatusCode, body)
 	}
 }
 
-func TestCallbackWithoutRedirectShowsPage(t *testing.T) {
+func TestOAuthProviderRejectionEndsPendingConnection(t *testing.T) {
 	srv, bh := newConnServer(t)
 
 	_, body := doReq(t, http.MethodPost, srv.URL+"/v1/connections/oauth",
 		`{"connector_type":"example_app","auth_method":"oauth"}`, bh)
 	var begin struct {
+		ConnectionID     string `json:"connection_id"`
 		AuthorizationURL string `json:"authorization_url"`
 	}
 	if err := json.Unmarshal([]byte(body), &begin); err != nil {
@@ -210,15 +204,22 @@ func TestCallbackWithoutRedirectShowsPage(t *testing.T) {
 	u, _ := url.Parse(begin.AuthorizationURL)
 	state := u.Query().Get("state")
 
-	cbResp, err := noRedirectClient().Get(srv.URL + "/v1/oauth/callback?state=" + url.QueryEscape(state) + "&code=abc")
+	cbResp, err := http.Get(srv.URL + "/v1/oauth/callback?state=" +
+		url.QueryEscape(state) + "&error=access_denied")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cbResp.Body.Close()
 	page := make([]byte, 4096)
 	n, _ := cbResp.Body.Read(page)
-	if cbResp.StatusCode != http.StatusOK || !strings.Contains(string(page[:n]), "授权完成") {
-		t.Fatalf("无 redirect_url 应渲染完成页: %d %s", cbResp.StatusCode, page[:n])
+	if cbResp.StatusCode != http.StatusOK ||
+		!strings.Contains(string(page[:n]), "access_denied") {
+		t.Fatalf("拒绝后应显示失败页: %d %s", cbResp.StatusCode, page[:n])
+	}
+
+	resp, body := doReq(t, http.MethodGet, srv.URL+"/v1/connections/"+begin.ConnectionID, "", bh)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"authorization_failed"`) {
+		t.Fatalf("拒绝后 connection 不应保持 pending: %d %s", resp.StatusCode, body)
 	}
 }
 

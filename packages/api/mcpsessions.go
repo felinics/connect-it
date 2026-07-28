@@ -22,7 +22,6 @@ type createMCPSessionResponse struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
-// registerMCPSessions 在 /v1 组（已挂 RequireAPIToken）上注册 POST /mcp-sessions。
 func registerMCPSessions(g *echo.Group, deps Deps) {
 	g.POST("/mcp-sessions", func(c echo.Context) error {
 		return createMCPSession(c, deps)
@@ -31,14 +30,15 @@ func registerMCPSessions(g *echo.Group, deps Deps) {
 
 // createMCPSession godoc
 //
-//	@Summary	签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+//	@Summary	签发聚合多个 Connection 的短期 MCP session token
 //	@ID			createMcpSession
 //	@Tags		mcp
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.createMCPSessionRequest	true	"绑定与 allowlist；ttl_seconds 默认 3600、上限 86400"
+//	@Param		body	body		api.createMCPSessionRequest	true	"connections 为 namespace→connection_id；allowlist 使用 namespace__tool 名称"
 //	@Success	201		{object}	api.createMCPSessionResponse
 //	@Failure	400		{object}	api.ErrorResponse
+//	@Failure	502		{object}	api.ErrorResponse
 //	@Security	BearerAuth
 //	@Router		/v1/mcp-sessions [post]
 func createMCPSession(c echo.Context, deps Deps) error {
@@ -48,32 +48,40 @@ func createMCPSession(c echo.Context, deps Deps) error {
 	}
 	bindings := make(map[string]uuid.UUID, len(req.Connections))
 	for alias, raw := range req.Connections {
-		id, err := uuid.Parse(raw)
+		connectionID, err := uuid.Parse(raw)
 		if err != nil {
 			return writeError(c, http.StatusBadRequest, "invalid_connection_id",
 				"connection id "+raw+" is not a valid UUID")
 		}
-		bindings[alias] = id
+		bindings[alias] = connectionID
+	}
+	apiTokenID, ok := requestAPITokenID(c)
+	if !ok {
+		return writeError(c, http.StatusInternalServerError, "internal", "missing API token identity")
 	}
 	ctx := c.Request().Context()
-	token, err := deps.Sessions.Create(ctx, bindings, req.ToolAllowlist,
-		time.Duration(req.TTLSeconds)*time.Second)
-	var verr *sessions.ValidationError
-	if errors.As(err, &verr) {
-		return writeError(c, http.StatusBadRequest, verr.Code, verr.Message)
+	result, err := deps.Sessions.Create(
+		ctx,
+		apiTokenID,
+		bindings,
+		req.ToolAllowlist,
+		time.Duration(req.TTLSeconds)*time.Second,
+	)
+	var validationErr *sessions.ValidationError
+	if errors.As(err, &validationErr) {
+		return writeError(c, http.StatusBadRequest, validationErr.Code, validationErr.Message)
+	}
+	if errors.Is(err, sessions.ErrToolDiscovery) {
+		c.Logger().Error(err)
+		return writeError(c, http.StatusBadGateway, "tool_discovery_failed",
+			"failed to discover tools for the requested connections")
 	}
 	if err != nil {
 		c.Logger().Error(err)
 		return writeError(c, http.StatusInternalServerError, "internal", "failed to create mcp session")
 	}
-	// 回读 expires_at：Create 只返回 token，过期时间以库中落定值为准。
-	view, err := deps.Sessions.Resolve(ctx, token)
-	if err != nil {
-		c.Logger().Error(err)
-		return writeError(c, http.StatusInternalServerError, "internal", "failed to load created session")
-	}
 	return c.JSON(http.StatusCreated, createMCPSessionResponse{
-		Token:     token,
-		ExpiresAt: view.ExpiresAt.UTC().Format(time.RFC3339),
+		Token:     result.Token,
+		ExpiresAt: result.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }

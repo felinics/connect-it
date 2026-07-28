@@ -1,6 +1,6 @@
 // Package tokens 对外提供「保证可用的 access token」：api_key 直通，
 // OAuth 惰性刷新——60 秒 skew、进程内 single-flight、数据库行锁二次判断，
-// 防止轮转 refresh token 在并发下被覆盖丢失（spec §10）。
+// 防止轮转 refresh token 在并发下被覆盖丢失。
 package tokens
 
 import (
@@ -24,7 +24,10 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-const expirySkew = 60 * time.Second
+const (
+	expirySkew     = 60 * time.Second
+	refreshTimeout = 30 * time.Second
+)
 
 var (
 	ErrReauthRequired = errors.New("tokens: connection 需要重新授权")
@@ -94,14 +97,22 @@ func (r *Refresher) AccessToken(ctx context.Context, connectionID uuid.UUID) (st
 			return cred.AccessToken, nil // 未过期，直接用
 		}
 		// 过期或即将过期：single-flight，进程内只有一个 goroutine 真正刷新。
-		// WithoutCancel：首个调用方取消不应连累等待结果的其他调用方。
-		v, err, _ := r.group.Do(connectionID.String(), func() (any, error) {
-			return r.refresh(context.WithoutCancel(ctx), connectionID, method, connector.Type(row.ConnectorType))
+		// 共享刷新不依附首个调用方，但必须有自己的上限；每个等待方仍响应
+		// 自己的 context，避免刷新击穿 tools/list 的整体预算。
+		resultCh := r.group.DoChan(connectionID.String(), func() (any, error) {
+			refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+			defer cancel()
+			return r.refresh(refreshCtx, connectionID, method, connector.Type(row.ConnectorType))
 		})
-		if err != nil {
-			return "", err
+		select {
+		case result := <-resultCh:
+			if result.Err != nil {
+				return "", result.Err
+			}
+			return result.Val.(string), nil
+		case <-ctx.Done():
+			return "", ctx.Err()
 		}
-		return v.(string), nil
 	default:
 		return "", fmt.Errorf("tokens: auth method %s 类型 %s 不支持", method.Key, method.Type)
 	}
@@ -128,6 +139,20 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 	if err != nil {
 		return "", err
 	}
+	requireReauth := func(cause error) (string, error) {
+		if err := qtx.UpdateConnectionStatus(ctx, store.UpdateConnectionStatusParams{
+			ID: connectionID, Status: "reauth_required",
+		}); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		if cause == nil {
+			return "", ErrReauthRequired
+		}
+		return "", fmt.Errorf("%w: %v", ErrReauthRequired, cause)
+	}
 	plain, err := r.kr.Decrypt(row.Credential, int(row.SecretKeyVersion), []byte(row.ID.String()))
 	if err != nil {
 		return "", err
@@ -143,33 +168,69 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 		}
 		return cred.AccessToken, nil
 	}
-
-	resolved, err := r.cfg.Resolved(ctx, t)
-	if err != nil {
-		return "", err
+	if cred.RefreshToken == "" {
+		return requireReauth(nil)
 	}
-	clientID, _ := resolved["client_id"].(string)
-	clientSecret, _ := resolved["client_secret"].(string)
-	if clientID == "" {
-		return "", oauthsvc.ErrMissingClient
+
+	var (
+		clientID, clientSecret, resource string
+		oc                               connector.OAuthConfig
+	)
+	if method.OAuth.Mode == connector.OAuthModeMCP {
+		if row.OauthClientID == nil {
+			return "", errors.New("tokens: MCP OAuth connection 缺少 client registration")
+		}
+		client, err := oauthsvc.LoadMCPClient(ctx, qtx, r.kr, *row.OauthClientID)
+		if err != nil {
+			if errors.Is(err, oauthsvc.ErrMCPClientExpired) {
+				return requireReauth(err)
+			}
+			return "", err
+		}
+		if client.ConnectorType != t {
+			return "", errors.New("tokens: MCP OAuth client registration 不属于当前 connector")
+		}
+		clientID, clientSecret, resource = client.ClientID, client.ClientSecret, client.Resource
+		oc = connector.OAuthConfig{
+			TokenEndpoint:     client.TokenEndpoint,
+			TokenEndpointAuth: client.TokenEndpointAuth,
+		}
+	} else {
+		resolved, err := r.cfg.Resolved(ctx, t)
+		if err != nil {
+			return "", err
+		}
+		clientID, clientSecret, err = oauthsvc.ClientCredentials(resolved)
+		if err != nil {
+			return "", err
+		}
+		// 刷新路径同样要展开 {tenant} 类占位符（OneDrive token endpoint）。
+		oc = *method.OAuth
+		if oc.TokenEndpoint, err = oauthsvc.ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
+			return "", err
+		}
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", cred.RefreshToken)
-	// 刷新路径同样要展开 {tenant} 类占位符（OneDrive token endpoint）。
-	oc := *method.OAuth
-	if oc.TokenEndpoint, err = oauthsvc.ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
-		return "", err
+	if resource != "" {
+		form.Set("resource", resource)
 	}
 	tok, err := oauthsvc.ExchangeToken(ctx, r.hc, &oc, clientID, clientSecret, form)
 	if err != nil {
-		// 网络瞬断也会标记 reauth_required——第一期接受的粗粒度行为。
-		if uerr := qtx.UpdateConnectionStatus(ctx, store.UpdateConnectionStatusParams{
-			ID: connectionID, Status: "reauth_required",
-		}); uerr == nil {
-			_ = tx.Commit(ctx)
+		// 只有 provider 明确判定 refresh token 失效时才要求重授权。
+		// 网络错误、限流和 5xx 保持 active，让后续调用自然重试。
+		invalidClient := method.OAuth.Mode == connector.OAuthModeMCP &&
+			oauthsvc.IsInvalidClient(err)
+		if !oauthsvc.IsInvalidGrant(err) && !invalidClient {
+			return "", fmt.Errorf("tokens: 刷新 access token: %w", err)
 		}
-		return "", fmt.Errorf("%w: %v", ErrReauthRequired, err)
+		if invalidClient && row.OauthClientID != nil {
+			if expireErr := qtx.ExpireOAuthClientRegistration(ctx, *row.OauthClientID); expireErr != nil {
+				return "", expireErr
+			}
+		}
+		return requireReauth(err)
 	}
 
 	newCred := credential.OAuth{

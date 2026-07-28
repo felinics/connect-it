@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, VerifyMcpData, VerifyMcpErrors, VerifyMcpResponses } from './types.gen';
+import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, OauthCallbackResponses, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -161,30 +161,6 @@ export const getConfigSchema = <ThrowOnError extends boolean = false>(options: O
 };
 
 /**
- * 仅校验配置不落库
- */
-export const validateConfig = <ThrowOnError extends boolean = false>(options: Options<ValidateConfigData, ThrowOnError>) => {
-    return (options.client ?? client).post<ValidateConfigResponses, ValidateConfigErrors, ThrowOnError>({
-        url: '/admin/connectors/{type}/config:validate',
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        }
-    });
-};
-
-/**
- * 实测 Connector 的全部 Remote MCP server 并比对 tool 映射
- */
-export const verifyMcp = <ThrowOnError extends boolean = false>(options: Options<VerifyMcpData, ThrowOnError>) => {
-    return (options.client ?? client).post<VerifyMcpResponses, VerifyMcpErrors, ThrowOnError>({
-        url: '/admin/connectors/{type}/mcp:verify',
-        ...options
-    });
-};
-
-/**
  * 管理员登录，成功后下发会话 cookie
  */
 export const login = <ThrowOnError extends boolean = false>(options: Options<LoginData, ThrowOnError>) => {
@@ -292,11 +268,7 @@ export const reauthConnection = <ThrowOnError extends boolean = false>(options: 
             }
         ],
         url: '/v1/connections/{id}/reauth',
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        }
+        ...options
     });
 };
 
@@ -333,7 +305,7 @@ export const getConnector = <ThrowOnError extends boolean = false>(options: Opti
 };
 
 /**
- * 签发短期 MCP session token（绑定 alias→connection 与 tool allowlist）
+ * 签发聚合多个 Connection 的短期 MCP session token
  */
 export const createMcpSession = <ThrowOnError extends boolean = false>(options: Options<CreateMcpSessionData, ThrowOnError>) => {
     return (options.client ?? client).post<CreateMcpSessionResponses, CreateMcpSessionErrors, ThrowOnError>({
@@ -356,7 +328,7 @@ export const createMcpSession = <ThrowOnError extends boolean = false>(options: 
  * OAuth 回调（provider 跳转回来，无鉴权，靠一次性 state）
  */
 export const oauthCallback = <ThrowOnError extends boolean = false>(options?: Options<OauthCallbackData, ThrowOnError>) => {
-    return (options?.client ?? client).get<unknown, unknown, ThrowOnError>({
+    return (options?.client ?? client).get<OauthCallbackResponses, unknown, ThrowOnError>({
         url: '/v1/oauth/callback',
         ...options
     });

@@ -3,15 +3,14 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	echoSwagger "github.com/swaggo/echo-swagger"
 
 	_ "github.com/memohai/connect-it/packages/api/docs"
-	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/registry"
 	"github.com/memohai/connect-it/packages/service/authsvc"
 	"github.com/memohai/connect-it/packages/service/catalogsvc"
@@ -25,7 +24,11 @@ import (
 // ToolExecutor 抽象 exec.Engine，便于 /mcp 测试注入假执行器；
 // *exec.Engine 的方法集恰好满足本接口。
 type ToolExecutor interface {
-	Execute(ctx context.Context, connectionID uuid.UUID, toolID string, args json.RawMessage) (connector.ToolResultData, error)
+	CallTool(
+		ctx context.Context,
+		sessionID, apiTokenID, connectionID uuid.UUID,
+		params *mcp.CallToolParamsRaw,
+	) (*mcp.CallToolResult, error)
 }
 
 type Deps struct {
@@ -37,7 +40,6 @@ type Deps struct {
 	OAuth        *oauthsvc.Service
 	Conns        *connsvc.Service
 	Exec         ToolExecutor
-	MCPTools     MCPToolLister
 	Sessions     *sessions.Service
 	CookieSecret []byte
 }
@@ -77,8 +79,6 @@ func New(deps Deps) *echo.Echo {
 	admin.GET("/connectors/:type/config", h.getConfig)
 	admin.PUT("/connectors/:type/config", h.putConfig)
 	admin.DELETE("/connectors/:type/config", h.deleteConfig)
-	admin.POST("/connectors/:type/config\\:validate", h.validateConfig)
-	admin.POST("/connectors/:type/mcp\\:verify", h.verifyMCP)
 	admin.GET("/api-tokens", h.listAPITokens)
 	admin.POST("/api-tokens", h.createAPIToken)
 	admin.DELETE("/api-tokens/:id", h.deleteAPIToken)

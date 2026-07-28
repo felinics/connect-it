@@ -75,43 +75,6 @@ func TestConnectionCRUDAndForUpdate(t *testing.T) {
 	}
 }
 
-func TestOAuthAuthorizationQueries(t *testing.T) {
-	pool := testutil.NewDB(t)
-	q := store.New(pool)
-	ctx := context.Background()
-
-	id := uuid.New()
-	row, err := q.CreateOAuthAuthorization(ctx, store.CreateOAuthAuthorizationParams{
-		ID: id, ConnectorType: "github", StateHash: "abc", PkceVerifier: []byte{7},
-		SecretKeyVersion: 1, AuthMethod: "oauth", Alias: "gh-main",
-		ConnectionID: nil, RedirectUrl: "https://saas.example/done",
-		Status: "pending", ExpiresAt: time.Now().Add(10 * time.Minute),
-	})
-	if err != nil || row.ConnectionID != nil || row.Alias != "gh-main" || row.RedirectUrl != "https://saas.example/done" {
-		t.Fatalf("create authz: %+v err=%v", row, err)
-	}
-
-	got, err := q.GetOAuthAuthorizationByStateHash(ctx, "abc")
-	if err != nil || got.ID != id {
-		t.Fatalf("by state: %+v err=%v", got, err)
-	}
-
-	connID := uuid.New()
-	if err := q.CompleteOAuthAuthorization(ctx, store.CompleteOAuthAuthorizationParams{
-		ID: id, Status: "completed", ConnectionID: &connID,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = q.GetOAuthAuthorizationByStateHash(ctx, "abc")
-	if got.Status != "completed" || got.ConnectionID == nil || *got.ConnectionID != connID {
-		t.Fatalf("complete 未生效: %+v", got)
-	}
-
-	if err := q.DeleteExpiredOAuthAuthorizations(ctx); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestBeginTxWithoutPool(t *testing.T) {
 	// 用 nil DBTX 构造的 Queries 不支持事务。
 	q := store.New(nil)

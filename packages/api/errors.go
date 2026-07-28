@@ -47,6 +47,14 @@ func mapServiceError(c echo.Context, err error) error {
 		errors.Is(err, oauthsvc.ErrNotOAuth),
 		errors.Is(err, oauthsvc.ErrMissingClient):
 		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", err.Error())
+	case errors.Is(err, oauthsvc.ErrMCPDiscovery):
+		c.Logger().Error(err)
+		return writeError(c, http.StatusBadGateway, "mcp_oauth_discovery_failed",
+			"上游 MCP OAuth discovery 失败")
+	case errors.Is(err, oauthsvc.ErrMCPRegistration):
+		c.Logger().Error(err)
+		return writeError(c, http.StatusBadGateway, "mcp_oauth_registration_failed",
+			"上游 MCP OAuth client registration 失败")
 	case errors.As(err, &ve):
 		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", ve.Error())
 	default:

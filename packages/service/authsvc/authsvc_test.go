@@ -99,13 +99,13 @@ func TestAPITokenLifecycle(t *testing.T) {
 	if !strings.HasPrefix(plaintext, "cit_") {
 		t.Fatalf("token 前缀不符: %s", plaintext)
 	}
-	if ok, err := s.VerifyAPIToken(ctx, plaintext); err != nil || !ok {
-		t.Fatalf("有效 token 应通过: ok=%v err=%v", ok, err)
+	if gotID, ok, err := s.VerifyAPIToken(ctx, plaintext); err != nil || !ok || gotID != id {
+		t.Fatalf("有效 token 应通过: id=%s ok=%v err=%v", gotID, ok, err)
 	}
-	if ok, _ := s.VerifyAPIToken(ctx, "cit_deadbeef"); ok {
+	if _, ok, _ := s.VerifyAPIToken(ctx, "cit_deadbeef"); ok {
 		t.Fatal("伪造 token 不应通过")
 	}
-	if ok, _ := s.VerifyAPIToken(ctx, "Bearer-something"); ok {
+	if _, ok, _ := s.VerifyAPIToken(ctx, "Bearer-something"); ok {
 		t.Fatal("无前缀 token 不应通过")
 	}
 
@@ -117,7 +117,7 @@ func TestAPITokenLifecycle(t *testing.T) {
 	if err := s.RevokeAPIToken(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := s.VerifyAPIToken(ctx, plaintext); ok {
+	if _, ok, _ := s.VerifyAPIToken(ctx, plaintext); ok {
 		t.Fatal("已撤销 token 不应通过")
 	}
 	if err := s.RevokeAPIToken(ctx, id); !errors.Is(err, ErrNotFound) {

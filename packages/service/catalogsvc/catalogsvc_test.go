@@ -24,18 +24,41 @@ func newCatalog(t *testing.T) (*catalogsvc.Service, context.Context, func(sql st
 		t.Fatal(err)
 	}
 	reg := registry.New()
-	tool := []connector.Tool{{ID: "t", Backend: connector.ManagedBackend{HandlerKey: "t"}}}
+	remote := connector.RemoteMCP{Endpoint: "https://mcp.example.com"}
 	reg.MustRegister(connector.Definition{
-		Type: "ready_app", Name: "Ready", ConfigSchemaVersion: 1, Tools: tool,
-	}, "t")
+		Type: "ready_app", Name: "Ready", ConfigSchemaVersion: 1, Implementation: remote,
+		AuthMethods: []connector.AuthMethod{
+			{
+				Key: "oauth", Label: "OAuth", Type: connector.AuthOAuth2,
+				OAuth: &connector.OAuthConfig{
+					AuthorizationEndpoint: "https://example.com/authorize",
+					TokenEndpoint:         "https://example.com/token",
+				},
+			},
+			{
+				Key: "token", Label: "API token", Type: connector.AuthAPIKey,
+				CredentialFields: []connector.ConfigField{{
+					Key:         "token",
+					Label:       "Token",
+					InputType:   connector.InputText,
+					Required:    true,
+					Secret:      true,
+					Description: "Provider API token",
+					Validation: connector.FieldValidation{
+						Pattern: `^token_`,
+					},
+				}},
+			},
+		},
+	})
 	reg.MustRegister(connector.Definition{
-		Type: "needs_app", Name: "Needs", ConfigSchemaVersion: 1, Tools: tool,
+		Type: "needs_app", Name: "Needs", ConfigSchemaVersion: 1, Implementation: remote,
 		ConfigFields: []connector.ConfigField{
 			{Key: "client_id", Label: "Client ID", InputType: connector.InputText, Required: true},
 		},
-	}, "t")
+	})
 	reg.MustRegister(connector.Definition{
-		Type: "shelf_app", Name: "Shelf", ConfigSchemaVersion: 1,
+		Type: "shelf_app", Name: "Shelf", ConfigSchemaVersion: 1, Implementation: remote,
 	})
 	q := store.New(pool)
 	cfg := configsvc.New(q, reg, kr)
@@ -46,7 +69,7 @@ func newCatalog(t *testing.T) (*catalogsvc.Service, context.Context, func(sql st
 			t.Fatal(err)
 		}
 	}
-	return catalogsvc.New(q, reg, cfg), ctx, exec
+	return catalogsvc.New(reg, cfg), ctx, exec
 }
 
 func TestListStatuses(t *testing.T) {
@@ -55,10 +78,6 @@ func TestListStatuses(t *testing.T) {
 	exec(`insert into connector_configs
 	      (connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at)
 	      values ('ghost_app', 1, '{}', '\x'::bytea, 1, now(), now())`)
-	// ready_app 连续失败 3 次且新鲜 → degraded
-	exec(`insert into connector_health (connector_type, last_error_at, consecutive_failures, last_error)
-	      values ('ready_app', now(), 3, 'boom')`)
-
 	items, err := svc.List(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -68,9 +87,9 @@ func TestListStatuses(t *testing.T) {
 		got[it.Type] = it.Status
 	}
 	want := map[string]status.Status{
-		"ready_app": status.Degraded,
+		"ready_app": status.Ready,
 		"needs_app": status.NeedsConfig,
-		"shelf_app": status.CatalogOnly,
+		"shelf_app": status.Ready,
 		"ghost_app": status.DefinitionMissing,
 	}
 	for typ, st := range want {
@@ -91,8 +110,27 @@ func TestGet(t *testing.T) {
 	svc, ctx, exec := newCatalog(t)
 
 	item, err := svc.Get(ctx, "ready_app")
-	if err != nil || item.Status != status.Ready || item.Name != "Ready" {
+	if err != nil || item.Status != status.Ready || item.Name != "Ready" ||
+		item.Mode != connector.ModeRemoteMCP {
 		t.Fatalf("ready_app: %+v err=%v", item, err)
+	}
+	if len(item.AuthMethods) != 2 || item.AuthMethods[0].Key != "oauth" ||
+		item.AuthMethods[0].Type != connector.AuthOAuth2 {
+		t.Fatalf("ready_app auth methods: %+v", item.AuthMethods)
+	}
+	if item.AuthMethods[0].CredentialFields == nil {
+		t.Fatalf("oauth credential fields must be an empty array: %+v", item.AuthMethods[0])
+	}
+	tokenMethod := item.AuthMethods[1]
+	if tokenMethod.Key != "token" || tokenMethod.Type != connector.AuthAPIKey ||
+		len(tokenMethod.CredentialFields) != 1 {
+		t.Fatalf("ready_app token method: %+v", tokenMethod)
+	}
+	field := tokenMethod.CredentialFields[0]
+	if field.Key != "token" || !field.Required || !field.Secret ||
+		field.InputType != connector.InputText || field.Pattern != `^token_` ||
+		field.Description != "Provider API token" || field.Options == nil {
+		t.Fatalf("ready_app token field: %+v", field)
 	}
 
 	exec(`insert into connector_configs

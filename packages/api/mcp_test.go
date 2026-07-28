@@ -3,6 +3,8 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,110 +25,136 @@ import (
 	"github.com/memohai/connect-it/packages/service/sessions"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/testutil"
+	"github.com/memohai/connect-it/packages/service/tokens"
 )
 
 type execCall struct {
-	connID uuid.UUID
-	toolID string
-	args   string
+	sessionID    uuid.UUID
+	apiTokenID   uuid.UUID
+	connectionID uuid.UUID
+	name         string
+	arguments    string
 }
 
 type fakeExecutor struct {
-	mu    sync.Mutex
-	calls []execCall
-	res   connector.ToolResultData
-	err   error
+	mu       sync.Mutex
+	tools    map[uuid.UUID][]*mcp.Tool
+	listErrs map[uuid.UUID]error
+	calls    []execCall
+	res      *mcp.CallToolResult
+	err      error
 }
 
-func (f *fakeExecutor) Execute(ctx context.Context, connectionID uuid.UUID, toolID string, args json.RawMessage) (connector.ToolResultData, error) {
+type upstreamStatusTestError int
+
+func (e upstreamStatusTestError) Error() string           { return "upstream error" }
+func (e upstreamStatusTestError) UpstreamStatusCode() int { return int(e) }
+
+func (f *fakeExecutor) ListTools(_ context.Context, connectionID uuid.UUID) ([]*mcp.Tool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, execCall{connectionID, toolID, string(args)})
+	return f.tools[connectionID], f.listErrs[connectionID]
+}
+
+func (f *fakeExecutor) CallTool(
+	_ context.Context,
+	sessionID, apiTokenID, connectionID uuid.UUID,
+	params *mcp.CallToolParamsRaw,
+) (*mcp.CallToolResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, execCall{
+		sessionID: sessionID, apiTokenID: apiTokenID, connectionID: connectionID,
+		name: params.Name, arguments: string(params.Arguments),
+	})
 	return f.res, f.err
 }
 
 type mcpEnv struct {
-	srv      *httptest.Server
-	exec     *fakeExecutor
-	sess     *sessions.Service
-	connGH   uuid.UUID
-	connGM   uuid.UUID
-	registry *registry.Registry
+	server *httptest.Server
+	exec   *fakeExecutor
+	sess   *sessions.Service
+	connGH uuid.UUID
+	connNT uuid.UUID
+	token  uuid.UUID
 }
 
 func newMCPEnv(t *testing.T) *mcpEnv {
 	t.Helper()
 	pool := testutil.NewDB(t)
-	kr, err := crypto.ParseKeyring("1:" + strings.Repeat("ff", 32))
+	keyring, err := crypto.ParseKeyring("1:" + strings.Repeat("ff", 32))
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := registry.New()
-	tool := func(id, desc string) connector.Tool {
-		return connector.Tool{ID: id, Name: id, Description: desc, Risk: connector.RiskRead,
-			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":true}`),
-			Backend:     connector.ManagedBackend{HandlerKey: id}}
-	}
 	reg.MustRegister(connector.Definition{
-		Type: "github", Name: "GitHub", ConfigSchemaVersion: 1,
-		AuthMethods: []connector.AuthMethod{{Key: "none", Type: connector.AuthNone, Label: "None"}},
-		Tools:       []connector.Tool{tool("list_issues", "列 issue"), tool("create_issue", "建 issue")},
-	}, "list_issues", "create_issue")
+		Type:                "github",
+		Name:                "github",
+		ConfigSchemaVersion: 1,
+		AuthMethods:         []connector.AuthMethod{{Key: "none", Type: connector.AuthNone}},
+		Implementation:      connector.RemoteMCP{Endpoint: "https://mcp.example.com"},
+	})
 	reg.MustRegister(connector.Definition{
-		Type: "gmail", Name: "Gmail", ConfigSchemaVersion: 1,
-		AuthMethods: []connector.AuthMethod{{Key: "none", Type: connector.AuthNone, Label: "None"}},
-		Tools:       []connector.Tool{tool("send_message", "发邮件")},
-	}, "send_message")
+		Type:                "notion",
+		Name:                "notion",
+		ConfigSchemaVersion: 1,
+		AuthMethods:         []connector.AuthMethod{{Key: "none", Type: connector.AuthNone}},
+		Implementation:      connector.RemoteMCP{Endpoint: "https://mcp.notion.example.com"},
+	})
 
 	q := store.New(pool)
-	cfg := configsvc.New(q, reg, kr)
+	cfg := configsvc.New(q, reg, keyring)
 	auth := authsvc.New(q)
-	cat := catalogsvc.New(q, reg, cfg)
-	sess := sessions.New(q)
-	fx := &fakeExecutor{res: connector.ToolResultData{Text: "done", Structured: json.RawMessage(`{"n":1}`)}}
+	fake := &fakeExecutor{
+		tools:    map[uuid.UUID][]*mcp.Tool{},
+		listErrs: map[uuid.UUID]error{},
+		res: &mcp.CallToolResult{
+			Content:           []mcp.Content{&mcp.TextContent{Text: "done"}},
+			StructuredContent: map[string]any{"n": float64(1)},
+		},
+	}
+	sessionService := sessions.New(q, fake)
+	env := &mcpEnv{exec: fake, sess: sessionService}
+	insertConnection := func(connectorType, alias string) uuid.UUID {
+		id := uuid.New()
+		if _, err := pool.Exec(t.Context(), `insert into connections
+		  (id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, created_at, updated_at)
+		  values ($1, $2, $3, 'none', '\x'::bytea, 1, '{}', '{}', 'active', now(), now())`,
+			id, connectorType, alias); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	env.connGH = insertConnection("github", "gh-main")
+	env.connNT = insertConnection("notion", "notion-main")
+	fake.tools[env.connGH] = []*mcp.Tool{
+		{Name: "list_issues", Description: "list issues", InputSchema: map[string]any{"type": "object"}},
+		{Name: "create.issue", Description: "create issue", InputSchema: map[string]any{"type": "object"}},
+	}
+	fake.tools[env.connNT] = []*mcp.Tool{
+		{Name: "search", Description: "search pages", InputSchema: map[string]any{"type": "object"}},
+	}
 
 	t.Setenv(authsvc.EnvAdminPassword, adminPassword)
 	if err := auth.EnsureAdminFromEnv(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-
-	env := &mcpEnv{exec: fx, sess: sess, registry: reg}
-	mkConn := func(typ, alias string) uuid.UUID {
-		id := uuid.New()
-		if _, err := pool.Exec(context.Background(), `insert into connections
-		  (id, connector_type, alias, auth_method, credential, secret_key_version, profile, scopes, status, created_at, updated_at)
-		  values ($1, $2, $3, 'none', '\x'::bytea, 1, '{}', '{}', 'active', now(), now())`, id, typ, alias); err != nil {
-			t.Fatal(err)
-		}
-		return id
+	if _, env.token, err = auth.CreateAPIToken(t.Context(), "test-session-owner"); err != nil {
+		t.Fatal(err)
 	}
-	env.connGH = mkConn("github", "gh-main")
-	env.connGM = mkConn("gmail", "gm-main")
-
-	e := api.New(api.Deps{
-		Registry: reg, Store: q, Config: cfg, Catalog: cat, Auth: auth,
-		Exec: fx, Sessions: sess,
+	echo := api.New(api.Deps{
+		Registry:     reg,
+		Store:        q,
+		Config:       cfg,
+		Catalog:      catalogsvc.New(reg, cfg),
+		Auth:         auth,
+		Exec:         fake,
+		Sessions:     sessionService,
 		CookieSecret: []byte("test-cookie-secret"),
 	})
-	env.srv = httptest.NewServer(e)
-	t.Cleanup(env.srv.Close)
+	env.server = httptest.NewServer(echo)
+	t.Cleanup(env.server.Close)
 	return env
-}
-
-// mcpConnect 用官方 go-sdk client 连上聚合 /mcp。
-func mcpConnect(t *testing.T, env *mcpEnv, token string) *mcp.ClientSession {
-	t.Helper()
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
-	transport := &mcp.StreamableClientTransport{
-		Endpoint: env.srv.URL + "/mcp",
-		HTTPClient: &http.Client{Transport: authHeaderRT{token: token, base: http.DefaultTransport}},
-	}
-	session, err := client.Connect(context.Background(), transport, nil)
-	if err != nil {
-		t.Fatalf("mcp connect: %v", err)
-	}
-	t.Cleanup(func() { _ = session.Close() })
-	return session
 }
 
 type authHeaderRT struct {
@@ -134,189 +162,249 @@ type authHeaderRT struct {
 	base  http.RoundTripper
 }
 
-func (rt authHeaderRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	req.Header.Set("Authorization", "Bearer "+rt.token)
-	return rt.base.RoundTrip(req)
+func (rt authHeaderRT) RoundTrip(request *http.Request) (*http.Response, error) {
+	request = request.Clone(request.Context())
+	request.Header.Set("Authorization", "Bearer "+rt.token)
+	return rt.base.RoundTrip(request)
 }
 
-func createSession(t *testing.T, env *mcpEnv, bindings map[string]uuid.UUID, allowlist []string) string {
+func mcpConnect(t *testing.T, env *mcpEnv, token string) *mcp.ClientSession {
 	t.Helper()
-	token, err := env.sess.Create(context.Background(), bindings, allowlist, time.Hour)
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+	session, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
+		Endpoint: env.server.URL + "/mcp",
+		HTTPClient: &http.Client{Transport: authHeaderRT{
+			token: token,
+			base:  http.DefaultTransport,
+		}},
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return token
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+func createSession(
+	t *testing.T,
+	env *mcpEnv,
+	connections map[string]uuid.UUID,
+	allowlist []string,
+) string {
+	t.Helper()
+	result, err := env.sess.Create(t.Context(), env.token, connections, allowlist, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.Token
 }
 
 func TestMCPRequiresSessionToken(t *testing.T) {
 	env := newMCPEnv(t)
-	resp, err := http.Post(env.srv.URL+"/mcp", "application/json", strings.NewReader("{}"))
+	response, err := http.Post(env.server.URL+"/mcp", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("无 token 应 401: %d", resp.StatusCode)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status=%d", response.StatusCode)
 	}
 }
 
-func TestMCPListToolsScopedBySession(t *testing.T) {
+func TestMCPAcceptsNonLocalHost(t *testing.T) {
+	env := newMCPEnv(t)
+	token := createSession(t, env, map[string]uuid.UUID{"github": env.connGH}, nil)
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		env.server.URL+"/mcp",
+		strings.NewReader(`{
+			"jsonrpc":"2.0",
+			"id":1,
+			"method":"initialize",
+			"params":{
+				"protocolVersion":"2025-06-18",
+				"capabilities":{},
+				"clientInfo":{"name":"test-client","version":"0.0.1"}
+			}
+		}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "host.docker.internal:8080"
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", response.StatusCode)
+	}
+}
+
+func TestMCPDynamicListAndCall(t *testing.T) {
 	env := newMCPEnv(t)
 	token := createSession(t, env, map[string]uuid.UUID{
-		"gh-main": env.connGH, "gm-main": env.connGM,
+		"github": env.connGH,
+		"notion": env.connNT,
 	}, nil)
-	session := mcpConnect(t, env, token)
-
-	var names []string
-	for tool, err := range session.Tools(context.Background(), nil) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		names = append(names, tool.Name)
-	}
-	want := []string{"gh-main__create_issue", "gh-main__list_issues", "gm-main__send_message"}
-	if len(names) != 3 {
-		t.Fatalf("names: %v", names)
-	}
-	got := map[string]bool{}
-	for _, n := range names {
-		got[n] = true
-	}
-	for _, w := range want {
-		if !got[w] {
-			t.Fatalf("缺少 %s: %v", w, names)
-		}
-	}
-}
-
-func TestMCPAllowlistFiltersTools(t *testing.T) {
-	env := newMCPEnv(t)
-	token := createSession(t, env, map[string]uuid.UUID{"gh-main": env.connGH},
-		[]string{"gh-main__list_issues"})
-	session := mcpConnect(t, env, token)
-
-	var names []string
-	for tool, err := range session.Tools(context.Background(), nil) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		names = append(names, tool.Name)
-	}
-	if len(names) != 1 || names[0] != "gh-main__list_issues" {
-		t.Fatalf("allowlist 过滤失败: %v", names)
-	}
-}
-
-func TestMCPCallToolDispatchesToExecutor(t *testing.T) {
-	env := newMCPEnv(t)
-	token := createSession(t, env, map[string]uuid.UUID{"gh-main": env.connGH}, nil)
-	session := mcpConnect(t, env, token)
-
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "gh-main__list_issues", Arguments: json.RawMessage(`{"repo":"x"}`),
-	})
+	view, err := env.sess.Resolve(t.Context(), token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.IsError {
-		t.Fatalf("不应 IsError: %+v", res)
+	session := mcpConnect(t, env, token)
+
+	var names []string
+	for tool, err := range session.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
 	}
-	if len(res.Content) != 1 {
-		t.Fatalf("content: %+v", res.Content)
+	want := []string{"github__create.issue", "github__list_issues", "notion__search"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("names=%v", names)
 	}
-	if tc, ok := res.Content[0].(*mcp.TextContent); !ok || tc.Text != "done" {
-		t.Fatalf("text: %+v", res.Content[0])
+
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "github__list_issues",
+		Arguments: json.RawMessage(`{"repo":"x"}`),
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	env.exec.mu.Lock()
 	defer env.exec.mu.Unlock()
-	if len(env.exec.calls) != 1 || env.exec.calls[0].connID != env.connGH ||
-		env.exec.calls[0].toolID != "list_issues" || env.exec.calls[0].args != `{"repo":"x"}` {
-		t.Fatalf("executor 调用不符: %+v", env.exec.calls)
+	if len(env.exec.calls) != 1 || env.exec.calls[0] != (execCall{
+		sessionID:    view.ID,
+		apiTokenID:   view.APITokenID,
+		connectionID: env.connGH,
+		name:         "list_issues",
+		arguments:    `{"repo":"x"}`,
+	}) {
+		t.Fatalf("calls=%+v", env.exec.calls)
 	}
 }
 
-func TestMCPCallExecutorErrorBecomesIsError(t *testing.T) {
+func TestMCPListUsesImmutableSessionSnapshot(t *testing.T) {
 	env := newMCPEnv(t)
+	env.exec.tools[env.connGH] = append(env.exec.tools[env.connGH],
+		&mcp.Tool{Name: "invalid:name", InputSchema: map[string]any{"type": "object"}})
+	token := createSession(t, env, map[string]uuid.UUID{"github": env.connGH}, nil)
+	env.exec.mu.Lock()
+	env.exec.tools[env.connGH] = []*mcp.Tool{{Name: "new_tool"}}
+	env.exec.listErrs[env.connGH] = context.DeadlineExceeded
+	env.exec.mu.Unlock()
+	session := mcpConnect(t, env, token)
+
+	var names []string
+	for tool, err := range session.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	want := []string{"github__create.issue", "github__list_issues"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("names=%v", names)
+	}
+}
+
+func TestSessionCreationFailsWhenToolDiscoveryFails(t *testing.T) {
+	env := newMCPEnv(t)
+	env.exec.listErrs[env.connGH] = context.DeadlineExceeded
+	_, err := env.sess.Create(t.Context(), env.token,
+		map[string]uuid.UUID{"github": env.connGH}, nil, time.Hour)
+	if !errors.Is(err, sessions.ErrToolDiscovery) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestMCPAllowlistAndExecutorError(t *testing.T) {
+	env := newMCPEnv(t)
+	token := createSession(t, env, map[string]uuid.UUID{"github": env.connGH},
+		[]string{"github__list_issues"})
+	session := mcpConnect(t, env, token)
+
+	var names []string
+	for tool, err := range session.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	if len(names) != 1 || names[0] != "github__list_issues" {
+		t.Fatalf("names=%v", names)
+	}
 	env.exec.err = context.DeadlineExceeded
-	token := createSession(t, env, map[string]uuid.UUID{"gh-main": env.connGH}, nil)
-	session := mcpConnect(t, env, token)
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "github__list_issues"})
+	if err != nil || !result.IsError {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	assertMCPErrorCode(t, result, "temporarily_unavailable")
 
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "gh-main__list_issues", Arguments: json.RawMessage(`{}`),
-	})
-	if err != nil {
-		t.Fatal(err)
+	env.exec.err = fmt.Errorf("refresh failed: %w", tokens.ErrReauthRequired)
+	result, err = session.CallTool(t.Context(), &mcp.CallToolParams{Name: "github__list_issues"})
+	if err != nil || !result.IsError {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if !res.IsError {
-		t.Fatalf("执行失败应 IsError: %+v", res)
+	assertMCPErrorCode(t, result, "reauth_required")
+
+	env.exec.err = upstreamStatusTestError(http.StatusForbidden)
+	result, err = session.CallTool(t.Context(), &mcp.CallToolParams{Name: "github__list_issues"})
+	if err != nil || !result.IsError {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if tc, _ := res.Content[0].(*mcp.TextContent); !strings.Contains(tc.Text, "execution_failed") {
-		t.Fatalf("text: %+v", res.Content[0])
-	}
+	assertMCPErrorCode(t, result, "upstream_auth_error")
 }
 
-func TestMCPToolUnavailable(t *testing.T) {
-	env := newMCPEnv(t)
-	token := createSession(t, env, map[string]uuid.UUID{"gh-main": env.connGH}, nil)
-
-	// 模拟 Definition 移除 Tool：换一个没有 create_issue 的 registry 重建 env 不可行
-	//（server 每请求动态构建），直接调用一个 alias 合法但 Definition 不存在的 tool。
-	session := mcpConnect(t, env, token)
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "gh-main__removed_tool", Arguments: json.RawMessage(`{}`),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !res.IsError {
-		t.Fatalf("已删除 tool 应 IsError: %+v", res)
-	}
-	if tc, _ := res.Content[0].(*mcp.TextContent); !strings.Contains(tc.Text, "tool_unavailable") {
-		t.Fatalf("text: %+v", res.Content[0])
+func assertMCPErrorCode(t *testing.T, result *mcp.CallToolResult, want string) {
+	t.Helper()
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok || structured["error"] != want {
+		t.Fatalf("structuredContent=%#v, want error=%q", result.StructuredContent, want)
 	}
 }
 
 func TestCreateMCPSessionEndpoint(t *testing.T) {
 	env := newMCPEnv(t)
-	// 造一个 api token
-	h := adminLogin(t, env.srv)
-	resp, body := doReq(t, http.MethodPost, env.srv.URL+"/admin/api-tokens", `{"name":"bot"}`, h)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("创建 api token: %d %s", resp.StatusCode, body)
+	adminHeader := adminLogin(t, env.server)
+	response, body := doReq(t, http.MethodPost, env.server.URL+"/admin/api-tokens", `{"name":"bot"}`, adminHeader)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("create API token: %d %s", response.StatusCode, body)
 	}
 	var created struct {
+		ID    string `json:"id"`
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal([]byte(body), &created); err != nil {
 		t.Fatal(err)
 	}
-	bh := http.Header{}
-	bh.Set("Authorization", "Bearer "+created.Token)
+	bearer := http.Header{}
+	bearer.Set("Authorization", "Bearer "+created.Token)
 
-	// 无鉴权 → 401
-	resp, _ = doReq(t, http.MethodPost, env.srv.URL+"/v1/mcp-sessions",
-		`{"connections":{"gh":"`+env.connGH.String()+`"}}`, nil)
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("无 Bearer 应 401: %d", resp.StatusCode)
+	response, body = doReq(t, http.MethodPost, env.server.URL+"/v1/mcp-sessions",
+		`{"connections":{"github":"`+env.connGH.String()+`"},"ttl_seconds":600}`, bearer)
+	if response.StatusCode != http.StatusCreated || !strings.Contains(body, "token") {
+		t.Fatalf("create session: %d %s", response.StatusCode, body)
 	}
-
-	// 成功
-	resp, body = doReq(t, http.MethodPost, env.srv.URL+"/v1/mcp-sessions",
-		`{"connections":{"gh":"`+env.connGH.String()+`"},"ttl_seconds":600}`, bh)
-	if resp.StatusCode != http.StatusCreated || !strings.Contains(body, "token") {
-		t.Fatalf("创建 session: %d %s", resp.StatusCode, body)
+	var issued struct {
+		Token string `json:"token"`
 	}
-
-	// 校验失败样例
-	resp, body = doReq(t, http.MethodPost, env.srv.URL+"/v1/mcp-sessions",
-		`{"connections":{"gh":"not-a-uuid"}}`, bh)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_connection_id") {
-		t.Fatalf("非法 uuid 应 400: %d %s", resp.StatusCode, body)
+	if err := json.Unmarshal([]byte(body), &issued); err != nil {
+		t.Fatal(err)
 	}
-	resp, body = doReq(t, http.MethodPost, env.srv.URL+"/v1/mcp-sessions",
-		`{"connections":{"gh":"`+env.connGH.String()+`"},"ttl_seconds":90000}`, bh)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_ttl") {
-		t.Fatalf("超限 ttl 应 400: %d %s", resp.StatusCode, body)
+	response, body = doReq(t, http.MethodDelete,
+		env.server.URL+"/admin/api-tokens/"+created.ID, "", adminHeader)
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke API token: %d %s", response.StatusCode, body)
+	}
+	if _, err := env.sess.Resolve(t.Context(), issued.Token); !errors.Is(err, sessions.ErrInvalidSession) {
+		t.Fatalf("父 API token 撤销后 session 应失效: %v", err)
 	}
 }

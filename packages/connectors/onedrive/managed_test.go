@@ -2,6 +2,8 @@ package onedrive
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,10 +25,12 @@ func withTestServer(t *testing.T, handler http.HandlerFunc) {
 	})
 }
 
-func call(args map[string]any) connector.ToolCallContext {
-	return connector.ToolCallContext{
-		ConnectorType: "one_drive", Arguments: args, AccessToken: "graph-token",
+func call(args map[string]any) connector.ManagedCall {
+	if args == nil {
+		args = map[string]any{}
 	}
+	raw, _ := json.Marshal(args)
+	return connector.ManagedCall{Arguments: raw, AccessToken: "graph-token"}
 }
 
 func TestListDriveItemsRoot(t *testing.T) {
@@ -99,7 +103,9 @@ func TestGraphErrorBecomesIsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTP 错误不应返回 Go error: %v", err)
 	}
-	if !res.IsError || !strings.Contains(string(res.Structured), "404") {
+	structured := fmt.Sprint(res.StructuredContent)
+	if !res.IsError || !strings.Contains(structured, "404") ||
+		strings.Contains(structured, "itemNotFound") {
 		t.Fatalf("res: %+v", res)
 	}
 }

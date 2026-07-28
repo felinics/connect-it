@@ -11,52 +11,79 @@ import (
 	"strings"
 
 	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/service/configsvc"
 )
 
-// TokenResponse 是 token endpoint 标准响应的子集。
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
-// ClientCredentials 从 Resolved 配置中取约定字段 client_id / client_secret。
-// 约定：需要 OAuth 的 Connector 必须声明这两个 ConfigField（client_secret 为 Secret）。
-func ClientCredentials(ctx context.Context, cfg *configsvc.Service, t connector.Type) (clientID, clientSecret string, err error) {
-	resolved, err := cfg.Resolved(ctx, t)
-	if err != nil {
-		return "", "", err
+// TokenEndpointError retains only a status and standard OAuth error code.
+type TokenEndpointError struct {
+	StatusCode int
+	OAuthCode  string
+}
+
+func (e *TokenEndpointError) Error() string {
+	if e.OAuthCode != "" {
+		return fmt.Sprintf("oauthsvc: token endpoint 返回 %d (%s)", e.StatusCode, e.OAuthCode)
 	}
-	clientID, _ = resolved["client_id"].(string)
-	clientSecret, _ = resolved["client_secret"].(string)
-	if clientID == "" {
+	return fmt.Sprintf("oauthsvc: token endpoint 返回 %d", e.StatusCode)
+}
+
+func (e *TokenEndpointError) UpstreamStatusCode() int { return e.StatusCode }
+
+func IsInvalidGrant(err error) bool {
+	var endpointErr *TokenEndpointError
+	return errors.As(err, &endpointErr) && endpointErr.OAuthCode == "invalid_grant"
+}
+
+func IsInvalidClient(err error) bool {
+	var endpointErr *TokenEndpointError
+	return errors.As(err, &endpointErr) && endpointErr.OAuthCode == "invalid_client"
+}
+
+func ClientCredentials(config map[string]any) (clientID, clientSecret string, err error) {
+	clientID, _ = config["client_id"].(string)
+	clientSecret, _ = config["client_secret"].(string)
+	if clientID == "" || clientSecret == "" {
 		return "", "", ErrMissingClient
 	}
 	return clientID, clientSecret, nil
 }
 
-// ExchangeToken 请求 token endpoint。form 由调用方填好 grant_type 等业务参数，
-// 本函数按 TokenEndpointAuth 补齐客户端认证：
-// client_secret_post→写入 form；否则（含零值）→client_secret_basic。
-func ExchangeToken(ctx context.Context, hc *http.Client, oc *connector.OAuthConfig, clientID, clientSecret string, form url.Values) (TokenResponse, error) {
-	if oc.TokenEndpointAuth == connector.TokenAuthPost {
+func ExchangeToken(
+	ctx context.Context,
+	hc *http.Client,
+	oc *connector.OAuthConfig,
+	clientID, clientSecret string,
+	form url.Values,
+) (TokenResponse, error) {
+	switch oc.TokenEndpointAuth {
+	case connector.TokenAuthPost:
 		form.Set("client_id", clientID)
 		if clientSecret != "" {
 			form.Set("client_secret", clientSecret)
 		}
+	case connector.TokenAuthNone:
+		form.Set("client_id", clientID)
+	default:
+		// Basic credentials are attached below.
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oc.TokenEndpoint, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, oc.TokenEndpoint, strings.NewReader(form.Encode()),
+	)
 	if err != nil {
 		return TokenResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	if oc.TokenEndpointAuth != connector.TokenAuthPost {
-		// RFC 6749 §2.3.1：Basic 认证的用户名密码须先做 form 编码。
+	if oc.TokenEndpointAuth != connector.TokenAuthPost &&
+		oc.TokenEndpointAuth != connector.TokenAuthNone {
 		req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
 	}
-	resp, err := hc.Do(req)
+	resp, err := noRedirectClient(hc).Do(req)
 	if err != nil {
 		return TokenResponse{}, fmt.Errorf("oauthsvc: 请求 token endpoint: %w", err)
 	}
@@ -65,22 +92,40 @@ func ExchangeToken(ctx context.Context, hc *http.Client, oc *connector.OAuthConf
 	if err != nil {
 		return TokenResponse{}, err
 	}
+	var payload struct {
+		TokenResponse
+		Error string `json:"error"`
+	}
+	jsonErr := json.Unmarshal(body, &payload)
 	if resp.StatusCode != http.StatusOK {
-		return TokenResponse{}, fmt.Errorf("oauthsvc: token endpoint 返回 %d: %s", resp.StatusCode, truncate(body, 256))
+		return TokenResponse{}, &TokenEndpointError{
+			StatusCode: resp.StatusCode,
+			OAuthCode:  payload.Error,
+		}
 	}
-	var tok TokenResponse
-	if err := json.Unmarshal(body, &tok); err != nil {
-		return TokenResponse{}, fmt.Errorf("oauthsvc: token 响应不是 JSON: %w", err)
+	if jsonErr != nil {
+		return TokenResponse{}, fmt.Errorf("oauthsvc: token 响应不是 JSON: %w", jsonErr)
 	}
-	if tok.AccessToken == "" {
+	if payload.Error != "" {
+		return TokenResponse{}, &TokenEndpointError{
+			StatusCode: resp.StatusCode,
+			OAuthCode:  payload.Error,
+		}
+	}
+	if payload.AccessToken == "" {
 		return TokenResponse{}, errors.New("oauthsvc: token 响应缺少 access_token")
 	}
-	return tok, nil
+	return payload.TokenResponse, nil
 }
 
-func truncate(b []byte, n int) string {
-	if len(b) > n {
-		b = b[:n]
+// OAuth credentials must never follow a redirect to another host.
+func noRedirectClient(hc *http.Client) *http.Client {
+	if hc == nil {
+		hc = http.DefaultClient
 	}
-	return string(b)
+	clone := *hc
+	clone.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &clone
 }

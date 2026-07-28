@@ -43,10 +43,6 @@ func TestConnectorConfigCRUD(t *testing.T) {
 	if pub["client_id"] != "abc" || got.SecretKeyVersion != 1 {
 		t.Fatalf("roundtrip 失败: %+v", got)
 	}
-	if got.McpVerifiedAt != nil || got.McpVerifiedEndpoint != nil {
-		t.Fatal("verify 字段应为 NULL")
-	}
-
 	// upsert 更新已有行
 	second, err := q.UpsertConnectorConfig(ctx, store.UpsertConnectorConfigParams{
 		ConnectorType:       "github",
@@ -179,13 +175,5 @@ func TestAPITokenQueries(t *testing.T) {
 	}
 	if n, _ := q.RevokeAPIToken(ctx, id); n != 0 {
 		t.Fatal("重复撤销应影响 0 行")
-	}
-}
-
-func TestGetConnectorHealthNoRows(t *testing.T) {
-	pool := testutil.NewDB(t)
-	q := store.New(pool)
-	if _, err := q.GetConnectorHealth(context.Background(), "github"); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("无行应 ErrNoRows, got %v", err)
 	}
 }

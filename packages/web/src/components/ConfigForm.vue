@@ -19,7 +19,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   save: [payload: ConfigPayload]
-  validate: [payload: ConfigPayload]
 }>()
 
 const { t } = useI18n()
@@ -91,10 +90,6 @@ function onSave() {
   emit('save', buildPayload())
 }
 
-function onValidate() {
-  if (!check()) return
-  emit('validate', buildPayload())
-}
 </script>
 
 <template>
@@ -126,7 +121,6 @@ function onValidate() {
 
     <div class="flex items-center gap-2 pt-1">
       <Button type="submit" :disabled="props.busy">{{ t('connector.save') }}</Button>
-      <Button type="button" variant="outline" :disabled="props.busy" @click="onValidate">{{ t('connector.validate') }}</Button>
       <slot name="extra" />
     </div>
   </form>

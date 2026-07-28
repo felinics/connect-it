@@ -10,6 +10,7 @@ import (
 
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/status"
+	"github.com/memohai/connect-it/packages/service/store"
 )
 
 // ConfigState 把 connector_configs 行映射为状态机输入；无行时 Exists=false。
@@ -21,6 +22,36 @@ func (s *Service) ConfigState(ctx context.Context, t connector.Type) (status.Con
 	if err != nil {
 		return status.ConfigState{}, err
 	}
+	return s.configState(row, t)
+}
+
+// ConfigStates 一次读取全部配置，供 catalog 与代码内 Definition 在内存中合并。
+// Definition 已移除的配置只需要 Exists/SchemaVersion，不解密已无消费者的 Secret。
+func (s *Service) ConfigStates(ctx context.Context) (map[connector.Type]status.ConfigState, error) {
+	rows, err := s.q.ListConnectorConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	states := make(map[connector.Type]status.ConfigState, len(rows))
+	for _, row := range rows {
+		t := connector.Type(row.ConnectorType)
+		if _, ok := s.reg.Get(t); !ok {
+			states[t] = status.ConfigState{
+				Exists:        true,
+				SchemaVersion: int(row.ConfigSchemaVersion),
+			}
+			continue
+		}
+		state, err := s.configState(row, t)
+		if err != nil {
+			return nil, err
+		}
+		states[t] = state
+	}
+	return states, nil
+}
+
+func (s *Service) configState(row store.ConnectorConfig, t connector.Type) (status.ConfigState, error) {
 	secrets, err := s.decryptSecrets(row, t)
 	if err != nil {
 		return status.ConfigState{}, err
@@ -38,10 +69,6 @@ func (s *Service) ConfigState(ctx context.Context, t connector.Type) (status.Con
 		SchemaVersion: int(row.ConfigSchemaVersion),
 		PublicValues:  pub,
 		SecretKeysSet: set,
-	}
-	if row.McpVerifiedAt != nil && row.McpVerifiedEndpoint != nil {
-		st.MCPVerified = true
-		st.MCPVerifiedEndpoint = *row.McpVerifiedEndpoint
 	}
 	return st, nil
 }

@@ -41,7 +41,7 @@ const activeTokens = computed(() => tokens.value.filter((t) => !t.revoked_at).le
 
 // 需要关注＝真正异常的状态。「待配置」是正常的初始态，可能长期存在大量
 // 未启用的连接器，不进清单。
-const attentionStatuses = new Set(['degraded', 'config_incompatible', 'definition_missing'])
+const attentionStatuses = new Set(['config_incompatible', 'definition_missing'])
 const attentionConnectors = computed(() =>
   connectors.value.filter((c) => attentionStatuses.has(c.status ?? '')),
 )
