@@ -1,16 +1,17 @@
-# Versions verified 2026-07-22:
-#   actions/checkout v7 (latest v7.0.1)  https://github.com/actions/checkout/releases
-#   jdx/mise-action  v4 (latest v4.2.1)  https://github.com/jdx/mise-action/releases
 name: CI
 
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:17
@@ -58,3 +59,21 @@ jobs:
         run: |
           docker build -f docker/server.Dockerfile -t connect-it-server:ci .
           docker build -f docker/web.Dockerfile -t connect-it-web:ci .
+
+  publish:
+    name: Publish container images
+    needs: ci
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    concurrency:
+      # Serialize ALL publishes in one group: main and stable tags both move
+      # `latest` (and release tags share floating 1 / 1.2 tags), so concurrent
+      # runs from different refs could interleave and leave server/web `latest`
+      # pointing at different commits. `queue: max` keeps up to 100 pending
+      # runs, so a queued release publish is not cancelled by later pushes.
+      group: publish-images
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-images.yml

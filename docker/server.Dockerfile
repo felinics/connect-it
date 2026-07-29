@@ -3,7 +3,10 @@
 #   docker build -f docker/server.Dockerfile -t connect-it-server:dev .
 
 # ---------- Stage 1: build the Go binary ----------
-FROM golang:1.25 AS go-builder
+# Keep the compiler native and cross-compile the static binary for each target.
+FROM --platform=$BUILDPLATFORM golang:1.25 AS go-builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 # All four modules must be present: go.mod replace directives use ../ paths.
 COPY packages/core packages/core
@@ -14,6 +17,7 @@ WORKDIR /src/packages/api
 ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
     go build -trimpath -ldflags="-s -w" -o /out/connect-it ./cmd/connect-it
 
 # ---------- Stage 2: runtime ----------
