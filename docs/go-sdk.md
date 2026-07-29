@@ -1,18 +1,11 @@
-# connect-it SDK
+# Go SDK
 
-`sdk/` holds the SDKs aimed at services downstream of connect-it. Only a Go SDK
-exists today, because the first downstream service is written in Go.
+`sdk/go` is the hand-written Go SDK for trusted services calling connect-it.
 
-The two SDKs in this repository have different jobs:
+Do not confuse it with `packages/sdk`, the TypeScript client generated from the
+OpenAPI spec — that one is private to the admin UI.
 
-| Directory | Purpose |
-|---|---|
-| `packages/sdk` | Private TypeScript client generated from the OpenAPI spec, used by the connect-it admin UI |
-| `sdk/go` | Hand-written Go SDK for trusted downstream services calling connect-it |
-
-## Go SDK
-
-Install:
+## Install
 
 ```bash
 go get github.com/memohai/connect-it/sdk/go

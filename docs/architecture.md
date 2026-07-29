@@ -105,46 +105,6 @@ The keyring accepts several versions, as in `1:<hex>,2:<hex>`. Writes use the
 highest version and reads use the version stored with the ciphertext, which
 allows rotation without downtime.
 
-## Integrating a downstream service
-
-Create an API token in the admin UI, then create a connection:
-
-```bash
-curl -X POST "$BASE/v1/connections/oauth" \
-  -H "Authorization: Bearer $API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"connector_type":"github","auth_method":"oauth"}'
-```
-
-The response carries the durable `connection_id` immediately, in `pending`
-state. Send the end user to the returned authorization URL; connect-it renders
-its own completion page afterwards. Poll `GET /v1/connections/{id}` to learn
-when the connection turns `active`.
-
-Aggregate the connections enabled for a given bot into one MCP session:
-
-```bash
-curl -X POST "$BASE/v1/mcp-sessions" \
-  -H "Authorization: Bearer $API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"connections":{"github":"<github_connection_id>",
-                      "notion":"<notion_connection_id>"},
-       "ttl_seconds":3600}'
-```
-
-Then connect to `/mcp` with the returned session token:
-
-```text
-Authorization: Bearer <session_token>
-```
-
-Go services should prefer [`sdk/go`](../sdk/README.md). It handles control-plane
-requests and caches the short-lived MCP session token in memory, while
-`tools/list` and `tools/call` still go through the official MCP SDK.
-
-The full REST API reference is served at `/swagger/index.html` on a running
-instance.
-
 ## Security boundaries
 
 - An API token is a deployment-level credential. It can manage every connection
@@ -158,25 +118,7 @@ instance.
 - Registering a remote MCP connector means trusting the tool schemas and
   descriptions that upstream returns.
 
-## Repository layout
+## Next
 
-```text
-packages/
-├── core/        Connector definitions, registry, crypto and shared types
-├── connectors/  Remote MCP and managed providers
-├── service/     Config, connections, OAuth, tokens, execution and MCP sessions
-├── api/         Echo API, program entry point and OpenAPI
-├── sdk/         TypeScript SDK generated from OpenAPI, used by the admin UI
-├── ui/          git submodule → github.com/memohai/ui
-└── web/         Vue 3 admin UI
-sdk/
-└── go/          Hand-written Go SDK for trusted downstream services
-docker/          Dockerfiles and nginx config
-```
-
-There is no `go.work`; the Go modules reference each other through relative
-`replace` directives. Clone with `--recursive`, because `packages/ui` is a
-submodule.
-
-The project is pre-1.0. Migrations only maintain the schema of a fresh
-database; in-place upgrades of older development databases are not promised.
+- [Getting started](getting-started.md) — the same concepts applied end to end
+- [Development](development.md) — repository layout and workflow
