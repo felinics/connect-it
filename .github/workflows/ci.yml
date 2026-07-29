@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*.*.*"]
   pull_request:
   workflow_dispatch:
 
@@ -65,14 +64,12 @@ jobs:
     needs: ci
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     concurrency:
-      # Serialize ALL publishes in one group: main and stable tags both move
-      # `latest` (and release tags share floating 1 / 1.2 tags), so concurrent
-      # runs from different refs could interleave and leave server/web `latest`
-      # pointing at different commits. `queue: max` keeps up to 100 pending
-      # runs, so a queued release publish is not cancelled by later pushes.
-      group: publish-images
-      cancel-in-progress: false
-      queue: max
+      # sha-* tags are unique per commit and `latest` is only written from
+      # main, so runs from different refs never touch the same tag. Per-ref
+      # grouping with cancel-in-progress just drops stale publishes: only the
+      # newest push per ref matters.
+      group: publish-images-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
