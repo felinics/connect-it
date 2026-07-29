@@ -1,6 +1,6 @@
 <div align="center">
 
-# connect-it
+# Connect IT
 
 **Self-hosted connector gateway — hold your SaaS credentials once, and hand your agents a single MCP endpoint.**
 
