@@ -19,7 +19,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --dir packages/web run build
 
 # ---------- Stage 2: nginx runtime ----------
-FROM nginx:1.30-alpine
+FROM nginx:1.31-alpine
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-builder /src/packages/web/dist /usr/share/nginx/html
 EXPOSE 8080
