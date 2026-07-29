@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_calendar",
 	Name:                "Google Calendar",
-	Description:         "Google Calendar 日历与日程管理",
+	Description:         "Google Calendar scheduling and calendar management",
 	Categories:          []string{"productivity"},
 	HomepageURL:         "https://calendar.google.com",
 	IconURL:             "https://cdn.simpleicons.org/googlecalendar",

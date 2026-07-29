@@ -1,4 +1,5 @@
-// Package onedrive 是 OneDrive Connector 的固定 Definition 与 Managed handler。
+// Package onedrive holds the code-fixed Definition and managed handlers of
+// the OneDrive connector.
 package onedrive
 
 import (
@@ -13,7 +14,7 @@ func strPtr(s string) *string { return &s }
 var Definition = connector.Definition{
 	Type:                "one_drive",
 	Name:                "OneDrive",
-	Description:         "Microsoft OneDrive 云存储",
+	Description:         "Microsoft OneDrive cloud storage",
 	Categories:          []string{"storage"},
 	HomepageURL:         "https://onedrive.live.com",
 	IconURL:             "https://api.iconify.design/logos:microsoft-onedrive.svg",
@@ -25,7 +26,7 @@ var Definition = connector.Definition{
 			Label:       "Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "Microsoft Entra 应用注册的 Application (client) ID。",
+			Description: "Application (client) ID of the Microsoft Entra app registration.",
 		},
 		{
 			Key:         "client_secret",
@@ -33,7 +34,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Microsoft Entra 应用注册的 client secret。",
+			Description: "Client secret of the Microsoft Entra app registration.",
 		},
 		{
 			Key:          "tenant",
@@ -41,7 +42,7 @@ var Definition = connector.Definition{
 			InputType:    connector.InputText,
 			Required:     true,
 			DefaultValue: strPtr("common"),
-			Description:  "Microsoft 租户：common、organizations、consumers 或具体 tenant ID。",
+			Description:  "Microsoft tenant: common, organizations, consumers, or a specific tenant ID.",
 		},
 	},
 
@@ -51,11 +52,12 @@ var Definition = connector.Definition{
 			Type:  connector.AuthOAuth2,
 			Label: "Microsoft OAuth",
 			OAuth: &connector.OAuthConfig{
-				// {tenant} 占位符由 oauthsvc.ExpandEndpoint 在运行时
-				// 用管理员配置（含默认值 common）替换。
+				// The {tenant} placeholder is replaced at runtime by
+				// oauthsvc.ExpandEndpoint using the administrator config,
+				// which defaults to common.
 				AuthorizationEndpoint: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
 				TokenEndpoint:         "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
-				// offline_access 换取 refresh token；Files.ReadWrite 覆盖两个 tool。
+				// offline_access yields a refresh token; Files.ReadWrite covers both tools.
 				Scopes:            []string{"offline_access", "Files.ReadWrite"},
 				UsePKCE:           true,
 				TokenEndpointAuth: connector.TokenAuthPost,
@@ -68,13 +70,13 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "list_drive_items",
 				Title:       "List drive items",
-				Description: "列出 OneDrive 指定文件夹（默认根目录）下的文件与子文件夹。",
+				Description: "List files and subfolders in a OneDrive folder, defaulting to the root.",
 				InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
     "path": {
       "type": "string",
-      "description": "相对 OneDrive 根目录的文件夹路径，留空列出根目录"
+      "description": "Folder path relative to the OneDrive root; leave empty to list the root"
     }
   },
   "additionalProperties": false
@@ -86,17 +88,17 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "upload_file",
 				Title:       "Upload file",
-				Description: "上传文本文件到 OneDrive 指定路径（简单上传，上限 4MB）。",
+				Description: "Upload a text file to a path in OneDrive via simple upload, up to 4MB.",
 				InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
     "path": {
       "type": "string",
-      "description": "目标文件路径（含文件名），相对 OneDrive 根目录"
+      "description": "Target file path including the file name, relative to the OneDrive root"
     },
     "content": {
       "type": "string",
-      "description": "文件文本内容（UTF-8）"
+      "description": "File contents as UTF-8 text"
     }
   },
   "required": ["path", "content"],

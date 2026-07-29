@@ -1,5 +1,5 @@
-// Package configsvc 管理 connector_configs：校验、AES-GCM 加密存储、
-// If-Match 乐观并发与运行时读取合并。
+// Package configsvc manages connector_configs: validation, AES-GCM encrypted
+// storage, If-Match optimistic concurrency, and merged reads at runtime.
 package configsvc
 
 import (
@@ -13,27 +13,29 @@ import (
 )
 
 var (
-	// ErrUnknownConnector：connector_type 不在代码 Registry 中。
+	// ErrUnknownConnector means connector_type is not in the code registry.
 	ErrUnknownConnector = errors.New("unknown connector type")
-	// ErrNotFound：connector_configs 无该行。
+	// ErrNotFound means connector_configs has no such row.
 	ErrNotFound = errors.New("config not found")
-	// ErrConflict：If-Match 与 updated_at 不一致。
+	// ErrConflict means If-Match does not match updated_at.
 	ErrConflict = errors.New("config conflict")
-	// ErrIncompatible：数据库 config_schema_version 比代码新，拒绝覆盖写。
+	// ErrIncompatible means the stored config_schema_version is newer than the
+	// code, so an overwriting write is refused.
 	ErrIncompatible = errors.New("config schema newer than code")
 )
 
-// ValidationError 描述单个字段的校验失败。
+// ValidationError describes a validation failure on one field.
 type ValidationError struct {
 	Field  string
 	Reason string
 }
 
 func (e *ValidationError) Error() string {
-	return fmt.Sprintf("字段 %q: %s", e.Field, e.Reason)
+	return fmt.Sprintf("field %q: %s", e.Field, e.Reason)
 }
 
-// ConfigView 是管理端可见的配置视图；Secret 只暴露已设置的 key 列表。
+// ConfigView is the config as the admin UI sees it. For secrets it exposes
+// only the list of keys that have been set.
 type ConfigView struct {
 	ConnectorType string
 	SchemaVersion int

@@ -1,4 +1,5 @@
-// Package registry 保存全部 ConnectorDefinition 并在注册时校验。
+// Package registry holds every connector Definition and validates each one at
+// registration time.
 package registry
 
 import (
@@ -25,10 +26,10 @@ func New() *Registry {
 	return &Registry{defs: map[connector.Type]connector.Definition{}}
 }
 
-// Register 校验并登记一个 Definition。
+// Register validates a Definition and records it.
 func (r *Registry) Register(def connector.Definition) error {
 	if _, exists := r.defs[def.Type]; exists {
-		return fmt.Errorf("connector %q: type 重复注册", def.Type)
+		return fmt.Errorf("connector %q: type registered twice", def.Type)
 	}
 	if err := validate(def); err != nil {
 		return err
@@ -59,37 +60,37 @@ func (r *Registry) All() []connector.Definition {
 
 func validate(def connector.Definition) error {
 	if !typePattern.MatchString(string(def.Type)) {
-		return fmt.Errorf("connector %q: type 必须匹配 %s", def.Type, typePattern)
+		return fmt.Errorf("connector %q: type must match %s", def.Type, typePattern)
 	}
 	if def.Name == "" {
-		return fmt.Errorf("connector %q: Name 不能为空", def.Type)
+		return fmt.Errorf("connector %q: Name must not be empty", def.Type)
 	}
 	if def.ConfigSchemaVersion < 1 {
-		return fmt.Errorf("connector %q: ConfigSchemaVersion 必须 >= 1", def.Type)
+		return fmt.Errorf("connector %q: ConfigSchemaVersion must be >= 1", def.Type)
 	}
 
-	if err := validateFields(def.Type, "配置", def.ConfigFields); err != nil {
+	if err := validateFields(def.Type, "config", def.ConfigFields); err != nil {
 		return err
 	}
 
 	authKeys := map[string]bool{}
 	for _, a := range def.AuthMethods {
 		if a.Key == "" {
-			return fmt.Errorf("connector %q: auth method key 不能为空", def.Type)
+			return fmt.Errorf("connector %q: auth method key must not be empty", def.Type)
 		}
 		if authKeys[a.Key] {
-			return fmt.Errorf("connector %q: auth method %q 重复", def.Type, a.Key)
+			return fmt.Errorf("connector %q: duplicate auth method %q", def.Type, a.Key)
 		}
 		authKeys[a.Key] = true
 		if a.Type == connector.AuthOAuth2 && a.OAuth == nil {
-			return fmt.Errorf("connector %q: auth method %q 是 oauth2 但缺少 OAuth 配置", def.Type, a.Key)
+			return fmt.Errorf("connector %q: auth method %q is oauth2 but has no OAuth config", def.Type, a.Key)
 		}
 		if a.Type != connector.AuthOAuth2 && a.OAuth != nil {
-			return fmt.Errorf("connector %q: auth method %q 不是 oauth2 不允许携带 OAuth 配置", def.Type, a.Key)
+			return fmt.Errorf("connector %q: auth method %q is not oauth2 and must not carry an OAuth config", def.Type, a.Key)
 		}
 		if err := validateFields(
 			def.Type,
-			fmt.Sprintf("auth method %q 凭证", a.Key),
+			fmt.Sprintf("auth method %q credential", a.Key),
 			a.CredentialFields,
 		); err != nil {
 			return err
@@ -98,26 +99,26 @@ func validate(def connector.Definition) error {
 		case connector.AuthAPIKey, connector.AuthCustomCredential:
 			if len(a.CredentialFields) == 0 {
 				return fmt.Errorf(
-					"connector %q: auth method %q 必须声明 CredentialFields",
+					"connector %q: auth method %q must declare CredentialFields",
 					def.Type, a.Key,
 				)
 			}
 			if !a.CredentialFields[0].Required {
 				return fmt.Errorf(
-					"connector %q: auth method %q 的首个 CredentialField 必须 Required",
+					"connector %q: auth method %q must mark its first CredentialField as Required",
 					def.Type, a.Key,
 				)
 			}
 		case connector.AuthNone, connector.AuthOAuth2:
 			if len(a.CredentialFields) != 0 {
 				return fmt.Errorf(
-					"connector %q: auth method %q 不允许声明 CredentialFields",
+					"connector %q: auth method %q must not declare CredentialFields",
 					def.Type, a.Key,
 				)
 			}
 		default:
 			return fmt.Errorf(
-				"connector %q: auth method %q 的 type %q 非法",
+				"connector %q: auth method %q has invalid type %q",
 				def.Type, a.Key, a.Type,
 			)
 		}
@@ -130,13 +131,13 @@ func validate(def connector.Definition) error {
 					a.OAuth.UsePKCE || a.OAuth.TokenEndpointAuth != "" ||
 					len(a.OAuth.ExtraAuthParams) > 0 {
 					return fmt.Errorf(
-						"connector %q: auth method %q 使用 MCP OAuth 时不能配置静态 OAuth 参数",
+						"connector %q: auth method %q uses MCP OAuth and must not set static OAuth parameters",
 						def.Type, a.Key,
 					)
 				}
 			default:
 				return fmt.Errorf(
-					"connector %q: auth method %q 的 OAuth mode %q 非法",
+					"connector %q: auth method %q has invalid OAuth mode %q",
 					def.Type, a.Key, a.OAuth.Mode,
 				)
 			}
@@ -150,16 +151,16 @@ func validate(def connector.Definition) error {
 		}
 		if impl.AuthorizationScheme != "" &&
 			!authorizationSchemePattern.MatchString(impl.AuthorizationScheme) {
-			return fmt.Errorf("connector %q: remote MCP AuthorizationScheme 非法", def.Type)
+			return fmt.Errorf("connector %q: invalid remote MCP AuthorizationScheme", def.Type)
 		}
 		if impl.RequestTimeout < 0 {
-			return fmt.Errorf("connector %q: remote MCP RequestTimeout 不能为负数", def.Type)
+			return fmt.Errorf("connector %q: remote MCP RequestTimeout must not be negative", def.Type)
 		}
 		for _, method := range def.AuthMethods {
 			if method.OAuth != nil && method.OAuth.Mode == connector.OAuthModeMCP &&
 				impl.AuthorizationScheme != "" {
 				return fmt.Errorf(
-					"connector %q: MCP OAuth 只支持标准 Bearer Authorization scheme",
+					"connector %q: MCP OAuth only supports the standard Bearer Authorization scheme",
 					def.Type,
 				)
 			}
@@ -168,26 +169,26 @@ func validate(def connector.Definition) error {
 		for _, method := range def.AuthMethods {
 			if method.OAuth != nil && method.OAuth.Mode == connector.OAuthModeMCP {
 				return fmt.Errorf(
-					"connector %q: MCP OAuth 只能用于 remote MCP implementation",
+					"connector %q: MCP OAuth is only valid for a remote MCP implementation",
 					def.Type,
 				)
 			}
 		}
 		if len(impl.Tools) == 0 {
-			return fmt.Errorf("connector %q: managed implementation 至少需要一个 tool", def.Type)
+			return fmt.Errorf("connector %q: managed implementation needs at least one tool", def.Type)
 		}
 		toolNames := map[string]bool{}
 		for _, managedTool := range impl.Tools {
 			tool := managedTool.Tool
 			if !toolNamePattern.MatchString(tool.Name) {
-				return fmt.Errorf("connector %q: tool name %q 必须匹配 %s", def.Type, tool.Name, toolNamePattern)
+				return fmt.Errorf("connector %q: tool name %q must match %s", def.Type, tool.Name, toolNamePattern)
 			}
 			if toolNames[tool.Name] {
-				return fmt.Errorf("connector %q: tool %q 重复", def.Type, tool.Name)
+				return fmt.Errorf("connector %q: duplicate tool %q", def.Type, tool.Name)
 			}
 			toolNames[tool.Name] = true
 			if managedTool.Handler == nil {
-				return fmt.Errorf("connector %q: tool %q 缺少 Handler", def.Type, tool.Name)
+				return fmt.Errorf("connector %q: tool %q has no Handler", def.Type, tool.Name)
 			}
 			if err := validateObjectSchema(tool.InputSchema); err != nil {
 				return fmt.Errorf("connector %q: tool %q InputSchema: %w", def.Type, tool.Name, err)
@@ -199,18 +200,18 @@ func validate(def connector.Definition) error {
 			}
 		}
 	case nil:
-		return fmt.Errorf("connector %q: 缺少 Implementation", def.Type)
+		return fmt.Errorf("connector %q: Implementation is missing", def.Type)
 	default:
-		return fmt.Errorf("connector %q: Implementation 必须是 RemoteMCP 或 Managed 值", def.Type)
+		return fmt.Errorf("connector %q: Implementation must be a RemoteMCP or Managed value", def.Type)
 	}
 
 	seenFrom := map[int]bool{}
 	for _, up := range def.ConfigUpgraders {
 		if up.FromVersion < 1 || up.FromVersion >= def.ConfigSchemaVersion {
-			return fmt.Errorf("connector %q: upgrader FromVersion %d 越界", def.Type, up.FromVersion)
+			return fmt.Errorf("connector %q: upgrader FromVersion %d out of range", def.Type, up.FromVersion)
 		}
 		if seenFrom[up.FromVersion] {
-			return fmt.Errorf("connector %q: upgrader FromVersion %d 重复", def.Type, up.FromVersion)
+			return fmt.Errorf("connector %q: duplicate upgrader FromVersion %d", def.Type, up.FromVersion)
 		}
 		seenFrom[up.FromVersion] = true
 	}
@@ -221,21 +222,21 @@ func validateFields(t connector.Type, kind string, fields []connector.ConfigFiel
 	keys := map[string]bool{}
 	for _, field := range fields {
 		if field.Key == "" {
-			return fmt.Errorf("connector %q: %s字段 key 不能为空", t, kind)
+			return fmt.Errorf("connector %q: %s field key must not be empty", t, kind)
 		}
 		if keys[field.Key] {
-			return fmt.Errorf("connector %q: %s字段 %q 重复", t, kind, field.Key)
+			return fmt.Errorf("connector %q: duplicate %s field %q", t, kind, field.Key)
 		}
 		keys[field.Key] = true
 		if field.Secret && field.DefaultValue != nil {
-			return fmt.Errorf("connector %q: %s Secret 字段 %q 不允许默认值", t, kind, field.Key)
+			return fmt.Errorf("connector %q: secret %s field %q must not have a default value", t, kind, field.Key)
 		}
 		switch field.InputType {
 		case connector.InputText:
 		case connector.InputSelect:
 			if len(field.Validation.Options) == 0 {
 				return fmt.Errorf(
-					"connector %q: %s字段 %q 的 select options 不能为空",
+					"connector %q: %s field %q has no select options",
 					t, kind, field.Key,
 				)
 			}
@@ -243,7 +244,7 @@ func validateFields(t connector.Type, kind string, fields []connector.ConfigFiel
 			for _, option := range field.Validation.Options {
 				if option == "" || options[option] {
 					return fmt.Errorf(
-						"connector %q: %s字段 %q 的 select option %q 非法或重复",
+						"connector %q: %s field %q has an invalid or duplicate select option %q",
 						t, kind, field.Key, option,
 					)
 				}
@@ -251,7 +252,7 @@ func validateFields(t connector.Type, kind string, fields []connector.ConfigFiel
 			}
 		default:
 			return fmt.Errorf(
-				"connector %q: %s字段 %q 的 input type %q 非法",
+				"connector %q: %s field %q has invalid input type %q",
 				t, kind, field.Key, field.InputType,
 			)
 		}
@@ -262,16 +263,16 @@ func validateFields(t connector.Type, kind string, fields []connector.ConfigFiel
 func validateRemoteEndpoints(def connector.Definition, remote connector.RemoteMCP) error {
 	if remote.EndpointSelector == nil {
 		if !validHTTPSURL(remote.Endpoint) {
-			return fmt.Errorf("connector %q: remote MCP endpoint 必须是 https URL", def.Type)
+			return fmt.Errorf("connector %q: remote MCP endpoint must be an https URL", def.Type)
 		}
 		return nil
 	}
 	if remote.Endpoint != "" {
-		return fmt.Errorf("connector %q: remote MCP 只能配置 Endpoint 或 EndpointSelector", def.Type)
+		return fmt.Errorf("connector %q: remote MCP must set either Endpoint or EndpointSelector, not both", def.Type)
 	}
 	selector := remote.EndpointSelector
 	if selector.ConfigField == "" || len(selector.Endpoints) == 0 {
-		return fmt.Errorf("connector %q: remote MCP EndpointSelector 不完整", def.Type)
+		return fmt.Errorf("connector %q: remote MCP EndpointSelector is incomplete", def.Type)
 	}
 	var field *connector.ConfigField
 	for i := range def.ConfigFields {
@@ -282,7 +283,7 @@ func validateRemoteEndpoints(def connector.Definition, remote connector.RemoteMC
 	}
 	if field == nil || field.InputType != connector.InputSelect {
 		return fmt.Errorf(
-			"connector %q: endpoint selector 字段 %q 必须是 InputSelect",
+			"connector %q: endpoint selector field %q must be an InputSelect",
 			def.Type, selector.ConfigField,
 		)
 	}
@@ -291,7 +292,7 @@ func validateRemoteEndpoints(def connector.Definition, remote connector.RemoteMC
 		options[option] = true
 		if _, ok := selector.Endpoints[option]; !ok {
 			return fmt.Errorf(
-				"connector %q: endpoint selector 缺少 option %q",
+				"connector %q: endpoint selector is missing option %q",
 				def.Type, option,
 			)
 		}
@@ -299,13 +300,13 @@ func validateRemoteEndpoints(def connector.Definition, remote connector.RemoteMC
 	for option, endpoint := range selector.Endpoints {
 		if !options[option] {
 			return fmt.Errorf(
-				"connector %q: endpoint selector 包含未声明 option %q",
+				"connector %q: endpoint selector has undeclared option %q",
 				def.Type, option,
 			)
 		}
 		if !validHTTPSURL(endpoint) {
 			return fmt.Errorf(
-				"connector %q: endpoint selector %q 必须是 https URL",
+				"connector %q: endpoint selector %q must be an https URL",
 				def.Type, option,
 			)
 		}
@@ -321,18 +322,18 @@ func validHTTPSURL(raw string) bool {
 
 func validateObjectSchema(schema any) error {
 	if schema == nil {
-		return fmt.Errorf("不能为空")
+		return fmt.Errorf("must not be empty")
 	}
 	data, err := json.Marshal(schema)
 	if err != nil {
-		return fmt.Errorf("不是合法 JSON: %w", err)
+		return fmt.Errorf("is not valid JSON: %w", err)
 	}
 	var object map[string]any
 	if err := json.Unmarshal(data, &object); err != nil || object == nil {
-		return fmt.Errorf("必须是 JSON object")
+		return fmt.Errorf("must be a JSON object")
 	}
 	if object["type"] != "object" {
-		return fmt.Errorf(`type 必须是 "object"`)
+		return fmt.Errorf(`type must be "object"`)
 	}
 	return nil
 }

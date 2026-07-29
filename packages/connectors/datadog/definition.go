@@ -12,7 +12,7 @@ var defaultSite = "us1"
 var Definition = connector.Definition{
 	Type:                "datadog",
 	Name:                "Datadog",
-	Description:         "Datadog 可观测性与安全平台",
+	Description:         "Datadog observability and security platform",
 	Categories:          []string{"monitoring", "developer_tools"},
 	HomepageURL:         "https://www.datadoghq.com",
 	IconURL:             "https://cdn.simpleicons.org/datadog/_/e5e5e5",
@@ -37,7 +37,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "具备所需 Datadog scopes 的 Personal Access Token 或 Service Access Token。",
+			Description: "Datadog personal access token or service access token carrying the required scopes.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

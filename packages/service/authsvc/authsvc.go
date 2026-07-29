@@ -1,5 +1,6 @@
-// Package authsvc 是服务门禁：admin 密码（argon2id）与内部应用的静态
-// API token（sha256 存储，明文只在创建时返回一次）。
+// Package authsvc is the service gate: the admin password (argon2id) and the
+// static API tokens used by internal applications. Tokens are stored as
+// sha256 and the plaintext is returned only once, at creation time.
 package authsvc
 
 import (
@@ -19,12 +20,14 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-// EnvAdminPassword 用于首次启动 seed admin 账号（用户名固定 admin）。
+// EnvAdminPassword seeds the admin account on first start. The user name is
+// always admin.
 const EnvAdminPassword = "CONNECT_IT_ADMIN_PASSWORD"
 
 const tokenPrefix = "cit_"
 
-// ErrNotFound：目标行不存在（如撤销不存在的 token）。
+// ErrNotFound means the target row does not exist, for example when revoking
+	// a token that is already gone.
 var ErrNotFound = errors.New("authsvc: not found")
 
 type Service struct {
@@ -35,7 +38,8 @@ func New(q *store.Queries) *Service {
 	return &Service{q: q}
 }
 
-// EnsureAdminFromEnv 在 admin 账号缺失时用环境变量密码创建；已存在则不动。
+// EnsureAdminFromEnv creates the admin account from the environment password
+// when it is missing. An existing account is left untouched.
 func (s *Service) EnsureAdminFromEnv(ctx context.Context) error {
 	if _, err := s.q.GetAdminAccount(ctx); err == nil {
 		return nil
@@ -44,7 +48,7 @@ func (s *Service) EnsureAdminFromEnv(ctx context.Context) error {
 	}
 	password := os.Getenv(EnvAdminPassword)
 	if password == "" {
-		return fmt.Errorf("authsvc: admin 账号不存在且未设置 %s", EnvAdminPassword)
+		return fmt.Errorf("authsvc: admin account does not exist and %s is not set", EnvAdminPassword)
 	}
 	hash, err := hashPassword(password)
 	if err != nil {
@@ -72,7 +76,7 @@ func (s *Service) VerifyAdminPassword(ctx context.Context, username, password st
 
 func (s *Service) ChangeAdminPassword(ctx context.Context, newPassword string) error {
 	if len(newPassword) < 8 {
-		return errors.New("authsvc: 密码至少 8 个字符")
+		return errors.New("authsvc: password must be at least 8 characters")
 	}
 	hash, err := hashPassword(newPassword)
 	if err != nil {
@@ -95,7 +99,8 @@ type APITokenView struct {
 	RevokedAt *time.Time `json:"revoked_at"`
 }
 
-// CreateAPIToken 生成 token；明文仅此一次返回，库中只存 sha256。
+// CreateAPIToken generates a token. The plaintext is returned only here; the
+// database stores its sha256 only.
 func (s *Service) CreateAPIToken(ctx context.Context, name string) (string, uuid.UUID, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

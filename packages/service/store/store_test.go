@@ -29,7 +29,7 @@ func TestConnectorConfigCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first.UpdatedAt.IsZero() || first.CreatedAt.IsZero() {
-		t.Fatal("created_at/updated_at 未写入")
+		t.Fatal("created_at/updated_at were not written")
 	}
 
 	got, err := q.GetConnectorConfig(ctx, "github")
@@ -41,9 +41,9 @@ func TestConnectorConfigCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pub["client_id"] != "abc" || got.SecretKeyVersion != 1 {
-		t.Fatalf("roundtrip 失败: %+v", got)
+		t.Fatalf("roundtrip failed: %+v", got)
 	}
-	// upsert 更新已有行
+	// upsert updates an existing row.
 	second, err := q.UpsertConnectorConfig(ctx, store.UpsertConnectorConfigParams{
 		ConnectorType:       "github",
 		ConfigSchemaVersion: 2,
@@ -55,18 +55,18 @@ func TestConnectorConfigCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	if second.ConfigSchemaVersion != 2 || !second.CreatedAt.Equal(first.CreatedAt) {
-		t.Fatalf("upsert 应更新版本且保留 created_at: %+v", second)
+		t.Fatalf("upsert should bump the version and preserve created_at: %+v", second)
 	}
 
 	n, err := q.DeleteConnectorConfig(ctx, "github")
 	if err != nil || n != 1 {
-		t.Fatalf("删除应影响 1 行: n=%d err=%v", n, err)
+		t.Fatalf("the delete should affect 1 row: n=%d err=%v", n, err)
 	}
 	if n, _ := q.DeleteConnectorConfig(ctx, "github"); n != 0 {
-		t.Fatal("重复删除应影响 0 行")
+		t.Fatal("deleting twice should affect 0 rows")
 	}
 	if _, err := q.GetConnectorConfig(ctx, "github"); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("删除后应 ErrNoRows, got %v", err)
+		t.Fatalf("after delete it should yield ErrNoRows, got %v", err)
 	}
 }
 
@@ -95,13 +95,13 @@ func TestUpdateConnectorConfigIfMatch(t *testing.T) {
 		UpdatedAt:           row.UpdatedAt,
 	})
 	if err != nil {
-		t.Fatalf("匹配的 updated_at 应更新成功: %v", err)
+		t.Fatalf("a matching updated_at should update successfully: %v", err)
 	}
 	if updated.UpdatedAt.Equal(row.UpdatedAt) {
-		t.Fatal("updated_at 应被推进")
+		t.Fatal("updated_at should have advanced")
 	}
 
-	// 用过期的 updated_at 再更新 → ErrNoRows
+	// Updating again with a stale updated_at must yield ErrNoRows.
 	_, err = q.UpdateConnectorConfigIfMatch(ctx, store.UpdateConnectorConfigIfMatchParams{
 		ConnectorType:       "gmail",
 		ConfigSchemaVersion: 1,
@@ -111,7 +111,7 @@ func TestUpdateConnectorConfigIfMatch(t *testing.T) {
 		UpdatedAt:           row.UpdatedAt,
 	})
 	if !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("过期 If-Match 应 ErrNoRows, got %v", err)
+		t.Fatalf("a stale If-Match should yield ErrNoRows, got %v", err)
 	}
 }
 
@@ -121,30 +121,30 @@ func TestAdminAccountQueries(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := q.GetAdminAccount(ctx); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("空表应 ErrNoRows, got %v", err)
+		t.Fatalf("an empty table should yield ErrNoRows, got %v", err)
 	}
 	n, err := q.InsertAdminAccountIfAbsent(ctx, store.InsertAdminAccountIfAbsentParams{
 		Username: "admin", PasswordHash: "hash1",
 	})
 	if err != nil || n != 1 {
-		t.Fatalf("首次插入应影响 1 行: n=%d err=%v", n, err)
+		t.Fatalf("the first insert should affect 1 row: n=%d err=%v", n, err)
 	}
 	n, err = q.InsertAdminAccountIfAbsent(ctx, store.InsertAdminAccountIfAbsentParams{
 		Username: "admin", PasswordHash: "hash2",
 	})
 	if err != nil || n != 0 {
-		t.Fatalf("已存在时应影响 0 行: n=%d err=%v", n, err)
+		t.Fatalf("an existing row should affect 0 rows: n=%d err=%v", n, err)
 	}
 	acct, err := q.GetAdminAccount(ctx)
 	if err != nil || acct.PasswordHash != "hash1" || acct.ID != 1 {
-		t.Fatalf("已有账号不应被覆盖: %+v err=%v", acct, err)
+		t.Fatalf("an existing account must not be overwritten: %+v err=%v", acct, err)
 	}
 	if n, _ := q.UpdateAdminPassword(ctx, "hash3"); n != 1 {
-		t.Fatal("改密应影响 1 行")
+		t.Fatal("changing the password should affect 1 row")
 	}
 	acct, _ = q.GetAdminAccount(ctx)
 	if acct.PasswordHash != "hash3" {
-		t.Fatalf("密码未更新: %+v", acct)
+		t.Fatalf("the password was not updated: %+v", acct)
 	}
 }
 
@@ -161,19 +161,19 @@ func TestAPITokenQueries(t *testing.T) {
 	}
 	tok, err := q.GetAPITokenByHash(ctx, "deadbeef")
 	if err != nil || tok.ID != id || tok.RevokedAt != nil {
-		t.Fatalf("查询失败: %+v err=%v", tok, err)
+		t.Fatalf("query failed: %+v err=%v", tok, err)
 	}
 	list, err := q.ListAPITokens(ctx)
 	if err != nil || len(list) != 1 {
-		t.Fatalf("list 应有 1 行: %v err=%v", list, err)
+		t.Fatalf("the list should have 1 row: %v err=%v", list, err)
 	}
 	if n, _ := q.RevokeAPIToken(ctx, id); n != 1 {
-		t.Fatal("撤销应影响 1 行")
+		t.Fatal("revoking should affect 1 row")
 	}
 	if _, err := q.GetAPITokenByHash(ctx, "deadbeef"); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("已撤销 token 不应命中: %v", err)
+		t.Fatalf("a revoked token must not be found: %v", err)
 	}
 	if n, _ := q.RevokeAPIToken(ctx, id); n != 0 {
-		t.Fatal("重复撤销应影响 0 行")
+		t.Fatal("revoking twice should affect 0 rows")
 	}
 }

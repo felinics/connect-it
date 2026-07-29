@@ -7,10 +7,11 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 )
 
-// Validate 按 Definition 的 ConfigFields 校验一份完整配置：
-// 必填（有默认值的非 Secret 字段除外）、Pattern、Options，拒绝未知 key。
-// 所有字段值都是字符串；secrets 中空串表示删除该 key（可选字段合法，
-// 必填字段会命中必填检查）。
+// Validate checks a complete config against the ConfigFields of a Definition:
+// required fields (except non-secret fields carrying a default), Pattern and
+// Options, rejecting unknown keys. Every field value is a string. In secrets,
+// an empty string deletes the key, which is valid for an optional field and
+// trips the required check for a required one.
 func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[string]string) error {
 	def, ok := s.reg.Get(t)
 	if !ok {
@@ -24,11 +25,11 @@ func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[
 	for key, val := range public {
 		f, known := fields[key]
 		if !known || f.Secret {
-			return &ValidationError{Field: key, Reason: "未知的公开配置字段"}
+			return &ValidationError{Field: key, Reason: "unknown public config field"}
 		}
 		str, isStr := val.(string)
 		if !isStr {
-			return &ValidationError{Field: key, Reason: "值必须是字符串"}
+			return &ValidationError{Field: key, Reason: "value must be a string"}
 		}
 		if err := checkValue(f, str); err != nil {
 			return err
@@ -37,10 +38,10 @@ func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[
 	for key, val := range secrets {
 		f, known := fields[key]
 		if !known || !f.Secret {
-			return &ValidationError{Field: key, Reason: "未知的 Secret 配置字段"}
+			return &ValidationError{Field: key, Reason: "unknown secret config field"}
 		}
 		if val == "" {
-			continue // 空字符串表示删除；下面的必填检查会决定是否允许删除。
+			continue // an empty string deletes; the required check below decides if that is allowed
 		}
 		if err := checkValue(f, val); err != nil {
 			return err
@@ -52,15 +53,15 @@ func (s *Service) Validate(t connector.Type, public map[string]any, secrets map[
 		}
 		if f.Secret {
 			if secrets[f.Key] == "" {
-				return &ValidationError{Field: f.Key, Reason: "必填 Secret 字段缺失"}
+				return &ValidationError{Field: f.Key, Reason: "required secret field is missing"}
 			}
 			continue
 		}
 		if f.DefaultValue != nil {
-			continue // 已定义默认值，不要求管理员再次配置。
+			continue // a default is defined, so the administrator need not set it
 		}
 		if v, _ := public[f.Key].(string); v == "" {
-			return &ValidationError{Field: f.Key, Reason: "必填字段缺失"}
+			return &ValidationError{Field: f.Key, Reason: "required field is missing"}
 		}
 	}
 	return nil
@@ -70,10 +71,10 @@ func checkValue(f connector.ConfigField, val string) error {
 	if f.Validation.Pattern != "" {
 		re, err := regexp.Compile(f.Validation.Pattern)
 		if err != nil {
-			return fmt.Errorf("字段 %q 的 Pattern 非法: %w", f.Key, err)
+			return fmt.Errorf("field %q has an invalid Pattern: %w", f.Key, err)
 		}
 		if !re.MatchString(val) {
-			return &ValidationError{Field: f.Key, Reason: "不匹配 Pattern " + f.Validation.Pattern}
+			return &ValidationError{Field: f.Key, Reason: "does not match Pattern " + f.Validation.Pattern}
 		}
 	}
 	if len(f.Validation.Options) > 0 {
@@ -82,7 +83,7 @@ func checkValue(f connector.ConfigField, val string) error {
 				return nil
 			}
 		}
-		return &ValidationError{Field: f.Key, Reason: "不在可选值范围内"}
+		return &ValidationError{Field: f.Key, Reason: "not one of the allowed values"}
 	}
 	return nil
 }

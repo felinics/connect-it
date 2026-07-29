@@ -1,6 +1,8 @@
-// Package tokens 对外提供「保证可用的 access token」：api_key 直通，
-// OAuth 惰性刷新——60 秒 skew、进程内 single-flight、数据库行锁二次判断，
-// 防止轮转 refresh token 在并发下被覆盖丢失。
+// Package tokens hands out an access token guaranteed to be usable: api_key
+// credentials pass straight through, while OAuth tokens are refreshed lazily
+// with a 60 second skew, an in-process single-flight, and a re-check under a
+// database row lock, so a rotating refresh token is never lost to a
+// concurrent overwrite.
 package tokens
 
 import (
@@ -30,8 +32,8 @@ const (
 )
 
 var (
-	ErrReauthRequired = errors.New("tokens: connection 需要重新授权")
-	ErrNotFound       = errors.New("tokens: connection 不存在")
+	ErrReauthRequired = errors.New("tokens: connection requires re-authorization")
+	ErrNotFound       = errors.New("tokens: connection does not exist")
 )
 
 type Refresher struct {
@@ -47,8 +49,9 @@ func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *c
 	return &Refresher{q: q, reg: reg, cfg: cfg, kr: kr, hc: hc}
 }
 
-// AccessToken 返回该 connection 当前可用的凭证：
-// api_key / custom_credential 返回其首个声明字段的值；OAuth 返回有效 access token。
+// AccessToken returns the credential currently usable for a connection: for
+// api_key and custom_credential it is the value of the first declared field,
+// and for OAuth it is a valid access token.
 func (r *Refresher) AccessToken(ctx context.Context, connectionID uuid.UUID) (string, error) {
 	row, err := r.q.GetConnection(ctx, connectionID)
 	if err != nil {
@@ -58,11 +61,11 @@ func (r *Refresher) AccessToken(ctx context.Context, connectionID uuid.UUID) (st
 		return "", err
 	}
 	if row.Status != "active" {
-		return "", fmt.Errorf("%w（当前状态 %s）", ErrReauthRequired, row.Status)
+		return "", fmt.Errorf("%w (current status %s)", ErrReauthRequired, row.Status)
 	}
 	def, ok := r.reg.Get(connector.Type(row.ConnectorType))
 	if !ok {
-		return "", fmt.Errorf("tokens: 未知 connector type %s", row.ConnectorType)
+		return "", fmt.Errorf("tokens: unknown connector type %s", row.ConnectorType)
 	}
 	method, err := findMethod(def, row.AuthMethod)
 	if err != nil {
@@ -80,9 +83,10 @@ func (r *Refresher) AccessToken(ctx context.Context, connectionID uuid.UUID) (st
 			return "", err
 		}
 		if len(method.CredentialFields) == 0 {
-			return "", fmt.Errorf("tokens: auth method %s 未声明 CredentialFields", method.Key)
+			return "", fmt.Errorf("tokens: auth method %s declares no CredentialFields", method.Key)
 		}
-		// 约定：单字段凭证；多字段取 Definition 中首个声明字段。
+		// Convention: a single-field credential. When several are declared,
+		// the first one in the Definition wins.
 		return fields.Fields[method.CredentialFields[0].Key], nil
 	case connector.AuthOAuth2:
 		plain, err := r.kr.Decrypt(row.Credential, int(row.SecretKeyVersion), []byte(row.ID.String()))
@@ -94,11 +98,13 @@ func (r *Refresher) AccessToken(ctx context.Context, connectionID uuid.UUID) (st
 			return "", err
 		}
 		if cred.ExpiresAt.IsZero() || time.Until(cred.ExpiresAt) > expirySkew {
-			return cred.AccessToken, nil // 未过期，直接用
+			return cred.AccessToken, nil // still valid, use as is
 		}
-		// 过期或即将过期：single-flight，进程内只有一个 goroutine 真正刷新。
-		// 共享刷新不依附首个调用方，但必须有自己的上限；每个等待方仍响应
-		// 自己的 context，避免刷新击穿 tools/list 的整体预算。
+		// Expired or about to expire: single-flight ensures only one
+		// goroutine in this process actually refreshes.
+		// The shared refresh is not tied to the first caller but still needs
+		// its own deadline; every waiter honours its own context so a refresh
+		// cannot blow through the overall tools/list budget.
 		resultCh := r.group.DoChan(connectionID.String(), func() (any, error) {
 			refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
 			defer cancel()
@@ -114,7 +120,7 @@ func (r *Refresher) AccessToken(ctx context.Context, connectionID uuid.UUID) (st
 			return "", ctx.Err()
 		}
 	default:
-		return "", fmt.Errorf("tokens: auth method %s 类型 %s 不支持", method.Key, method.Type)
+		return "", fmt.Errorf("tokens: auth method %s of type %s is not supported", method.Key, method.Type)
 	}
 }
 
@@ -124,10 +130,11 @@ func findMethod(def connector.Definition, key string) (connector.AuthMethod, err
 			return m, nil
 		}
 	}
-	return connector.AuthMethod{}, fmt.Errorf("tokens: 未知 auth method %s", key)
+	return connector.AuthMethod{}, fmt.Errorf("tokens: unknown auth method %s", key)
 }
 
-// refresh 在行锁事务内二次判断并刷新；single-flight 保证进程内只有一个真正执行。
+// refresh re-checks and refreshes inside a row-locked transaction;
+// single-flight guarantees only one execution per process.
 func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method connector.AuthMethod, t connector.Type) (string, error) {
 	tx, qtx, err := r.q.BeginTx(ctx)
 	if err != nil {
@@ -161,7 +168,7 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 	if err != nil {
 		return "", err
 	}
-	// 二次判断：拿到锁时可能别的实例刚刷完。
+	// Re-check: another instance may have refreshed while we waited for the lock.
 	if cred.ExpiresAt.IsZero() || time.Until(cred.ExpiresAt) > expirySkew {
 		if err := tx.Commit(ctx); err != nil {
 			return "", err
@@ -178,7 +185,7 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 	)
 	if method.OAuth.Mode == connector.OAuthModeMCP {
 		if row.OauthClientID == nil {
-			return "", errors.New("tokens: MCP OAuth connection 缺少 client registration")
+			return "", errors.New("tokens: MCP OAuth connection has no client registration")
 		}
 		client, err := oauthsvc.LoadMCPClient(ctx, qtx, r.kr, *row.OauthClientID)
 		if err != nil {
@@ -188,7 +195,7 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 			return "", err
 		}
 		if client.ConnectorType != t {
-			return "", errors.New("tokens: MCP OAuth client registration 不属于当前 connector")
+			return "", errors.New("tokens: MCP OAuth client registration does not belong to this connector")
 		}
 		clientID, clientSecret, resource = client.ClientID, client.ClientSecret, client.Resource
 		oc = connector.OAuthConfig{
@@ -204,7 +211,8 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 		if err != nil {
 			return "", err
 		}
-		// 刷新路径同样要展开 {tenant} 类占位符（OneDrive token endpoint）。
+		// The refresh path must expand {tenant}-style placeholders too, as
+		// the OneDrive token endpoint requires.
 		oc = *method.OAuth
 		if oc.TokenEndpoint, err = oauthsvc.ExpandEndpoint(oc.TokenEndpoint, resolved); err != nil {
 			return "", err
@@ -218,12 +226,13 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 	}
 	tok, err := oauthsvc.ExchangeToken(ctx, r.hc, &oc, clientID, clientSecret, form)
 	if err != nil {
-		// 只有 provider 明确判定 refresh token 失效时才要求重授权。
-		// 网络错误、限流和 5xx 保持 active，让后续调用自然重试。
+		// Only require re-authorization when the provider explicitly rules
+		// the refresh token invalid. Network errors, rate limits and 5xx
+		// keep the connection active so later calls retry naturally.
 		invalidClient := method.OAuth.Mode == connector.OAuthModeMCP &&
 			oauthsvc.IsInvalidClient(err)
 		if !oauthsvc.IsInvalidGrant(err) && !invalidClient {
-			return "", fmt.Errorf("tokens: 刷新 access token: %w", err)
+			return "", fmt.Errorf("tokens: refresh access token: %w", err)
 		}
 		if invalidClient && row.OauthClientID != nil {
 			if expireErr := qtx.ExpireOAuthClientRegistration(ctx, *row.OauthClientID); expireErr != nil {
@@ -238,7 +247,7 @@ func (r *Refresher) refresh(ctx context.Context, connectionID uuid.UUID, method 
 		RefreshToken: cred.RefreshToken,
 	}
 	if tok.RefreshToken != "" {
-		newCred.RefreshToken = tok.RefreshToken // 轮转：响应带新值才替换
+		newCred.RefreshToken = tok.RefreshToken // rotation: replace only when the response carries a new value
 	}
 	if tok.ExpiresIn > 0 {
 		newCred.ExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)

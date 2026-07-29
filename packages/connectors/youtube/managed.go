@@ -32,7 +32,7 @@ func getMyChannel(ctx context.Context, call connector.ManagedCall) (*mcp.CallToo
 func listMyPlaylists(ctx context.Context, call connector.ManagedCall) (*mcp.CallToolResult, error) {
 	args, err := decodeArguments(call.Arguments)
 	if err != nil {
-		return youtubeToolError("arguments 必须是 JSON object"), nil
+		return youtubeToolError("arguments must be a JSON object"), nil
 	}
 	query := url.Values{
 		"part":       {"id,snippet,contentDetails,status"},
@@ -46,7 +46,7 @@ func listMyPlaylists(ctx context.Context, call connector.ManagedCall) (*mcp.Call
 func listSubscriptions(ctx context.Context, call connector.ManagedCall) (*mcp.CallToolResult, error) {
 	args, err := decodeArguments(call.Arguments)
 	if err != nil {
-		return youtubeToolError("arguments 必须是 JSON object"), nil
+		return youtubeToolError("arguments must be a JSON object"), nil
 	}
 	query := url.Values{
 		"part":       {"id,snippet,contentDetails"},
@@ -60,11 +60,11 @@ func listSubscriptions(ctx context.Context, call connector.ManagedCall) (*mcp.Ca
 func searchVideos(ctx context.Context, call connector.ManagedCall) (*mcp.CallToolResult, error) {
 	args, err := decodeArguments(call.Arguments)
 	if err != nil {
-		return youtubeToolError("arguments 必须是 JSON object"), nil
+		return youtubeToolError("arguments must be a JSON object"), nil
 	}
 	args.Query = strings.TrimSpace(args.Query)
 	if args.Query == "" {
-		return youtubeToolError("query 不能为空"), nil
+		return youtubeToolError("query must not be empty"), nil
 	}
 	query := url.Values{
 		"part":       {"snippet"},
@@ -122,7 +122,7 @@ func callYouTube(
 		return nil, err
 	}
 	if int64(len(data)) > maxAPIResponseBytes {
-		return nil, fmt.Errorf("youtube: 响应超过 %d bytes", maxAPIResponseBytes)
+		return nil, fmt.Errorf("youtube: response exceeds %d bytes", maxAPIResponseBytes)
 	}
 	if resp.StatusCode >= 400 {
 		return youtubeAPIError(resp.StatusCode, data), nil
@@ -138,8 +138,8 @@ func callYouTube(
 	return result, nil
 }
 
-// youtubeAPIError 只暴露 Google 的标准 reason，不透传可能含项目号等信息的
-// 完整错误正文。
+// youtubeAPIError exposes only Google's standard reason. It never forwards
+// the full error body, which can carry details such as project numbers.
 func youtubeAPIError(statusCode int, data []byte) *mcp.CallToolResult {
 	var payload struct {
 		Error struct {
@@ -161,7 +161,7 @@ func youtubeAPIError(statusCode int, data []byte) *mcp.CallToolResult {
 		reason = payload.Error.Details[0].Reason
 	}
 
-	message := fmt.Sprintf("YouTube API 返回 %d", statusCode)
+	message := fmt.Sprintf("YouTube API returned %d", statusCode)
 	structured := map[string]any{
 		"error":           "upstream_error",
 		"upstream_status": statusCode,

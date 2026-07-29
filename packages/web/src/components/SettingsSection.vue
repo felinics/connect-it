@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 白色浮卡（owner 组件）：标题在卡外、卡体一条 hairline、menu-shell 半径。
+// Floating white card (owner component): title outside the card, a single
+// hairline around the body, and the menu-shell radius.
 defineProps<{ title?: string }>()
 </script>
 

@@ -1,4 +1,5 @@
-// Package api 装配 HTTP 层：路由、门禁中间件与统一错误映射。
+// Package api wires the HTTP layer: routes, gate middleware and a single
+// error mapping.
 package api
 
 import (
@@ -21,8 +22,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-// ToolExecutor 抽象 exec.Engine，便于 /mcp 测试注入假执行器；
-// *exec.Engine 的方法集恰好满足本接口。
+// ToolExecutor abstracts exec.Engine so /mcp tests can inject a fake
+// executor. The method set of *exec.Engine satisfies this interface exactly.
 type ToolExecutor interface {
 	CallTool(
 		ctx context.Context,
@@ -55,7 +56,7 @@ func New(deps Deps) *echo.Echo {
 	e.GET("/healthz", h.healthz)
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 	e.POST("/admin/login", h.login)
-	// 回调不走 Bearer 门禁，安全性由一次性 state 保证。
+	// The callback skips the Bearer gate; a single-use state secures it.
 	e.GET("/v1/oauth/callback", h.oauthCallback)
 
 	v1 := e.Group("/v1", RequireAPIToken(deps.Auth))

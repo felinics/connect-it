@@ -30,9 +30,9 @@ const (
 )
 
 var (
-	ErrMCPDiscovery     = errors.New("oauthsvc: MCP OAuth discovery 失败")
-	ErrMCPRegistration  = errors.New("oauthsvc: MCP OAuth client registration 失败")
-	ErrMCPClientExpired = errors.New("oauthsvc: MCP OAuth client registration 已过期")
+	ErrMCPDiscovery     = errors.New("oauthsvc: MCP OAuth discovery failed")
+	ErrMCPRegistration  = errors.New("oauthsvc: MCP OAuth client registration failed")
+	ErrMCPClientExpired = errors.New("oauthsvc: MCP OAuth client registration has expired")
 )
 
 type mcpOAuthDiscovery struct {
@@ -233,11 +233,11 @@ func validateTokenAuth(method connector.TokenEndpointAuth, secret string) error 
 		return nil
 	case connector.TokenAuthBasic, connector.TokenAuthPost:
 		if secret == "" {
-			return fmt.Errorf("token auth method %q 缺少 client_secret", method)
+			return fmt.Errorf("token auth method %q has no client_secret", method)
 		}
 		return nil
 	default:
-		return fmt.Errorf("不支持 token auth method %q", method)
+		return fmt.Errorf("unsupported token auth method %q", method)
 	}
 }
 
@@ -292,7 +292,7 @@ func discoverMCPOAuth(
 		return mcpOAuthDiscovery{}, err
 	}
 	if len(prm.AuthorizationServers) == 0 {
-		return mcpOAuthDiscovery{}, errors.New("protected resource metadata 缺少 authorization_servers")
+		return mcpOAuthDiscovery{}, errors.New("protected resource metadata has no authorization_servers")
 	}
 	issuer := prm.AuthorizationServers[0]
 	metadata, err := mcpauth.GetAuthServerMetadata(ctx, issuer, hc)
@@ -300,16 +300,16 @@ func discoverMCPOAuth(
 		return mcpOAuthDiscovery{}, err
 	}
 	if metadata == nil {
-		return mcpOAuthDiscovery{}, errors.New("找不到 authorization server metadata")
+		return mcpOAuthDiscovery{}, errors.New("authorization server metadata not found")
 	}
 	if metadata.AuthorizationEndpoint == "" || metadata.TokenEndpoint == "" {
-		return mcpOAuthDiscovery{}, errors.New("authorization server metadata 缺少 OAuth endpoint")
+		return mcpOAuthDiscovery{}, errors.New("authorization server metadata has no OAuth endpoint")
 	}
 	if metadata.RegistrationEndpoint == "" {
-		return mcpOAuthDiscovery{}, errors.New("authorization server 不支持 dynamic client registration")
+		return mcpOAuthDiscovery{}, errors.New("authorization server does not support dynamic client registration")
 	}
 	if !slices.Contains(metadata.CodeChallengeMethodsSupported, "S256") {
-		return mcpOAuthDiscovery{}, errors.New("authorization server 不支持 S256 PKCE")
+		return mcpOAuthDiscovery{}, errors.New("authorization server does not support S256 PKCE")
 	}
 	for name, rawURL := range map[string]string{
 		"authorization_endpoint": metadata.AuthorizationEndpoint,
@@ -362,7 +362,7 @@ func probeMCPAuthorization(
 	}
 	challenges, err := oauthex.ParseWWWAuthenticate(headers)
 	if err != nil {
-		return "", nil, fmt.Errorf("解析 WWW-Authenticate: %w", err)
+		return "", nil, fmt.Errorf("parse WWW-Authenticate: %w", err)
 	}
 	for _, challenge := range challenges {
 		if challenge.Scheme != "bearer" {
@@ -404,7 +404,7 @@ func discoverProtectedResource(
 		lastErr = err
 	}
 	if lastErr == nil {
-		lastErr = errors.New("没有可用的 protected resource metadata URL")
+		lastErr = errors.New("no usable protected resource metadata URL")
 	}
 	return protectedResource{}, lastErr
 }
@@ -463,12 +463,12 @@ func getProtectedResource(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return protectedResource{}, fmt.Errorf("protected resource metadata 返回 %d", resp.StatusCode)
+		return protectedResource{}, fmt.Errorf("protected resource metadata returned %d", resp.StatusCode)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		return protectedResource{}, fmt.Errorf(
-			"protected resource metadata Content-Type %q 非法",
+			"invalid protected resource metadata Content-Type %q",
 			resp.Header.Get("Content-Type"),
 		)
 	}
@@ -477,7 +477,7 @@ func getProtectedResource(
 		return protectedResource{}, err
 	}
 	if len(data) > oauthMetadataLimit {
-		return protectedResource{}, errors.New("protected resource metadata 过大")
+		return protectedResource{}, errors.New("protected resource metadata is too large")
 	}
 	var wire struct {
 		Resource             json.RawMessage `json:"resource"`
@@ -485,7 +485,7 @@ func getProtectedResource(
 		ScopesSupported      []string        `json:"scopes_supported"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
-		return protectedResource{}, fmt.Errorf("解析 protected resource metadata: %w", err)
+		return protectedResource{}, fmt.Errorf("parse protected resource metadata: %w", err)
 	}
 	resource, err := selectResource(wire.Resource, candidate.Resource)
 	if err != nil {
@@ -510,16 +510,16 @@ func selectResource(raw json.RawMessage, expected string) (string, error) {
 	var single string
 	if err := json.Unmarshal(raw, &single); err == nil {
 		if single != expected {
-			return "", fmt.Errorf("metadata resource %q 与 %q 不匹配", single, expected)
+			return "", fmt.Errorf("metadata resource %q does not match %q", single, expected)
 		}
 		return single, nil
 	}
 	var multiple []string
 	if err := json.Unmarshal(raw, &multiple); err != nil {
-		return "", errors.New("protected resource metadata 的 resource 非法")
+		return "", errors.New("protected resource metadata has an invalid resource")
 	}
 	if !slices.Contains(multiple, expected) {
-		return "", fmt.Errorf("metadata resources 不包含 %q", expected)
+		return "", fmt.Errorf("metadata resources do not contain %q", expected)
 	}
 	return expected, nil
 }
@@ -530,10 +530,10 @@ func validateSecureURL(raw string) error {
 		return err
 	}
 	if u.Host == "" || u.User != nil || u.Fragment != "" {
-		return fmt.Errorf("URL %q 非法", raw)
+		return fmt.Errorf("invalid URL %q", raw)
 	}
 	if u.Scheme == "https" {
 		return nil
 	}
-	return fmt.Errorf("URL %q 必须使用 HTTPS", raw)
+	return fmt.Errorf("URL %q must use HTTPS", raw)
 }

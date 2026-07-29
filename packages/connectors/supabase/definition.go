@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "supabase",
 	Name:                "Supabase",
-	Description:         "Supabase 数据库与后端开发平台",
+	Description:         "Supabase database and backend development platform",
 	Categories:          []string{"developer_tools", "database"},
 	HomepageURL:         "https://supabase.com",
 	IconURL:             "https://cdn.simpleicons.org/supabase",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Supabase Personal Access Token；仅建议连接开发或测试项目。",
+			Description: "Supabase personal access token. Connect development or test projects only.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

@@ -10,8 +10,9 @@ export interface ConfigPayload {
   secrets: Record<string, string>
 }
 
-// 由 config-schema 元数据驱动的动态表单：Secret 只写不读（已设置显示占位），
-// 校验在提交时进行（规范：表单提交时才校验）。
+// Dynamic form driven by config-schema metadata: secrets are write-only and
+// show a placeholder once set, and validation runs on submit, following the
+// convention that forms validate only when submitted.
 const props = defineProps<{
   fields: ConfigField[]
   config: ConnectorConfig | null
@@ -62,7 +63,7 @@ function check(): boolean {
           errors[key] = t('connector.patternMismatch', { pattern: f.pattern })
         }
       } catch {
-        // 非法正则交给服务端报错
+        // Leave an invalid regex for the server to reject.
       }
     }
   }

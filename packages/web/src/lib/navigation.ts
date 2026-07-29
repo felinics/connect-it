@@ -1,4 +1,5 @@
-// window.location 的薄封装：OAuth 跳转要整页离开 SPA，测试里 mock 这里。
+// Thin wrapper over window.location: an OAuth redirect must leave the SPA as
+// a full page navigation, and tests mock this module.
 export function redirectTo(url: string) {
   window.location.assign(url)
 }

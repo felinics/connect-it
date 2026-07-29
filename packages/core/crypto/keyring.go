@@ -1,5 +1,7 @@
-// Package crypto 提供 Secret 配置与 credential 的 AES-256-GCM 加解密，
-// 支持多版本 KEK：写入用最大版本，读取按存储的版本，实现平滑轮换。
+// Package crypto provides AES-256-GCM encryption for secret config values and
+// credentials. It supports a multi-version KEK: writes use the highest
+// version and reads use the version stored alongside the ciphertext, which
+// allows keys to be rotated without downtime.
 package crypto
 
 import (
@@ -13,7 +15,8 @@ import (
 	"strings"
 )
 
-// EnvSecretKey 的值格式："1:<64位hex>,2:<64位hex>"，最大版本为当前写入 key。
+// EnvSecretKey holds a keyring in the form "1:<64-char-hex>,2:<64-char-hex>".
+// The highest version is the key used for new writes.
 const EnvSecretKey = "CONNECT_IT_SECRET_KEY"
 
 const keySize = 32
@@ -25,15 +28,15 @@ type Keyring struct {
 
 func NewKeyring(keys map[int][]byte) (*Keyring, error) {
 	if len(keys) == 0 {
-		return nil, errors.New("keyring: 至少需要一把 key")
+		return nil, errors.New("keyring: at least one key is required")
 	}
 	current := 0
 	for v, k := range keys {
 		if v < 1 {
-			return nil, fmt.Errorf("keyring: 非法版本 %d", v)
+			return nil, fmt.Errorf("keyring: invalid version %d", v)
 		}
 		if len(k) != keySize {
-			return nil, fmt.Errorf("keyring: 版本 %d 的 key 必须是 %d 字节", v, keySize)
+			return nil, fmt.Errorf("keyring: key for version %d must be %d bytes", v, keySize)
 		}
 		if v > current {
 			current = v
@@ -51,18 +54,18 @@ func ParseKeyring(spec string) (*Keyring, error) {
 		}
 		verStr, hexKey, ok := strings.Cut(part, ":")
 		if !ok {
-			return nil, fmt.Errorf("keyring: 片段 %q 不是 version:hex 形式", part)
+			return nil, fmt.Errorf("keyring: segment %q is not in version:hex form", part)
 		}
 		v, err := strconv.Atoi(verStr)
 		if err != nil {
-			return nil, fmt.Errorf("keyring: 版本 %q 不是整数", verStr)
+			return nil, fmt.Errorf("keyring: version %q is not an integer", verStr)
 		}
 		raw, err := hex.DecodeString(hexKey)
 		if err != nil {
-			return nil, fmt.Errorf("keyring: 版本 %d 的 key 不是合法 hex", v)
+			return nil, fmt.Errorf("keyring: key for version %d is not valid hex", v)
 		}
 		if _, dup := keys[v]; dup {
-			return nil, fmt.Errorf("keyring: 版本 %d 重复", v)
+			return nil, fmt.Errorf("keyring: duplicate version %d", v)
 		}
 		keys[v] = raw
 	}
@@ -90,7 +93,7 @@ func (k *Keyring) Decrypt(ciphertext []byte, version int, aad []byte) ([]byte, e
 	}
 	ns := gcm.NonceSize()
 	if len(ciphertext) < ns {
-		return nil, errors.New("keyring: 密文过短")
+		return nil, errors.New("keyring: ciphertext too short")
 	}
 	return gcm.Open(nil, ciphertext[:ns], ciphertext[ns:], aad)
 }
@@ -98,7 +101,7 @@ func (k *Keyring) Decrypt(ciphertext []byte, version int, aad []byte) ([]byte, e
 func (k *Keyring) gcm(version int) (cipher.AEAD, error) {
 	key, ok := k.keys[version]
 	if !ok {
-		return nil, fmt.Errorf("keyring: 未知 key 版本 %d", version)
+		return nil, fmt.Errorf("keyring: unknown key version %d", version)
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {

@@ -42,7 +42,8 @@ const visible = computed(() => {
   )
 })
 
-// 生成重授权链接并复制，运维转交给对应的终端用户打开。
+// Mint and copy a re-authorization link for an operator to hand to the right
+// end user.
 async function copyReauthLink(conn: Connection) {
   try {
     const result = await adminReauthConnection(conn.id ?? '')

@@ -1,5 +1,6 @@
-// Package github 是 GitHub Connector 的固定 Definition。
-// GitHub 只支持 OAuth，凭证由下游发起授权获得。
+// Package github holds the code-fixed Definition of the GitHub connector.
+// GitHub supports OAuth only; credentials come from an authorization flow
+// started by the downstream service.
 package github
 
 import (
@@ -11,7 +12,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "github",
 	Name:                "GitHub",
-	Description:         "GitHub 代码托管与协作平台",
+	Description:         "GitHub code hosting and collaboration platform",
 	Categories:          []string{"developer_tools"},
 	HomepageURL:         "https://github.com",
 	IconURL:             "https://cdn.simpleicons.org/github/_/e5e5e5",
@@ -23,7 +24,7 @@ var Definition = connector.Definition{
 			Label:       "OAuth Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "GitHub OAuth App 的 Client ID。",
+			Description: "Client ID of the GitHub OAuth app.",
 		},
 		{
 			Key:         "client_secret",
@@ -31,7 +32,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "GitHub OAuth App 的 Client Secret。",
+			Description: "Client secret of the GitHub OAuth app.",
 		},
 	},
 

@@ -15,7 +15,8 @@ const (
 	sessionTTL        = 24 * time.Hour
 )
 
-// signSession 生成 "admin|<过期 unix>|<hex(hmac-sha256)>" 形式的 cookie 值。
+// signSession builds a cookie value of the form
+// "admin|<expiry unix>|<hex(hmac-sha256)>".
 func signSession(secret []byte, expires time.Time) string {
 	payload := fmt.Sprintf("admin|%d", expires.Unix())
 	mac := hmac.New(sha256.New, secret)

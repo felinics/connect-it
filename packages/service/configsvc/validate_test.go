@@ -9,7 +9,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/configsvc"
 )
 
-// newValidateService 只装 registry，store 与 keyring 传 nil（Validate 不用它们）。
+// newValidateService wires only the registry; store and keyring are nil
+// because Validate does not use them.
 func newValidateService(t *testing.T) *configsvc.Service {
 	t.Helper()
 	r := registry.New()
@@ -37,7 +38,7 @@ func TestValidateOK(t *testing.T) {
 		map[string]any{"client_id": "abc", "region": "eu", "project_id": "123"},
 		map[string]string{"client_secret": "shh", "api_key": "k"})
 	if err != nil {
-		t.Fatalf("合法配置不应报错: %v", err)
+		t.Fatalf("a valid config must not error: %v", err)
 	}
 }
 
@@ -56,23 +57,23 @@ func TestValidateFailures(t *testing.T) {
 		secrets   map[string]string
 		wantField string
 	}{
-		{"未知公开字段", map[string]any{"client_id": "a", "bogus": "x"},
+		{"unknown public field", map[string]any{"client_id": "a", "bogus": "x"},
 			map[string]string{"client_secret": "s"}, "bogus"},
-		{"Secret 字段放进 public", map[string]any{"client_id": "a", "client_secret": "leak"},
+		{"secret field placed in public", map[string]any{"client_id": "a", "client_secret": "leak"},
 			map[string]string{"client_secret": "s"}, "client_secret"},
-		{"未知 Secret 字段", map[string]any{"client_id": "a"},
+		{"unknown secret field", map[string]any{"client_id": "a"},
 			map[string]string{"client_secret": "s", "bogus": "x"}, "bogus"},
-		{"公开字段值不是字符串", map[string]any{"client_id": 42},
+		{"public field value is not a string", map[string]any{"client_id": 42},
 			map[string]string{"client_secret": "s"}, "client_id"},
-		{"缺必填公开字段", map[string]any{},
+		{"missing required public field", map[string]any{},
 			map[string]string{"client_secret": "s"}, "client_id"},
-		{"缺必填 Secret 字段", map[string]any{"client_id": "a"},
+		{"missing required secret field", map[string]any{"client_id": "a"},
 			map[string]string{}, "client_secret"},
-		{"必填 Secret 传空串视为缺失", map[string]any{"client_id": "a"},
+		{"required secret set to empty string counts as missing", map[string]any{"client_id": "a"},
 			map[string]string{"client_secret": ""}, "client_secret"},
-		{"Pattern 不匹配", map[string]any{"client_id": "a", "project_id": "abc"},
+		{"pattern mismatch", map[string]any{"client_id": "a", "project_id": "abc"},
 			map[string]string{"client_secret": "s"}, "project_id"},
-		{"不在 Options 内", map[string]any{"client_id": "a", "region": "cn"},
+		{"value not in options", map[string]any{"client_id": "a", "region": "cn"},
 			map[string]string{"client_secret": "s"}, "region"},
 	}
 	s := newValidateService(t)
@@ -84,19 +85,19 @@ func TestValidateFailures(t *testing.T) {
 				t.Fatalf("want ValidationError, got %v", err)
 			}
 			if ve.Field != tc.wantField {
-				t.Fatalf("错误字段 %q, want %q（reason=%s）", ve.Field, tc.wantField, ve.Reason)
+				t.Fatalf("error field %q, want %q (reason=%s)", ve.Field, tc.wantField, ve.Reason)
 			}
 		})
 	}
 }
 
 func TestValidateOptionalSecretMayBeEmpty(t *testing.T) {
-	// 可选 Secret 传空串表示删除，应通过校验。
+	// An empty string on an optional secret deletes it and must pass validation.
 	s := newValidateService(t)
 	err := s.Validate("example_app",
 		map[string]any{"client_id": "a"},
 		map[string]string{"client_secret": "s", "api_key": ""})
 	if err != nil {
-		t.Fatalf("可选 Secret 空串应通过: %v", err)
+		t.Fatalf("an empty optional secret should pass: %v", err)
 	}
 }

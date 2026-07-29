@@ -30,18 +30,18 @@ func TestConnectionCRUDAndForUpdate(t *testing.T) {
 		t.Fatalf("create: %+v err=%v", row, err)
 	}
 
-	// alias 不再唯一：同名与空 alias 都允许
+	// Aliases are no longer unique: duplicates and empty aliases are both allowed.
 	if _, err := q.CreateConnection(ctx, store.CreateConnectionParams{
 		ID: uuid.New(), ConnectorType: "github", Alias: &alias, AuthMethod: "oauth",
 		Credential: []byte{1}, SecretKeyVersion: 1, Scopes: []string{}, Status: "active",
 	}); err != nil {
-		t.Fatalf("同名 alias 应允许: %v", err)
+		t.Fatalf("a duplicate alias should be allowed: %v", err)
 	}
 	if _, err := q.CreateConnection(ctx, store.CreateConnectionParams{
 		ID: uuid.New(), ConnectorType: "github", Alias: nil, AuthMethod: "oauth",
 		Credential: []byte{1}, SecretKeyVersion: 1, Scopes: []string{}, Status: "pending",
 	}); err != nil {
-		t.Fatalf("空 alias 应允许: %v", err)
+		t.Fatalf("an empty alias should be allowed: %v", err)
 	}
 
 	// BeginTx + FOR UPDATE
@@ -63,22 +63,22 @@ func TestConnectionCRUDAndForUpdate(t *testing.T) {
 	}
 	got, _ := q.GetConnection(ctx, id)
 	if got.Status != "reauth_required" {
-		t.Fatalf("事务更新未生效: %+v", got)
+		t.Fatalf("the transactional update did not take effect: %+v", got)
 	}
 
 	if n, _ := q.DeleteConnection(ctx, id); n != 1 {
-		t.Fatal("删除应影响 1 行")
+		t.Fatal("the delete should affect 1 row")
 	}
 	_ = alias
 	if _, err := q.GetConnection(ctx, id); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("删除后应 ErrNoRows: %v", err)
+		t.Fatalf("after delete it should yield ErrNoRows: %v", err)
 	}
 }
 
 func TestBeginTxWithoutPool(t *testing.T) {
-	// 用 nil DBTX 构造的 Queries 不支持事务。
+	// A Queries built from a nil DBTX cannot start transactions.
 	q := store.New(nil)
 	if _, _, err := q.BeginTx(context.Background()); !errors.Is(err, store.ErrNoTransactions) {
-		t.Fatalf("应 ErrNoTransactions, got %v", err)
+		t.Fatalf("expected ErrNoTransactions, got %v", err)
 	}
 }

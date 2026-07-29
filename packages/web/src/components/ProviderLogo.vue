@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-// Provider logo：icon_url 加载失败或缺失时回退首字母。
-// bare 用于 ActionCard 的 #icon 插槽（卡内不再套第二层描边，避免双描边脏样式）。
+// Provider logo: falls back to the first letter when icon_url is missing or
+// fails to load.
+// bare is for the #icon slot of ActionCard, where a second border inside the
+// card would read as a doubled outline.
 const props = defineProps<{ name: string; iconUrl?: string; bare?: boolean }>()
 
 const failed = ref(false)

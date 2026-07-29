@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_sheets",
 	Name:                "Google Sheets",
-	Description:         "Google Sheets 在线表格",
+	Description:         "Google Sheets online spreadsheets",
 	Categories:          []string{"productivity"},
 	HomepageURL:         "https://docs.google.com/spreadsheets",
 	IconURL:             "https://cdn.simpleicons.org/googlesheets",

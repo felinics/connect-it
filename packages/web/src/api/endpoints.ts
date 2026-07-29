@@ -1,4 +1,5 @@
-// 页面唯一的 API 入口：全部委托 packages/sdk 生成客户端，禁止手写 fetch。
+// The only API entry point for pages: everything goes through the generated
+// client in packages/sdk. Hand-written fetch calls are not allowed.
 import * as sdk from '@connect-it/sdk'
 
 import { ApiError, unwrap } from './client'
@@ -17,7 +18,7 @@ export const getConfigSchema = (type: string) =>
 export const listAuthMethods = (type: string) =>
   unwrap(sdk.listAuthMethods({ path: { type } }))
 
-// 未配置返回 null（404 不是错误态）。
+// Returns null when unconfigured; a 404 is not an error state here.
 export async function getConfig(type: string): Promise<ConnectorConfig | null> {
   try {
     return await unwrap(sdk.getConfig({ path: { type } }))

@@ -1,6 +1,6 @@
 import { client } from '@connect-it/sdk'
 
-// 统一错误：后端约定 {"error":"machine_code","message":"人类可读"}。
+// Uniform errors: the backend returns {"error":"machine_code","message":"human readable"}.
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -26,8 +26,9 @@ interface SdkResult<T> {
   response: Response
 }
 
-// unwrap 把生成 SDK 的 {data,error,response} 归一：2xx 返回 data，
-// 非 2xx 抛 ApiError；401（登录请求除外）触发全局跳登录。
+// unwrap normalises the {data,error,response} triple from the generated SDK:
+// 2xx yields data, anything else throws ApiError, and a 401 (except on the
+// login request) triggers the global redirect to login.
 export async function unwrap<T>(
   promise: Promise<SdkResult<T>>,
   opts: { allowUnauthorized?: boolean } = {},
@@ -37,7 +38,7 @@ export async function unwrap<T>(
     return data as T
   }
   let code = 'unknown_error'
-  let message = `请求失败（HTTP ${response.status}）`
+  let message = `Request failed (HTTP ${response.status})`
   if (error && typeof error === 'object') {
     const e = error as { error?: string; message?: string }
     if (typeof e.error === 'string' && e.error !== '') code = e.error

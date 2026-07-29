@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "intercom",
 	Name:                "Intercom",
-	Description:         "Intercom 客户沟通与支持平台",
+	Description:         "Intercom customer messaging and support platform",
 	Categories:          []string{"customer_support"},
 	HomepageURL:         "https://www.intercom.com",
 	IconURL:             "https://cdn.simpleicons.org/intercom",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "具备 MCP 所需权限的 Intercom access token；当前官方 MCP 仅支持 US workspace。",
+			Description: "Intercom access token with the permissions MCP requires. The official MCP server currently supports US workspaces only.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

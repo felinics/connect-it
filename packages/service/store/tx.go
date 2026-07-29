@@ -7,16 +7,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrNoTransactions 表示底层 DBTX 不支持开启事务。
-var ErrNoTransactions = errors.New("store: 底层 DBTX 不支持事务")
+// ErrNoTransactions means the underlying DBTX cannot start a transaction.
+var ErrNoTransactions = errors.New("store: the underlying DBTX does not support transactions")
 
-// beginner 由 *pgxpool.Pool 与 pgx.Tx 实现。
+// beginner is implemented by *pgxpool.Pool and pgx.Tx.
 type beginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// BeginTx 在底层连接上开启事务，返回事务本身与绑定该事务的 Queries。
-// 调用方负责 Commit / Rollback（Commit 之后的 defer Rollback 是 no-op）。
+// BeginTx starts a transaction on the underlying connection and returns both
+// the transaction and a Queries bound to it. The caller is responsible for
+// Commit and Rollback; a deferred Rollback after Commit is a no-op.
 func (q *Queries) BeginTx(ctx context.Context) (pgx.Tx, *Queries, error) {
 	b, ok := q.db.(beginner)
 	if !ok {

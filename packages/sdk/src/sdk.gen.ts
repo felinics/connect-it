@@ -19,7 +19,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * 修改管理员密码
+ * Change the administrator password
  */
 export const changePassword = <ThrowOnError extends boolean = false>(options: Options<ChangePasswordData, ThrowOnError>) => {
     return (options.client ?? client).put<ChangePasswordResponses, ChangePasswordErrors, ThrowOnError>({
@@ -33,7 +33,7 @@ export const changePassword = <ThrowOnError extends boolean = false>(options: Op
 };
 
 /**
- * 列出 API token（不含明文）
+ * List API tokens without plaintext
  */
 export const listApiTokens = <ThrowOnError extends boolean = false>(options?: Options<ListApiTokensData, ThrowOnError>) => {
     return (options?.client ?? client).get<ListApiTokensResponses, unknown, ThrowOnError>({
@@ -43,7 +43,7 @@ export const listApiTokens = <ThrowOnError extends boolean = false>(options?: Op
 };
 
 /**
- * 创建 API token（明文仅在响应中出现一次）
+ * Create an API token; the plaintext appears in this response only
  */
 export const createApiToken = <ThrowOnError extends boolean = false>(options: Options<CreateApiTokenData, ThrowOnError>) => {
     return (options.client ?? client).post<CreateApiTokenResponses, unknown, ThrowOnError>({
@@ -57,7 +57,7 @@ export const createApiToken = <ThrowOnError extends boolean = false>(options: Op
 };
 
 /**
- * 撤销 API token
+ * Revoke an API token
  */
 export const deleteApiToken = <ThrowOnError extends boolean = false>(options: Options<DeleteApiTokenData, ThrowOnError>) => {
     return (options.client ?? client).delete<DeleteApiTokenResponses, DeleteApiTokenErrors, ThrowOnError>({
@@ -67,7 +67,7 @@ export const deleteApiToken = <ThrowOnError extends boolean = false>(options: Op
 };
 
 /**
- * 列出全部连接（运维视角，不含 credential）
+ * List every connection for operators, without credentials
  */
 export const listConnections = <ThrowOnError extends boolean = false>(options?: Options<ListConnectionsData, ThrowOnError>) => {
     return (options?.client ?? client).get<ListConnectionsResponses, unknown, ThrowOnError>({
@@ -77,7 +77,7 @@ export const listConnections = <ThrowOnError extends boolean = false>(options?: 
 };
 
 /**
- * 删除连接（运维）
+ * Delete a connection, operator view
  */
 export const adminDeleteConnection = <ThrowOnError extends boolean = false>(options: Options<AdminDeleteConnectionData, ThrowOnError>) => {
     return (options.client ?? client).delete<AdminDeleteConnectionResponses, AdminDeleteConnectionErrors, ThrowOnError>({
@@ -87,7 +87,7 @@ export const adminDeleteConnection = <ThrowOnError extends boolean = false>(opti
 };
 
 /**
- * 生成重授权链接（运维转交给对应用户打开）
+ * Mint a re-authorization link for an operator to hand to the right end user
  */
 export const adminReauthConnection = <ThrowOnError extends boolean = false>(options: Options<AdminReauthConnectionData, ThrowOnError>) => {
     return (options.client ?? client).post<AdminReauthConnectionResponses, AdminReauthConnectionErrors, ThrowOnError>({
@@ -97,7 +97,7 @@ export const adminReauthConnection = <ThrowOnError extends boolean = false>(opti
 };
 
 /**
- * 列出全部 Connector（管理界面，cookie 鉴权）
+ * List every connector for the admin UI, cookie authenticated
  */
 export const adminListConnectors = <ThrowOnError extends boolean = false>(options?: Options<AdminListConnectorsData, ThrowOnError>) => {
     return (options?.client ?? client).get<AdminListConnectorsResponses, AdminListConnectorsErrors, ThrowOnError>({
@@ -107,7 +107,7 @@ export const adminListConnectors = <ThrowOnError extends boolean = false>(option
 };
 
 /**
- * Connector 的认证方式与凭证字段（供创建 connection 的表单）
+ * Auth methods and credential fields of a connector, for the create-connection form
  */
 export const listAuthMethods = <ThrowOnError extends boolean = false>(options: Options<ListAuthMethodsData, ThrowOnError>) => {
     return (options.client ?? client).get<ListAuthMethodsResponses, ListAuthMethodsErrors, ThrowOnError>({
@@ -117,7 +117,7 @@ export const listAuthMethods = <ThrowOnError extends boolean = false>(options: O
 };
 
 /**
- * 删除 Connector 配置
+ * Delete connector config
  */
 export const deleteConfig = <ThrowOnError extends boolean = false>(options: Options<DeleteConfigData, ThrowOnError>) => {
     return (options.client ?? client).delete<DeleteConfigResponses, DeleteConfigErrors, ThrowOnError>({
@@ -127,7 +127,7 @@ export const deleteConfig = <ThrowOnError extends boolean = false>(options: Opti
 };
 
 /**
- * 读取 Connector 配置（Secret 只回显已设置的 key）
+ * Read connector config; secrets echo back only the keys that are set
  */
 export const getConfig = <ThrowOnError extends boolean = false>(options: Options<GetConfigData, ThrowOnError>) => {
     return (options.client ?? client).get<GetConfigResponses, GetConfigErrors, ThrowOnError>({
@@ -137,7 +137,7 @@ export const getConfig = <ThrowOnError extends boolean = false>(options: Options
 };
 
 /**
- * 写入 Connector 配置（public 全量替换、secrets 增量合并，空串删除）
+ * Write connector config; public is replaced wholesale, secrets are merged and an empty string deletes
  */
 export const putConfig = <ThrowOnError extends boolean = false>(options: Options<PutConfigData, ThrowOnError>) => {
     return (options.client ?? client).put<PutConfigResponses, PutConfigErrors, ThrowOnError>({
@@ -151,7 +151,7 @@ export const putConfig = <ThrowOnError extends boolean = false>(options: Options
 };
 
 /**
- * Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）
+ * Config form metadata for a connector, derived from the ConfigFields of its Definition
  */
 export const getConfigSchema = <ThrowOnError extends boolean = false>(options: Options<GetConfigSchemaData, ThrowOnError>) => {
     return (options.client ?? client).get<GetConfigSchemaResponses, GetConfigSchemaErrors, ThrowOnError>({
@@ -161,7 +161,7 @@ export const getConfigSchema = <ThrowOnError extends boolean = false>(options: O
 };
 
 /**
- * 管理员登录，成功后下发会话 cookie
+ * Log in as administrator and receive a session cookie
  */
 export const login = <ThrowOnError extends boolean = false>(options: Options<LoginData, ThrowOnError>) => {
     return (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({
@@ -175,7 +175,7 @@ export const login = <ThrowOnError extends boolean = false>(options: Options<Log
 };
 
 /**
- * 健康检查
+ * Health check
  */
 export const healthz = <ThrowOnError extends boolean = false>(options?: Options<HealthzData, ThrowOnError>) => {
     return (options?.client ?? client).get<HealthzResponses, unknown, ThrowOnError>({
@@ -185,7 +185,7 @@ export const healthz = <ThrowOnError extends boolean = false>(options?: Options<
 };
 
 /**
- * 用 API key / 自定义凭证创建连接，返回其持久 ID
+ * Create a connection from an API key or custom credential and return its durable ID
  */
 export const createApiKeyConnection = <ThrowOnError extends boolean = false>(options: Options<CreateApiKeyConnectionData, ThrowOnError>) => {
     return (options.client ?? client).post<CreateApiKeyConnectionResponses, CreateApiKeyConnectionErrors, ThrowOnError>({
@@ -205,7 +205,7 @@ export const createApiKeyConnection = <ThrowOnError extends boolean = false>(opt
 };
 
 /**
- * 发起 OAuth 授权：立即创建 pending 连接并返回其持久 ID 与授权 URL
+ * Start an OAuth authorization: create a pending connection and return its durable ID and authorization URL
  */
 export const beginOAuthConnection = <ThrowOnError extends boolean = false>(options: Options<BeginOAuthConnectionData, ThrowOnError>) => {
     return (options.client ?? client).post<BeginOAuthConnectionResponses, BeginOAuthConnectionErrors, ThrowOnError>({
@@ -225,7 +225,7 @@ export const beginOAuthConnection = <ThrowOnError extends boolean = false>(optio
 };
 
 /**
- * 删除连接
+ * Delete a connection
  */
 export const deleteConnection = <ThrowOnError extends boolean = false>(options: Options<DeleteConnectionData, ThrowOnError>) => {
     return (options.client ?? client).delete<DeleteConnectionResponses, DeleteConnectionErrors, ThrowOnError>({
@@ -241,7 +241,7 @@ export const deleteConnection = <ThrowOnError extends boolean = false>(options: 
 };
 
 /**
- * 查询连接状态（pending / active / reauth_required …）
+ * Get connection status (pending / active / reauth_required and so on)
  */
 export const getConnection = <ThrowOnError extends boolean = false>(options: Options<GetConnectionData, ThrowOnError>) => {
     return (options.client ?? client).get<GetConnectionResponses, GetConnectionErrors, ThrowOnError>({
@@ -257,7 +257,7 @@ export const getConnection = <ThrowOnError extends boolean = false>(options: Opt
 };
 
 /**
- * 对既有连接重新发起授权（ID 不变）
+ * Re-authorize an existing connection, keeping the same ID
  */
 export const reauthConnection = <ThrowOnError extends boolean = false>(options: Options<ReauthConnectionData, ThrowOnError>) => {
     return (options.client ?? client).post<ReauthConnectionResponses, ReauthConnectionErrors, ThrowOnError>({
@@ -273,7 +273,7 @@ export const reauthConnection = <ThrowOnError extends boolean = false>(options: 
 };
 
 /**
- * 列出全部 Connector（含运行状态）
+ * List every connector with its runtime status
  */
 export const listConnectors = <ThrowOnError extends boolean = false>(options?: Options<ListConnectorsData, ThrowOnError>) => {
     return (options?.client ?? client).get<ListConnectorsResponses, ListConnectorsErrors, ThrowOnError>({
@@ -289,7 +289,7 @@ export const listConnectors = <ThrowOnError extends boolean = false>(options?: O
 };
 
 /**
- * 查询单个 Connector
+ * Get a single connector
  */
 export const getConnector = <ThrowOnError extends boolean = false>(options: Options<GetConnectorData, ThrowOnError>) => {
     return (options.client ?? client).get<GetConnectorResponses, GetConnectorErrors, ThrowOnError>({
@@ -305,7 +305,7 @@ export const getConnector = <ThrowOnError extends boolean = false>(options: Opti
 };
 
 /**
- * 签发聚合多个 Connection 的短期 MCP session token
+ * Issue a short-lived MCP session token aggregating several connections
  */
 export const createMcpSession = <ThrowOnError extends boolean = false>(options: Options<CreateMcpSessionData, ThrowOnError>) => {
     return (options.client ?? client).post<CreateMcpSessionResponses, CreateMcpSessionErrors, ThrowOnError>({
@@ -325,7 +325,7 @@ export const createMcpSession = <ThrowOnError extends boolean = false>(options: 
 };
 
 /**
- * OAuth 回调（provider 跳转回来，无鉴权，靠一次性 state）
+ * OAuth callback where the provider redirects back; unauthenticated and secured by a single-use state
  */
 export const oauthCallback = <ThrowOnError extends boolean = false>(options?: Options<OauthCallbackData, ThrowOnError>) => {
     return (options?.client ?? client).get<OauthCallbackResponses, unknown, ThrowOnError>({

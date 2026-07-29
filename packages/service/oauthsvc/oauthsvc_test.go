@@ -33,7 +33,8 @@ type testEnv struct {
 	lastForm url.Values
 }
 
-// newEnv 起假 provider（token endpoint），装配 oauthsvc；配置已写好 client 凭证。
+// newEnv starts a fake provider token endpoint and wires up oauthsvc with the
+// client credentials already configured.
 func newEnv(t *testing.T, usePKCE bool) *testEnv {
 	t.Helper()
 	pool := testutil.NewDB(t)
@@ -102,10 +103,10 @@ func TestFullAuthorizationFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Begin 即返回持久 ID，连接已以 pending 落库
+	// Begin returns the durable ID right away; the connection is already stored as pending.
 	row, err := env.q.GetConnection(ctx, begin.ConnectionID)
 	if err != nil || row.Status != "pending" || row.Alias == nil || *row.Alias != "acct-1" {
-		t.Fatalf("pending 连接不符: %+v err=%v", row, err)
+		t.Fatalf("unexpected pending connection: %+v err=%v", row, err)
 	}
 
 	u, _ := url.Parse(begin.AuthorizationURL)
@@ -114,7 +115,7 @@ func TestFullAuthorizationFlow(t *testing.T) {
 		qs.Get("redirect_uri") != "https://connect.internal/v1/oauth/callback" ||
 		qs.Get("scope") != "read write" ||
 		qs.Get("code_challenge") == "" || qs.Get("code_challenge_method") != "S256" {
-		t.Fatalf("授权 URL 参数不符: %s", begin.AuthorizationURL)
+		t.Fatalf("unexpected authorization URL parameters: %s", begin.AuthorizationURL)
 	}
 
 	if err := env.svc.HandleCallback(ctx, qs.Get("state"), "auth-code"); err != nil {
@@ -123,16 +124,16 @@ func TestFullAuthorizationFlow(t *testing.T) {
 	if env.lastForm.Get("grant_type") != "authorization_code" ||
 		env.lastForm.Get("code") != "auth-code" ||
 		env.lastForm.Get("code_verifier") == "" {
-		t.Fatalf("token 请求参数不符: %v", env.lastForm)
+		t.Fatalf("unexpected token request parameters: %v", env.lastForm)
 	}
 
 	row, err = env.q.GetConnection(ctx, begin.ConnectionID)
 	if err != nil || row.Status != "active" || row.AccessTokenExpiresAt == nil {
-		t.Fatalf("回调后连接应 active: %+v err=%v", row, err)
+		t.Fatalf("the connection should be active after the callback: %+v err=%v", row, err)
 	}
-	// state 只能用一次
+	// A state can only be used once.
 	if err := env.svc.HandleCallback(ctx, qs.Get("state"), "again"); !errors.Is(err, oauthsvc.ErrInvalidState) {
-		t.Fatalf("重放 state 应 ErrInvalidState, got %v", err)
+		t.Fatalf("replaying a state should yield ErrInvalidState, got %v", err)
 	}
 }
 
@@ -227,7 +228,7 @@ func TestNativeMCPOAuthFlowAndRegistrationReuse(t *testing.T) {
 		query.Get("scope") != "tools" ||
 		query.Get("resource") != provider.URL+"/mcp" ||
 		query.Get("code_challenge_method") != "S256" {
-		t.Fatalf("native MCP authorization URL 参数不符: %s", begin.AuthorizationURL)
+		t.Fatalf("unexpected native MCP authorization URL parameters: %s", begin.AuthorizationURL)
 	}
 
 	if err := svc.HandleCallback(context.Background(), query.Get("state"), "code"); err != nil {
@@ -236,11 +237,11 @@ func TestNativeMCPOAuthFlowAndRegistrationReuse(t *testing.T) {
 	if lastForm.Get("client_id") != "native-client" ||
 		lastForm.Get("resource") != provider.URL+"/mcp" ||
 		lastForm.Get("code_verifier") == "" {
-		t.Fatalf("native MCP token 请求参数不符: %v", lastForm)
+		t.Fatalf("unexpected native MCP token request parameters: %v", lastForm)
 	}
 	row, err := q.GetConnection(context.Background(), begin.ConnectionID)
 	if err != nil || row.OauthClientID == nil {
-		t.Fatalf("connection 未绑定 OAuth client: %+v err=%v", row, err)
+		t.Fatalf("the connection is not bound to an OAuth client: %+v err=%v", row, err)
 	}
 
 	refresher := tokens.New(q, reg, cfg, kr, provider.Client())
@@ -250,33 +251,33 @@ func TestNativeMCPOAuthFlowAndRegistrationReuse(t *testing.T) {
 	}
 	if lastForm.Get("grant_type") != "refresh_token" ||
 		lastForm.Get("resource") != provider.URL+"/mcp" {
-		t.Fatalf("native MCP refresh 参数不符: %v", lastForm)
+		t.Fatalf("unexpected native MCP refresh parameters: %v", lastForm)
 	}
 
 	if _, err := svc.Begin(context.Background(), "native_mcp", "oauth", ""); err != nil {
 		t.Fatal(err)
 	}
 	if registerHits.Load() != 1 {
-		t.Fatalf("同一 MCP resource 应复用 DCR client，register hits=%d", registerHits.Load())
+		t.Fatalf("the same MCP resource should reuse the DCR client, register hits=%d", registerHits.Load())
 	}
 	if tokenHits.Load() != 2 {
-		t.Fatalf("callback + refresh 应请求两次 token endpoint，hits=%d", tokenHits.Load())
+		t.Fatalf("callback plus refresh should hit the token endpoint twice, hits=%d", tokenHits.Load())
 	}
 
 	rejectClient.Store(true)
 	if _, err := refresher.AccessToken(context.Background(), begin.ConnectionID); !errors.Is(err, tokens.ErrReauthRequired) {
-		t.Fatalf("DCR invalid_client 应要求重新授权: %v", err)
+		t.Fatalf("a DCR invalid_client should require re-authorization: %v", err)
 	}
 	row, err = q.GetConnection(context.Background(), begin.ConnectionID)
 	if err != nil || row.Status != "reauth_required" {
-		t.Fatalf("invalid_client 后状态不符: %+v err=%v", row, err)
+		t.Fatalf("unexpected status after invalid_client: %+v err=%v", row, err)
 	}
 	rejectClient.Store(false)
 	if _, err := svc.BeginReauth(context.Background(), begin.ConnectionID); err != nil {
 		t.Fatal(err)
 	}
 	if registerHits.Load() != 2 {
-		t.Fatalf("invalid_client 后 reauth 应重新注册 DCR client，register hits=%d", registerHits.Load())
+		t.Fatalf("reauth after invalid_client should register a new DCR client, register hits=%d", registerHits.Load())
 	}
 }
 
@@ -288,7 +289,7 @@ func TestBeginWithoutAlias(t *testing.T) {
 	}
 	row, err := env.q.GetConnection(context.Background(), begin.ConnectionID)
 	if err != nil || row.Alias != nil {
-		t.Fatalf("无 alias 应存 NULL: %+v err=%v", row, err)
+		t.Fatalf("an absent alias should be stored as NULL: %+v err=%v", row, err)
 	}
 }
 
@@ -322,11 +323,11 @@ func TestConcurrentCallbackClaimsStateOnce(t *testing.T) {
 		case errors.Is(err, oauthsvc.ErrInvalidState):
 			rejected++
 		default:
-			t.Fatalf("callback 返回意外错误: %v", err)
+			t.Fatalf("the callback returned an unexpected error: %v", err)
 		}
 	}
 	if succeeded != 1 || rejected != 1 || env.tokenHit.Load() != 1 {
-		t.Fatalf("state 应只兑换一次: success=%d rejected=%d token_hits=%d", succeeded, rejected, env.tokenHit.Load())
+		t.Fatalf("a state should be redeemed only once: success=%d rejected=%d token_hits=%d", succeeded, rejected, env.tokenHit.Load())
 	}
 }
 
@@ -352,11 +353,11 @@ func TestReauthKeepsSameConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if re.ConnectionID != begin.ConnectionID {
-		t.Fatalf("reauth 应复用同一 ID")
+		t.Fatalf("reauth should reuse the same ID")
 	}
 	row, err := env.q.GetConnection(ctx, begin.ConnectionID)
 	if err != nil || row.Status != "pending" {
-		t.Fatalf("reauth_required 重新授权后应 pending: %+v err=%v", row, err)
+		t.Fatalf("re-authorizing a reauth_required connection should leave it pending: %+v err=%v", row, err)
 	}
 	if err := env.svc.HandleCallback(ctx, stateFrom(t, re.AuthorizationURL), "code-2"); err != nil {
 		t.Fatal(err)
@@ -367,14 +368,14 @@ func TestReauthKeepsSameConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if count != 1 {
-		t.Fatalf("reauth 不应新建连接: %d", count)
+		t.Fatalf("reauth must not create a new connection: %d", count)
 	}
 }
 
 func TestInvalidState(t *testing.T) {
 	env := newEnv(t, false)
 	if err := env.svc.HandleCallback(context.Background(), "bogus", "code"); !errors.Is(err, oauthsvc.ErrInvalidState) {
-		t.Fatalf("未知 state 应 ErrInvalidState, got %v", err)
+		t.Fatalf("an unknown state should yield ErrInvalidState, got %v", err)
 	}
 }
 
@@ -383,12 +384,12 @@ func TestBeginValidation(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := env.svc.Begin(ctx, "nope", "oauth", ""); !errors.Is(err, oauthsvc.ErrUnknownConnector) {
-		t.Fatalf("未知 connector: %v", err)
+		t.Fatalf("unknown connector: %v", err)
 	}
 	if _, err := env.svc.Begin(ctx, "example_app", "nope", ""); !errors.Is(err, oauthsvc.ErrUnknownAuthMethod) {
-		t.Fatalf("未知 method: %v", err)
+		t.Fatalf("unknown method: %v", err)
 	}
 	if _, err := env.svc.BeginReauth(ctx, [16]byte{1}); !errors.Is(err, oauthsvc.ErrConnectionGone) {
-		t.Fatalf("不存在的连接 reauth: %v", err)
+		t.Fatalf("reauth of a missing connection: %v", err)
 	}
 }

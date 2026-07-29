@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "asana",
 	Name:                "Asana",
-	Description:         "Asana 项目、任务与协作平台",
+	Description:         "Asana project, task and collaboration platform",
 	Categories:          []string{"productivity", "project_management"},
 	HomepageURL:         "https://asana.com",
 	IconURL:             "https://cdn.simpleicons.org/asana",
@@ -21,7 +21,7 @@ var Definition = connector.Definition{
 			Label:       "OAuth Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "Asana Developer Console 中 MCP App 的 Client ID。",
+			Description: "Client ID of the MCP app in the Asana developer console.",
 		},
 		{
 			Key:         "client_secret",
@@ -29,7 +29,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Asana Developer Console 中 MCP App 的 Client Secret。",
+			Description: "Client secret of the MCP app in the Asana developer console.",
 		},
 	},
 	AuthMethods: []connector.AuthMethod{{

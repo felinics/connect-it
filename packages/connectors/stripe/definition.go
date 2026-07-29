@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "stripe",
 	Name:                "Stripe",
-	Description:         "Stripe 支付与账单平台",
+	Description:         "Stripe payments and billing platform",
 	Categories:          []string{"payments"},
 	HomepageURL:         "https://stripe.com",
 	IconURL:             "https://cdn.simpleicons.org/stripe",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "建议使用仅开放所需资源的 Stripe Restricted API Key。",
+			Description: "Prefer a Stripe restricted API key that exposes only the resources you need.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

@@ -13,7 +13,8 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 )
 
-// withTestServer 用 httptest.Server 覆盖包级 apiBaseURL，测试结束还原。
+// withTestServer overrides the package-level apiBaseURL with an
+// httptest.Server and restores it when the test ends.
 func withTestServer(t *testing.T, handler http.HandlerFunc) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -56,7 +57,7 @@ func TestListDriveItemsSubfolderEscaped(t *testing.T) {
 		_, _ = w.Write([]byte(`{"value":[]}`))
 	})
 	if _, err := listDriveItems(context.Background(), call(map[string]any{
-		"path": "文档/2026 报告",
+		"path": "Reports/2026 Annual Report",
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestListDriveItemsSubfolderEscaped(t *testing.T) {
 		t.Fatalf("path: %s", gotPath)
 	}
 	if strings.Contains(gotPath, " ") {
-		t.Fatalf("路径未转义: %s", gotPath)
+		t.Fatalf("path was not escaped: %s", gotPath)
 	}
 }
 
@@ -91,7 +92,7 @@ func TestUploadFile(t *testing.T) {
 func TestUploadFileMissingParams(t *testing.T) {
 	res, err := uploadFile(context.Background(), call(map[string]any{"path": "x.txt"}))
 	if err != nil || !res.IsError {
-		t.Fatalf("缺参数应 IsError: %+v err=%v", res, err)
+		t.Fatalf("missing arguments should set IsError: %+v err=%v", res, err)
 	}
 }
 
@@ -101,7 +102,7 @@ func TestGraphErrorBecomesIsError(t *testing.T) {
 	})
 	res, err := listDriveItems(context.Background(), call(nil))
 	if err != nil {
-		t.Fatalf("HTTP 错误不应返回 Go error: %v", err)
+		t.Fatalf("an HTTP error must not surface as a Go error: %v", err)
 	}
 	structured := fmt.Sprint(res.StructuredContent)
 	if !res.IsError || !strings.Contains(structured, "404") ||

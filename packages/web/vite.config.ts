@@ -2,7 +2,8 @@ import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
-// 开发模式把 API 请求代理到本地 Go 服务（mise run dev）。
+// In dev mode, proxy API requests to the local Go server started by
+// `mise run dev`.
 const backend = 'http://localhost:8080'
 
 export default defineConfig({

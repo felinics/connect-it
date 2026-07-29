@@ -39,8 +39,9 @@ const activeConnections = computed(
 )
 const activeTokens = computed(() => tokens.value.filter((t) => !t.revoked_at).length)
 
-// 需要关注＝真正异常的状态。「待配置」是正常的初始态，可能长期存在大量
-// 未启用的连接器，不进清单。
+// "Needs attention" means a genuinely abnormal status. needs_config is a
+// normal initial state, and a deployment may keep many unconfigured
+// connectors around indefinitely, so it stays out of the list.
 const attentionStatuses = new Set(['config_incompatible', 'definition_missing'])
 const attentionConnectors = computed(() =>
   connectors.value.filter((c) => attentionStatuses.has(c.status ?? '')),

@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "sentry",
 	Name:                "Sentry",
-	Description:         "Sentry 错误追踪与应用性能平台",
+	Description:         "Sentry error tracking and application performance platform",
 	Categories:          []string{"monitoring", "developer_tools"},
 	HomepageURL:         "https://sentry.io",
 	IconURL:             "https://cdn.simpleicons.org/sentry/_/e5e5e5",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "仅授予所需 Sentry organization、project、team 与 event scopes。",
+			Description: "Grant only the Sentry organization, project, team and event scopes you need.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

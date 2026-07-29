@@ -11,7 +11,7 @@ func ConfigFields() []connector.ConfigField {
 			Label:       "Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "Google Cloud OAuth 2.0 客户端的 Client ID。",
+			Description: "Client ID of the Google Cloud OAuth 2.0 client.",
 		},
 		{
 			Key:         "client_secret",
@@ -19,7 +19,7 @@ func ConfigFields() []connector.ConfigField {
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Google Cloud OAuth 2.0 客户端的 Client Secret。",
+			Description: "Client secret of the Google Cloud OAuth 2.0 client.",
 		},
 	}
 }

@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "notion",
 	Name:                "Notion",
-	Description:         "Notion 文档、知识库与协作平台",
+	Description:         "Notion document, knowledge base and collaboration platform",
 	Categories:          []string{"productivity"},
 	HomepageURL:         "https://www.notion.so",
 	IconURL:             "https://cdn.simpleicons.org/notion/_/e5e5e5",

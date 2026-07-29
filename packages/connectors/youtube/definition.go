@@ -1,4 +1,4 @@
-// Package youtube 是 YouTube Data API 的 Managed Connector。
+// Package youtube is the managed connector for the YouTube Data API.
 package youtube
 
 import (
@@ -12,7 +12,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "youtube",
 	Name:                "YouTube",
-	Description:         "YouTube 视频与频道服务",
+	Description:         "YouTube video and channel service",
 	Categories:          []string{"media"},
 	HomepageURL:         "https://www.youtube.com",
 	IconURL:             "https://cdn.simpleicons.org/youtube",
@@ -28,7 +28,7 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "get_my_channel",
 				Title:       "Get my YouTube channel",
-				Description: "获取当前授权用户的 YouTube 频道资料与统计信息。",
+				Description: "Get the authorized user's YouTube channel profile and statistics.",
 				InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {},
@@ -41,7 +41,7 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "list_my_playlists",
 				Title:       "List my YouTube playlists",
-				Description: "列出当前授权用户创建的播放列表，每页最多 25 条。",
+				Description: "List playlists created by the authorized user, up to 25 per page.",
 				InputSchema: pageInputSchema,
 			},
 			Handler: listMyPlaylists,
@@ -50,7 +50,7 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "list_subscriptions",
 				Title:       "List YouTube subscriptions",
-				Description: "列出当前授权用户订阅的频道，每页最多 25 条。",
+				Description: "List channels the authorized user subscribes to, up to 25 per page.",
 				InputSchema: pageInputSchema,
 			},
 			Handler: listSubscriptions,
@@ -59,18 +59,18 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "search_videos",
 				Title:       "Search YouTube videos",
-				Description: "按关键词搜索 YouTube 视频，每页最多 25 条。",
+				Description: "Search YouTube videos by keyword, up to 25 per page.",
 				InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
     "query": {
       "type": "string",
       "minLength": 1,
-      "description": "搜索关键词"
+      "description": "Search keywords"
     },
     "page_token": {
       "type": "string",
-      "description": "上一页结果返回的 nextPageToken"
+      "description": "nextPageToken returned by the previous page of results"
     }
   },
   "required": ["query"],
@@ -87,7 +87,7 @@ var pageInputSchema = json.RawMessage(`{
   "properties": {
     "page_token": {
       "type": "string",
-      "description": "上一页结果返回的 nextPageToken"
+      "description": "nextPageToken returned by the previous page of results"
     }
   },
   "additionalProperties": false

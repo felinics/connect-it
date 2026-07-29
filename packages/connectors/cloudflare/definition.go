@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "cloudflare",
 	Name:                "Cloudflare",
-	Description:         "Cloudflare 网络、安全与开发平台",
+	Description:         "Cloudflare network, security and developer platform",
 	Categories:          []string{"developer_tools", "infrastructure"},
 	HomepageURL:         "https://www.cloudflare.com",
 	IconURL:             "https://cdn.simpleicons.org/cloudflare",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "仅授予所需 Cloudflare 资源和权限的 API Token。",
+			Description: "Cloudflare API token, granted only the resources and permissions you need.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

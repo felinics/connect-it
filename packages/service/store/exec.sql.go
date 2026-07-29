@@ -36,7 +36,7 @@ type InsertToolRunParams struct {
 	DurationMs     *int32
 }
 
-// Tool 调用 metadata-only 审计。
+// Metadata-only audit of tool calls.
 func (q *Queries) InsertToolRun(ctx context.Context, arg InsertToolRunParams) error {
 	_, err := q.db.Exec(ctx, insertToolRun,
 		arg.ID,

@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "box",
 	Name:                "Box",
-	Description:         "Box 云内容管理与协作平台",
+	Description:         "Box cloud content management and collaboration platform",
 	Categories:          []string{"storage", "productivity"},
 	HomepageURL:         "https://www.box.com",
 	IconURL:             "https://cdn.simpleicons.org/box/_/e5e5e5",
@@ -21,7 +21,7 @@ var Definition = connector.Definition{
 			Label:       "OAuth Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "Box Platform App 的 Client ID。",
+			Description: "Client ID of the Box platform app.",
 		},
 		{
 			Key:         "client_secret",
@@ -29,7 +29,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Box Platform App 的 Client Secret。",
+			Description: "Client secret of the Box platform app.",
 		},
 	},
 	AuthMethods: []connector.AuthMethod{{

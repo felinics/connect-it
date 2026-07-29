@@ -1,0 +1,64 @@
+# Single-host deployment stack: postgres 17, the connect-it server, and the
+# admin UI behind nginx.
+#
+# Configuration lives in .env next to this file. Copy .env.example to .env and
+# fill it in before the first start:
+#
+#   cp .env.example .env
+#   docker compose up -d --build
+name: connect-it
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: connect_it
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: connect_it
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U connect_it -d connect_it"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  connect-it:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # No published port: all traffic, including the /v1 and /mcp machine APIs,
+    # goes through the nginx reverse proxy in the web container.
+    #
+    # Health status comes from the HEALTHCHECK baked into the image
+    # (wget /healthz); `docker compose up --wait` relies on it.
+    environment:
+      DATABASE_URL: "postgres://connect_it:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/connect_it?sslmode=disable"
+      CONNECT_IT_SECRET_KEY: ${CONNECT_IT_SECRET_KEY:?set CONNECT_IT_SECRET_KEY in .env}
+      COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET in .env}
+      CONNECT_IT_ADMIN_PASSWORD: ${CONNECT_IT_ADMIN_PASSWORD:?set CONNECT_IT_ADMIN_PASSWORD in .env}
+      CONNECT_IT_BASE_URL: ${CONNECT_IT_BASE_URL:-http://localhost:8080}
+      # Listen address inside the container. Keep in sync with the nginx
+      # upstream in docker/nginx.conf and the HEALTHCHECK baked into the image.
+      LISTEN_ADDR: ":8080"
+
+  web:
+    build:
+      # Context is the repository root: the Dockerfile copies packages/*
+      # including the checked-out packages/ui submodule.
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      connect-it:
+        condition: service_healthy
+    ports:
+      - "${CONNECT_IT_PORT:-8080}:8080"
+
+volumes:
+  postgres-data:

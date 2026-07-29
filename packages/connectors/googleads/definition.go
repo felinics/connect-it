@@ -1,4 +1,5 @@
-// Package googleads 是 Google Ads Connector 的固定 Definition 与 Managed handler。
+// Package googleads holds the code-fixed Definition and managed handlers of
+// the Google Ads connector.
 package googleads
 
 import (
@@ -12,7 +13,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_ads",
 	Name:                "Google Ads",
-	Description:         "Google Ads 广告投放平台",
+	Description:         "Google Ads advertising platform",
 	Categories:          []string{"advertising"},
 	HomepageURL:         "https://ads.google.com",
 	IconURL:             "https://cdn.simpleicons.org/googleads",
@@ -37,7 +38,7 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "list_accessible_customers",
 				Title:       "List accessible customers",
-				Description: "列出当前 Google 账号可直接访问的 Google Ads customer。",
+				Description: "List the Google Ads customers directly accessible to the authorized Google account.",
 				InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {},
@@ -50,25 +51,25 @@ var Definition = connector.Definition{
 			Tool: mcp.Tool{
 				Name:        "search",
 				Title:       "Search Google Ads",
-				Description: "对指定 customer 执行 GAQL 查询，返回一页结果。",
+				Description: "Run a GAQL query against one customer and return a single page of results.",
 				InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
     "customer_id": {
       "type": "string",
-      "description": "Google Ads customer ID，10 位数字，可包含连字符"
+      "description": "Google Ads customer ID: 10 digits, hyphens allowed"
     },
     "query": {
       "type": "string",
-      "description": "Google Ads Query Language 查询"
+      "description": "Google Ads Query Language (GAQL) query"
     },
     "page_token": {
       "type": "string",
-      "description": "上一页返回的 nextPageToken"
+      "description": "nextPageToken returned by the previous page"
     },
     "login_customer_id": {
       "type": "string",
-      "description": "通过 Manager Account 访问时填写其 customer ID"
+      "description": "Customer ID of the manager account, when access goes through one"
     }
   },
   "required": ["customer_id", "query"],

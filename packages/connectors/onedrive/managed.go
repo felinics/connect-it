@@ -27,7 +27,7 @@ var apiHTTPClient = managedapi.NewHTTPClient(30 * time.Second)
 func listDriveItems(ctx context.Context, call connector.ManagedCall) (*mcp.CallToolResult, error) {
 	args, err := arguments(call.Arguments)
 	if err != nil {
-		return toolError("arguments 必须是 JSON object"), nil
+		return toolError("arguments must be a JSON object"), nil
 	}
 	u := apiBaseURL + "/v1.0/me/drive/root/children"
 	if path, _ := args["path"].(string); path != "" {
@@ -39,15 +39,15 @@ func listDriveItems(ctx context.Context, call connector.ManagedCall) (*mcp.CallT
 func uploadFile(ctx context.Context, call connector.ManagedCall) (*mcp.CallToolResult, error) {
 	args, err := arguments(call.Arguments)
 	if err != nil {
-		return toolError("arguments 必须是 JSON object"), nil
+		return toolError("arguments must be a JSON object"), nil
 	}
 	path, _ := args["path"].(string)
 	content, _ := args["content"].(string)
 	if path == "" || content == "" {
-		return toolError("path 与 content 均为必填参数"), nil
+		return toolError("path and content are both required"), nil
 	}
 	if len(content) > maxUploadBytes {
-		return toolError(fmt.Sprintf("content 超过 %d bytes", maxUploadBytes)), nil
+		return toolError(fmt.Sprintf("content exceeds %d bytes", maxUploadBytes)), nil
 	}
 	u := apiBaseURL + "/v1.0/me/drive/root:/" + escapePath(path) + ":/content"
 	return callGraph(ctx, http.MethodPut, u,
@@ -81,10 +81,10 @@ func callGraph(ctx context.Context, method, u string, body io.Reader, contentTyp
 		return nil, err
 	}
 	if int64(len(data)) > maxAPIResponseBytes {
-		return nil, fmt.Errorf("microsoft graph 响应超过 %d bytes", maxAPIResponseBytes)
+		return nil, fmt.Errorf("microsoft graph: response exceeds %d bytes", maxAPIResponseBytes)
 	}
 	if resp.StatusCode >= 400 {
-		return toolError(fmt.Sprintf("microsoft graph 返回 %d", resp.StatusCode)), nil
+		return toolError(fmt.Sprintf("microsoft graph returned %d", resp.StatusCode)), nil
 	}
 	return jsonResult(data), nil
 }
@@ -95,7 +95,7 @@ func arguments(raw json.RawMessage) (map[string]any, error) {
 	}
 	var args map[string]any
 	if err := json.Unmarshal(raw, &args); err != nil || args == nil {
-		return nil, fmt.Errorf("arguments 必须是 JSON object")
+		return nil, fmt.Errorf("arguments must be a JSON object")
 	}
 	return args, nil
 }

@@ -18,25 +18,25 @@ type changePasswordRequest struct {
 
 // login godoc
 //
-//	@Summary	管理员登录，成功后下发会话 cookie
+//	@Summary	Log in as administrator and receive a session cookie
 //	@ID			login
 //	@Tags		admin
 //	@Accept		json
-//	@Param		body	body	api.loginRequest	true	"用户名与密码"
+//	@Param		body	body	api.loginRequest	true	"User name and password"
 //	@Success	204
 //	@Failure	401	{object}	api.ErrorResponse
 //	@Router		/admin/login [post]
 func (h *handlers) login(c echo.Context) error {
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
 	}
 	ok, err := h.deps.Auth.VerifyAdminPassword(c.Request().Context(), req.Username, req.Password)
 	if err != nil {
 		return mapServiceError(c, err)
 	}
 	if !ok {
-		return writeError(c, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
+		return writeError(c, http.StatusUnauthorized, "invalid_credentials", "wrong user name or password")
 	}
 	expires := time.Now().Add(sessionTTL)
 	c.SetCookie(&http.Cookie{
@@ -52,21 +52,21 @@ func (h *handlers) login(c echo.Context) error {
 
 // changePassword godoc
 //
-//	@Summary	修改管理员密码
+//	@Summary	Change the administrator password
 //	@ID			changePassword
 //	@Tags		admin
 //	@Accept		json
-//	@Param		body	body	api.changePasswordRequest	true	"新密码（至少 8 个字符）"
+//	@Param		body	body	api.changePasswordRequest	true	"New password, at least 8 characters"
 //	@Success	204
 //	@Failure	422	{object}	api.ErrorResponse
 //	@Router		/admin/account/password [put]
 func (h *handlers) changePassword(c echo.Context) error {
 	var req changePasswordRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
 	}
 	if len(req.Password) < 8 {
-		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "密码至少 8 个字符")
+		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "password must be at least 8 characters")
 	}
 	if err := h.deps.Auth.ChangeAdminPassword(c.Request().Context(), req.Password); err != nil {
 		return mapServiceError(c, err)

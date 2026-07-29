@@ -1,5 +1,6 @@
-// Package service 是数据库层与业务服务的宿主 module 根包，
-// 负责 schema migration：migrations/ 经 go:embed 编译进二进制，启动时执行。
+// Package service is the root package of the module hosting the database
+// layer and the business services. It owns schema migration: migrations/ is
+// embedded with go:embed and applied at startup.
 package service
 
 import (
@@ -17,7 +18,8 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// MigrateUp 把数据库升级到最新版本；已在最新版本时不做任何事。
+// MigrateUp brings the database to the latest version. It does nothing when
+// the database is already current.
 func MigrateUp(databaseURL string) error {
 	m, db, err := newMigrator(databaseURL)
 	if err != nil {
@@ -30,8 +32,9 @@ func MigrateUp(databaseURL string) error {
 	return nil
 }
 
-// newMigrator 用 pgx stdlib 打开连接（URL 中的 search_path 等运行时参数生效），
-// schema_migrations 表建在 CURRENT_SCHEMA 下，因此测试的随机 schema 天然隔离。
+// newMigrator opens the connection through pgx stdlib so runtime parameters
+// in the URL, such as search_path, take effect. The schema_migrations table
+// lives under CURRENT_SCHEMA, which isolates the random schemas used by tests.
 func newMigrator(databaseURL string) (*migrate.Migrate, *sql.DB, error) {
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {

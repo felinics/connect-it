@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "gitlab",
 	Name:                "GitLab",
-	Description:         "GitLab 代码托管与 DevSecOps 平台",
+	Description:         "GitLab code hosting and DevSecOps platform",
 	Categories:          []string{"developer_tools"},
 	HomepageURL:         "https://gitlab.com",
 	IconURL:             "https://cdn.simpleicons.org/gitlab",

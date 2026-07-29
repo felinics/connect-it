@@ -40,6 +40,6 @@ func TestInsertToolRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if status != "ok" || toolID != "list_items" || sessionID != nil {
-		t.Fatalf("行内容不符: %s %s session=%v", status, toolID, sessionID)
+		t.Fatalf("unexpected row contents: %s %s session=%v", status, toolID, sessionID)
 	}
 }

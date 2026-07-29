@@ -4,7 +4,8 @@ import { useI18n } from 'vue-i18n'
 
 import type { ConnectorStatus } from '../api/types'
 
-// 状态徽标：颜色走 accent 色板 token，文案走 i18n（status.*）。
+// Status badge: colours come from the accent palette tokens and the label
+// from i18n under status.*.
 const props = defineProps<{ status: ConnectorStatus | string }>()
 
 const { t, te } = useI18n()

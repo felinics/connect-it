@@ -1,8 +1,10 @@
-// Package oauthsvc 实现 OAuth 授权发起（state＋PKCE）与回调处理（授权码换 token）。
+// Package oauthsvc starts OAuth authorizations (state plus PKCE) and handles
+// the callback that exchanges the authorization code for a token.
 //
-// SaaS 模型：每次 Begin 立即创建一条 pending 连接并返回其持久 ID（连接 ID 即
-// 句柄，调用方自己维护「谁拥有这个 ID」）；终端用户完成授权后回调把连接置
-// active。BeginReauth 复用既有 ID 重新授权。
+// SaaS model: every Begin immediately creates a pending connection and returns
+// its durable ID. The connection ID is the handle, and the caller tracks who
+// owns it. Once the end user finishes authorizing, the callback marks the
+// connection active. BeginReauth re-authorizes an existing ID in place.
 package oauthsvc
 
 import (
@@ -29,7 +31,8 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-// CallbackPath 是固定回调路径，回调完整地址 = CONNECT_IT_BASE_URL + CallbackPath。
+// CallbackPath is the fixed callback path. The full callback address is
+// CONNECT_IT_BASE_URL + CallbackPath.
 const CallbackPath = "/v1/oauth/callback"
 
 const (
@@ -38,16 +41,17 @@ const (
 )
 
 var (
-	ErrUnknownConnector  = errors.New("oauthsvc: 未知 connector type")
-	ErrUnknownAuthMethod = errors.New("oauthsvc: 未知 auth method")
-	ErrNotOAuth          = errors.New("oauthsvc: auth method 不是 oauth2")
-	ErrInvalidState      = errors.New("oauthsvc: state 无效或已过期")
-	ErrMissingClient     = errors.New("oauthsvc: 配置缺少 client_id / client_secret")
-	ErrConnectionGone    = errors.New("oauthsvc: connection 不存在")
+	ErrUnknownConnector  = errors.New("oauthsvc: unknown connector type")
+	ErrUnknownAuthMethod = errors.New("oauthsvc: unknown auth method")
+	ErrNotOAuth          = errors.New("oauthsvc: auth method is not oauth2")
+	ErrInvalidState      = errors.New("oauthsvc: state is invalid or expired")
+	ErrMissingClient     = errors.New("oauthsvc: config is missing client_id or client_secret")
+	ErrConnectionGone    = errors.New("oauthsvc: connection does not exist")
 )
 
-// BeginResult 是授权发起的结果：连接 ID 当场返回（pending），
-// AuthorizationURL 交给终端用户跳转。
+// BeginResult is the outcome of starting an authorization: the connection ID
+// is returned immediately in pending state, and AuthorizationURL is where the
+// end user must be sent.
 type BeginResult struct {
 	ConnectionID     uuid.UUID
 	AuthorizationURL string
@@ -72,7 +76,8 @@ func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *c
 	return &Service{q: q, reg: reg, cfg: cfg, kr: kr, hc: hc, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
-// Begin 创建一条 pending 连接并生成授权 URL。alias 是可选展示标签。
+// Begin creates a pending connection and builds the authorization URL. alias
+// is an optional display label.
 func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias string) (BeginResult, error) {
 	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
 		return BeginResult{}, err
@@ -104,7 +109,8 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 		scopes = []string{}
 	}
 
-	// pending connection 与 authorization 必须一起落库；任何一步失败都不留下孤儿。
+	// The pending connection and the authorization must be committed together;
+	// a failure at any step must not leave an orphan behind.
 	tx, qtx, err := s.q.BeginTx(ctx)
 	if err != nil {
 		return BeginResult{}, err
@@ -131,7 +137,8 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 	return BeginResult{ConnectionID: connID, AuthorizationURL: draft.url}, nil
 }
 
-// BeginReauth 对既有连接重新发起授权：ID 不变，回调后覆盖凭证并置 active。
+// BeginReauth re-authorizes an existing connection. The ID stays the same;
+// the callback overwrites the credential and sets the connection active.
 func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID) (BeginResult, error) {
 	if err := s.q.ExpireOAuthAuthorizations(ctx); err != nil {
 		return BeginResult{}, err
@@ -157,7 +164,8 @@ func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID) (Begi
 		return BeginResult{}, err
 	}
 
-	// 同一 connection 同时只保留最新一次 reauth；较早的 state 立即失效。
+	// Only the most recent reauth of a connection stays valid; earlier states
+	// are invalidated immediately.
 	tx, qtx, err := s.q.BeginTx(ctx)
 	if err != nil {
 		return BeginResult{}, err
@@ -292,7 +300,7 @@ func (s *Service) authorizationParameters(
 	remote, ok := def.Implementation.(connector.RemoteMCP)
 	if !ok {
 		return "", "", "", nil, nil, false,
-			fmt.Errorf("%w: connector 不是 remote MCP", ErrMCPDiscovery)
+			fmt.Errorf("%w: connector is not remote MCP", ErrMCPDiscovery)
 	}
 	endpoint, err := resolveRemoteEndpoint(remote, resolved)
 	if err != nil {
@@ -308,7 +316,8 @@ func (s *Service) authorizationParameters(
 		discovery.Scopes, &clientRef, true, nil
 }
 
-// HandleCallback 核对 state、用授权码换 token，把绑定的连接置 active。
+// HandleCallback verifies the state, exchanges the authorization code for a
+// token, and sets the bound connection active.
 func (s *Service) HandleCallback(ctx context.Context, state, code string) error {
 	authz, err := s.claimAuthorization(ctx, state)
 	if err != nil {
@@ -348,14 +357,14 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) error 
 	)
 	if method.OAuth.Mode == connector.OAuthModeMCP {
 		if authz.OauthClientID == nil {
-			return errors.New("oauthsvc: MCP OAuth authorization 缺少 client registration")
+			return errors.New("oauthsvc: MCP OAuth authorization has no client registration")
 		}
 		client, err := LoadMCPClient(ctx, s.q, s.kr, *authz.OauthClientID)
 		if err != nil {
 			return err
 		}
 		if client.ConnectorType != t {
-			return errors.New("oauthsvc: MCP OAuth client registration 不属于当前 connector")
+			return errors.New("oauthsvc: MCP OAuth client registration does not belong to this connector")
 		}
 		clientID, clientSecret, resource = client.ClientID, client.ClientSecret, client.Resource
 		oc = connector.OAuthConfig{
@@ -412,7 +421,8 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) error 
 		return err
 	}
 
-	// connection 更新与 authorization 完成必须原子提交。
+	// Updating the connection and completing the authorization must commit
+	// atomically.
 	tx, qtx, err := s.q.BeginTx(ctx)
 	if err != nil {
 		return err
@@ -447,7 +457,8 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) error 
 	return nil
 }
 
-// RejectCallback 消费 provider 拒绝或取消返回的 state，并结束本次授权。
+// RejectCallback consumes the state returned when the provider denies access
+// or the user cancels, and ends the authorization.
 func (s *Service) RejectCallback(ctx context.Context, state string) error {
 	authz, err := s.claimAuthorization(ctx, state)
 	if err != nil {
@@ -465,7 +476,8 @@ func (s *Service) claimAuthorization(ctx context.Context, state string) (store.O
 	}
 	authz, err := s.q.ClaimOAuthAuthorization(ctx, hashToken(state))
 	if errors.Is(err, pgx.ErrNoRows) {
-		// 顺手收敛过期或进程中断的授权；不影响当前 invalid_state 结果。
+		// Opportunistically settle expired or interrupted authorizations; this
+		// does not change the invalid_state result being returned.
 		_ = s.q.ExpireOAuthAuthorizations(ctx)
 		return store.OauthAuthorization{}, ErrInvalidState
 	}
@@ -514,12 +526,13 @@ func resolveRemoteEndpoint(remote connector.RemoteMCP, config map[string]any) (s
 	option, _ := config[field].(string)
 	endpoint, ok := remote.EndpointSelector.Endpoints[option]
 	if !ok {
-		return "", fmt.Errorf("remote MCP endpoint option %q 无效", option)
+		return "", fmt.Errorf("invalid remote MCP endpoint option %q", option)
 	}
 	return endpoint, nil
 }
 
-// randomToken 返回 256bit 随机数的 base64url（43 字符，可直接用作 PKCE verifier）。
+// randomToken returns 256 bits of randomness as base64url: 43 characters,
+// directly usable as a PKCE verifier.
 func randomToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {

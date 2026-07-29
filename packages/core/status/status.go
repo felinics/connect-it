@@ -1,5 +1,5 @@
-// Package status 由 Definition 和管理员配置实时计算 Connector 运行状态。
-// 纯函数，无 I/O。
+// Package status derives the runtime status of a connector from its
+// Definition and the administrator config. Pure functions, no I/O.
 package status
 
 import (
@@ -16,12 +16,14 @@ const (
 	DefinitionMissing  Status = "definition_missing"
 )
 
-// ConfigState 是 connector_configs 行的内存视图，不含 secret 明文。
+// ConfigState is the in-memory view of a connector_configs row. It never
+// carries decrypted secrets.
 type ConfigState struct {
 	Exists        bool
 	SchemaVersion int
 	PublicValues  map[string]any
-	// SecretKeysSet 记录哪些 Secret 字段已被设置（值不出库）。
+	// SecretKeysSet records which secret fields have been set. The values
+	// themselves never leave the database.
 	SecretKeysSet map[string]bool
 }
 
@@ -53,7 +55,7 @@ func missingRequired(def *connector.Definition, cfg ConfigState) bool {
 			continue
 		}
 		if f.DefaultValue != nil {
-			continue // 已定义默认值，不要求管理员再次配置。
+			continue // a default is defined, so the administrator need not set it
 		}
 		v, ok := cfg.PublicValues[f.Key]
 		if !ok {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 概览页统计块（section-level stat tile）：标签在上、数值在下的独立白卡。
+// Section-level stat tile for the overview page: a standalone white card with
+// the label above and the value below.
 defineProps<{ label: string; value: string | number; hint?: string }>()
 </script>
 

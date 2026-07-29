@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "posthog",
 	Name:                "PostHog",
-	Description:         "PostHog 产品分析、功能开关与实验平台",
+	Description:         "PostHog product analytics, feature flag and experimentation platform",
 	Categories:          []string{"analytics"},
 	HomepageURL:         "https://posthog.com",
 	IconURL:             "https://cdn.simpleicons.org/posthog/_/e5e5e5",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "使用 PostHog 的 MCP Server preset 创建 Personal API Key。",
+			Description: "Personal API key created with PostHog's MCP server preset.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "monday",
 	Name:                "monday.com",
-	Description:         "monday.com 项目、工作流与协作平台",
+	Description:         "monday.com project, workflow and collaboration platform",
 	Categories:          []string{"productivity", "project_management"},
 	HomepageURL:         "https://monday.com",
 	IconURL:             "https://cdn.monday.com/images/logos/monday_logo_icon.png",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "monday.com Developer Center 中生成的 Personal API Token。",
+			Description: "Personal API token generated in the monday.com developer center.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

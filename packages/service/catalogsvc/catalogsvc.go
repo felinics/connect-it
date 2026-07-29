@@ -1,5 +1,6 @@
-// Package catalogsvc 把代码 Registry 与配置状态合并成对外 catalog，
-// 状态由 status.Compute 实时计算，永不包含 Secret。
+// Package catalogsvc merges the code registry with stored config state into
+// the catalog exposed to clients. Status is computed on the fly by
+// status.Compute, and secrets are never included.
 package catalogsvc
 
 import (
@@ -23,7 +24,8 @@ type Item struct {
 	AuthMethods []AuthMethodSummary `json:"auth_methods"`
 }
 
-// AuthMethodSummary 是下游创建 Connection 所需的非敏感认证元数据。
+// AuthMethodSummary is the non-sensitive auth metadata a downstream service
+// needs in order to create a connection.
 type AuthMethodSummary struct {
 	Key              string                   `json:"key"`
 	Label            string                   `json:"label"`
@@ -31,8 +33,9 @@ type AuthMethodSummary struct {
 	CredentialFields []CredentialField        `json:"credential_fields"`
 }
 
-// CredentialField 是创建 api_key / custom_credential Connection 时所需的
-// 非敏感表单元数据。它只描述字段约束，不包含任何用户提交的凭证值。
+// CredentialField is the non-sensitive form metadata needed to create an
+// api_key or custom_credential connection. It describes field constraints
+// only and never carries a user-submitted credential value.
 type CredentialField struct {
 	Key          string                    `json:"key"`
 	Label        string                    `json:"label"`
@@ -54,8 +57,9 @@ func New(reg *registry.Registry, cfg *configsvc.Service) *Service {
 	return &Service{reg: reg, cfg: cfg}
 }
 
-// List 返回全部已注册 Connector，外加数据库中存在但代码已不认识的
-// definition_missing 条目；保留原配置，代码回滚后仍可继续使用。
+// List returns every registered connector plus definition_missing entries for
+// rows that exist in the database but are no longer known to the code. Their
+// config is preserved so a code rollback can keep using them.
 func (s *Service) List(ctx context.Context) ([]Item, error) {
 	states, err := s.cfg.ConfigStates(ctx)
 	if err != nil {
@@ -80,7 +84,8 @@ func (s *Service) List(ctx context.Context) ([]Item, error) {
 	return out, nil
 }
 
-// Get 返回单个 Connector；未知 type 且无配置行时返回 configsvc.ErrNotFound。
+// Get returns a single connector. It returns configsvc.ErrNotFound when the
+// type is unknown and no config row exists.
 func (s *Service) Get(ctx context.Context, t connector.Type) (Item, error) {
 	def, ok := s.reg.Get(t)
 	if !ok {

@@ -160,7 +160,7 @@ export type StatusStatus = 'needs_config' | 'config_incompatible' | 'ready' | 'd
 
 export type ChangePasswordData = {
     /**
-     * 新密码（至少 8 个字符）
+     * New password, at least 8 characters
      */
     body: ApiChangePasswordRequest;
     path?: never;
@@ -202,7 +202,7 @@ export type ListApiTokensResponse = ListApiTokensResponses[keyof ListApiTokensRe
 
 export type CreateApiTokenData = {
     /**
-     * token 名称
+     * Token name
      */
     body: ApiCreateTokenRequest;
     path?: never;
@@ -436,7 +436,7 @@ export type GetConfigResponse = GetConfigResponses[keyof GetConfigResponses];
 
 export type PutConfigData = {
     /**
-     * 配置内容；if_match 传上次读到的 updated_at（RFC3339），首次创建留空
+     * Config payload; pass the updated_at you last read as if_match (RFC3339), leave empty on first create
      */
     body: ApiPutConfigRequest;
     path: {
@@ -507,7 +507,7 @@ export type GetConfigSchemaResponse = GetConfigSchemaResponses[keyof GetConfigSc
 
 export type LoginData = {
     /**
-     * 用户名与密码
+     * User name and password
      */
     body: ApiLoginRequest;
     path?: never;
@@ -551,7 +551,7 @@ export type HealthzResponse = HealthzResponses[keyof HealthzResponses];
 
 export type CreateApiKeyConnectionData = {
     /**
-     * 凭证字段按 auth method 的 CredentialFields 填写；alias 可选
+     * Fill credential fields per the CredentialFields of the auth method; alias is optional
      */
     body: ApiCreateApiKeyRequest;
     path?: never;
@@ -583,7 +583,7 @@ export type CreateApiKeyConnectionResponse = CreateApiKeyConnectionResponses[key
 
 export type BeginOAuthConnectionData = {
     /**
-     * alias 为可选展示标签
+     * alias is an optional display label
      */
     body: ApiBeginOAuthRequest;
     path?: never;
@@ -758,7 +758,7 @@ export type GetConnectorResponse = GetConnectorResponses[keyof GetConnectorRespo
 
 export type CreateMcpSessionData = {
     /**
-     * connections 为 namespace→connection_id；allowlist 使用 namespace__tool 名称
+     * connections maps namespace to connection_id; allowlist entries use namespace__tool names
      */
     body: ApiCreateMcpSessionRequest;
     path?: never;
@@ -793,15 +793,15 @@ export type OauthCallbackData = {
     path?: never;
     query?: {
         /**
-         * 授权发起时生成的 state
+         * The state generated when the authorization started
          */
         state?: string;
         /**
-         * 授权码
+         * Authorization code
          */
         code?: string;
         /**
-         * provider 返回的错误码
+         * Error code returned by the provider
          */
         error?: string;
     };

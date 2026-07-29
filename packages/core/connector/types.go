@@ -1,5 +1,5 @@
-// Package connector 定义 Connector 的固定 Definition 类型。
-// 本包只有纯数据类型，不做任何 I/O。
+// Package connector defines the code-fixed Definition types for connectors.
+// It holds pure data types only and performs no I/O.
 package connector
 
 import (
@@ -8,10 +8,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Type 是稳定的平台标识（snake_case），如 "github"、"one_drive"。
+// Type is the stable platform identifier in snake_case, such as "github" or
+// "one_drive".
 type Type string
 
-// Definition 是代码内固定的 Connector 模板。
+// Definition is the code-fixed template for one connector.
 type Definition struct {
 	Type                Type
 	Name                string
@@ -92,8 +93,8 @@ const (
 )
 
 type FieldValidation struct {
-	Pattern string   // 正则，空串表示不校验
-	Options []string // InputSelect 的可选值
+	Pattern string   // regular expression; an empty string disables validation
+	Options []string // allowed values for InputSelect
 }
 
 type ConfigField struct {
@@ -102,7 +103,7 @@ type ConfigField struct {
 	InputType    ConfigInputType
 	Required     bool
 	Secret       bool
-	DefaultValue *string // Secret 字段禁止设置
+	DefaultValue *string // must not be set on Secret fields
 	Description  string
 	Validation   FieldValidation
 }
@@ -149,16 +150,18 @@ type OAuthConfig struct {
 }
 
 type AuthMethod struct {
-	Key   string // Connector 内唯一，如 "oauth"、"pat"
+	Key   string // unique within a connector, such as "oauth" or "pat"
 	Type  AuthMethodType
 	Label string
-	// OAuth 仅 Type == AuthOAuth2 时必填，其他类型必须为 nil。
+	// OAuth is required when Type == AuthOAuth2 and must be nil otherwise.
 	OAuth *OAuthConfig
-	// CredentialFields 是 api_key / custom_credential 需要用户填写的字段。
+	// CredentialFields are the fields the user fills in for api_key and
+	// custom_credential auth methods.
 	CredentialFields []ConfigField
 }
 
-// ConfigUpgrader 把管理员配置从 FromVersion 升级到 FromVersion+1。
+// ConfigUpgrader migrates administrator config from FromVersion to
+// FromVersion+1.
 type ConfigUpgrader struct {
 	FromVersion int
 	Upgrade     func(public, secret map[string]any) (map[string]any, map[string]any, error)

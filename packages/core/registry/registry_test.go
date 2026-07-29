@@ -51,7 +51,7 @@ func TestRegisterRejectsInvalidImplementation(t *testing.T) {
 			Endpoint: "http://mcp.example.com",
 		}, "https"},
 		{"missing endpoint", connector.RemoteMCP{}, "https"},
-		{"managed without tools", connector.Managed{}, "至少"},
+		{"managed without tools", connector.Managed{}, "at least"},
 		{"managed without handler", connector.Managed{Tools: []connector.ManagedTool{{
 			Tool: mcp.Tool{Name: "tool", InputSchema: map[string]any{"type": "object"}},
 		}}}, "Handler"},
@@ -112,7 +112,7 @@ func TestRegisterValidatesCredentialFields(t *testing.T) {
 				{Key: "token", InputType: connector.InputText, Required: true},
 				{Key: "token", InputType: connector.InputText},
 			},
-			want: "重复",
+			want: "duplicate",
 		},
 	}
 	for _, test := range tests {

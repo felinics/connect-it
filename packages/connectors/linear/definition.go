@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "linear",
 	Name:                "Linear",
-	Description:         "Linear 产品研发、Issue 与项目管理平台",
+	Description:         "Linear product development, issue and project management platform",
 	Categories:          []string{"developer_tools", "project_management"},
 	HomepageURL:         "https://linear.app",
 	IconURL:             "https://cdn.simpleicons.org/linear",
@@ -32,7 +32,7 @@ var Definition = connector.Definition{
 				InputType:   connector.InputText,
 				Required:    true,
 				Secret:      true,
-				Description: "Linear Security & Access 中生成的最小权限 API Key。",
+				Description: "Least-privilege API key generated under Linear Security & Access.",
 			}},
 		},
 	},

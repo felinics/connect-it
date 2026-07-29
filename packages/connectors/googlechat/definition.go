@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_chat",
 	Name:                "Google Chat",
-	Description:         "Google Chat 团队沟通服务",
+	Description:         "Google Chat team messaging service",
 	Categories:          []string{"communication"},
 	HomepageURL:         "https://chat.google.com",
 	IconURL:             "https://cdn.simpleicons.org/googlechat",

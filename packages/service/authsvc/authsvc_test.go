@@ -18,16 +18,16 @@ func TestPasswordHashRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(hash, "$argon2id$v=19$") {
-		t.Fatalf("哈希格式不符: %s", hash)
+		t.Fatalf("unexpected hash format: %s", hash)
 	}
 	if ok, err := verifyPassword(hash, "s3cret-pass"); err != nil || !ok {
-		t.Fatalf("正确密码应通过: ok=%v err=%v", ok, err)
+		t.Fatalf("the correct password should verify: ok=%v err=%v", ok, err)
 	}
 	if ok, _ := verifyPassword(hash, "wrong"); ok {
-		t.Fatal("错误密码不应通过")
+		t.Fatal("a wrong password must not verify")
 	}
 	if _, err := verifyPassword("$bcrypt$whatever", "x"); err == nil {
-		t.Fatal("未知格式应报错")
+		t.Fatal("an unknown format should return an error")
 	}
 }
 
@@ -43,7 +43,7 @@ func TestEnsureAdminFromEnv(t *testing.T) {
 
 	t.Setenv(EnvAdminPassword, "")
 	if err := s.EnsureAdminFromEnv(ctx); err == nil {
-		t.Fatal("无账号且无环境变量应报错")
+		t.Fatal("no account and no environment variable should return an error")
 	}
 
 	t.Setenv(EnvAdminPassword, "first-pass")
@@ -51,22 +51,23 @@ func TestEnsureAdminFromEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ok, err := s.VerifyAdminPassword(ctx, "admin", "first-pass"); err != nil || !ok {
-		t.Fatalf("seed 密码应可登录: ok=%v err=%v", ok, err)
+		t.Fatalf("the seeded password should log in: ok=%v err=%v", ok, err)
 	}
 
-	// 幂等：换环境变量再跑不会覆盖既有密码
+	// Idempotent: rerunning with a different environment variable must not
+	// overwrite the existing password.
 	t.Setenv(EnvAdminPassword, "second-pass")
 	if err := s.EnsureAdminFromEnv(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.VerifyAdminPassword(ctx, "admin", "second-pass"); ok {
-		t.Fatal("已有账号不应被新环境变量覆盖")
+		t.Fatal("an existing account must not be overwritten by a new environment variable")
 	}
 	if ok, _ := s.VerifyAdminPassword(ctx, "admin", "first-pass"); !ok {
-		t.Fatal("原密码应仍然有效")
+		t.Fatal("the original password should still be valid")
 	}
 	if ok, _ := s.VerifyAdminPassword(ctx, "root", "first-pass"); ok {
-		t.Fatal("用户名不匹配不应通过")
+		t.Fatal("a mismatched user name must not verify")
 	}
 }
 
@@ -78,13 +79,13 @@ func TestChangeAdminPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.ChangeAdminPassword(ctx, "short"); err == nil {
-		t.Fatal("过短密码应被拒绝")
+		t.Fatal("a too-short password should be rejected")
 	}
 	if err := s.ChangeAdminPassword(ctx, "brand-new-pass"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.VerifyAdminPassword(ctx, "admin", "brand-new-pass"); !ok {
-		t.Fatal("新密码应生效")
+		t.Fatal("the new password should take effect")
 	}
 }
 
@@ -97,33 +98,33 @@ func TestAPITokenLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(plaintext, "cit_") {
-		t.Fatalf("token 前缀不符: %s", plaintext)
+		t.Fatalf("unexpected token prefix: %s", plaintext)
 	}
 	if gotID, ok, err := s.VerifyAPIToken(ctx, plaintext); err != nil || !ok || gotID != id {
-		t.Fatalf("有效 token 应通过: id=%s ok=%v err=%v", gotID, ok, err)
+		t.Fatalf("a valid token should verify: id=%s ok=%v err=%v", gotID, ok, err)
 	}
 	if _, ok, _ := s.VerifyAPIToken(ctx, "cit_deadbeef"); ok {
-		t.Fatal("伪造 token 不应通过")
+		t.Fatal("a forged token must not verify")
 	}
 	if _, ok, _ := s.VerifyAPIToken(ctx, "Bearer-something"); ok {
-		t.Fatal("无前缀 token 不应通过")
+		t.Fatal("a token without the prefix must not verify")
 	}
 
 	list, err := s.ListAPITokens(ctx)
 	if err != nil || len(list) != 1 || list[0].Name != "ci" || list[0].RevokedAt != nil {
-		t.Fatalf("list 不符: %+v err=%v", list, err)
+		t.Fatalf("unexpected list: %+v err=%v", list, err)
 	}
 
 	if err := s.RevokeAPIToken(ctx, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, _ := s.VerifyAPIToken(ctx, plaintext); ok {
-		t.Fatal("已撤销 token 不应通过")
+		t.Fatal("a revoked token must not verify")
 	}
 	if err := s.RevokeAPIToken(ctx, id); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("重复撤销应 ErrNotFound, got %v", err)
+		t.Fatalf("revoking twice should yield ErrNotFound, got %v", err)
 	}
 	if err := s.RevokeAPIToken(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("不存在的 id 应 ErrNotFound, got %v", err)
+		t.Fatalf("an unknown id should yield ErrNotFound, got %v", err)
 	}
 }

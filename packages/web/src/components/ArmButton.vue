@@ -3,8 +3,9 @@ import { Button } from '@felinic/ui'
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-// 两段式危险操作：第一次点击进入待确认态（3 秒后自动复位），
-// 第二次点击才真正触发。内部工具的轻量删除确认，不开对话框。
+// Two-step destructive action: the first click arms it and it resets after 3
+// seconds; only the second click fires. A lightweight delete confirmation for
+// an internal tool, without opening a dialog.
 const props = defineProps<{ label: string; confirmLabel?: string; disabled?: boolean }>()
 const emit = defineEmits<{ confirm: [] }>()
 

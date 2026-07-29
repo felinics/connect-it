@@ -46,7 +46,7 @@ func (h *mcpHost) requireSession(next echo.HandlerFunc) echo.HandlerFunc {
 				"session token is invalid, expired or revoked")
 		}
 		if err != nil {
-			h.logger.Errorf("解析 MCP session 失败: %v", err)
+			h.logger.Errorf("parsing the MCP session failed: %v", err)
 			return writeError(c, http.StatusInternalServerError, "internal",
 				"failed to resolve mcp session")
 		}
@@ -123,7 +123,7 @@ func (h *mcpHost) callTool(
 	)
 	if err != nil {
 		h.logger.Errorf(
-			"MCP tool 调用失败 connection_id=%s tool_name=%q upstream_tool=%q error=%v",
+			"MCP tool call failed connection_id=%s tool_name=%q upstream_tool=%q error=%v",
 			route.ConnectionID, params.Name, route.ToolName, err,
 		)
 		code, message := publicToolError(err)

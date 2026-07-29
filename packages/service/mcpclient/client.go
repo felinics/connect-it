@@ -1,5 +1,6 @@
-// Package mcpclient 用官方 go-sdk 以 Streamable HTTP 调用上游 MCP server。
-// 每次调用新建并关闭 session；暂不维护进程内缓存。
+// Package mcpclient calls upstream MCP servers over Streamable HTTP using the
+// official go-sdk. Each call opens and closes its own session; no in-process
+// cache is kept for now.
 package mcpclient
 
 import (
@@ -15,7 +16,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Client 是无状态适配器，把包级函数暴露给执行引擎。
+// Client is a stateless adapter that exposes the package-level functions to
+// the execution engine.
 type Client struct{}
 
 // UpstreamError marks a failed MCP operation and retains only its HTTP status,
@@ -37,7 +39,7 @@ func (Client) CallTool(ctx context.Context, endpoint, token, authorizationScheme
 	return CallTool(ctx, endpoint, token, authorizationScheme, timeout, params)
 }
 
-// ListTools 完成一次 MCP 握手并读取上游全部分页。
+// ListTools performs one MCP handshake and reads every upstream page.
 func ListTools(ctx context.Context, endpoint, token, authorizationScheme string, timeout time.Duration) ([]*mcp.Tool, error) {
 	ctx, cancel := withTimeout(ctx, timeout)
 	defer cancel()
@@ -51,17 +53,18 @@ func ListTools(ctx context.Context, endpoint, token, authorizationScheme string,
 	var tools []*mcp.Tool
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
-			return nil, upstreamError(fmt.Errorf("mcpclient: tools/list 失败: %w", err), tracker)
+			return nil, upstreamError(fmt.Errorf("mcpclient: tools/list failed: %w", err), tracker)
 		}
 		tools = append(tools, tool)
 	}
 	return tools, nil
 }
 
-// CallTool 完成一次 MCP 握手并把原生 MCP 参数和结果透传给上游。
+// CallTool performs one MCP handshake and passes native MCP params and
+// results straight through to the upstream server.
 func CallTool(ctx context.Context, endpoint, token, authorizationScheme string, timeout time.Duration, params *mcp.CallToolParamsRaw) (*mcp.CallToolResult, error) {
 	if params == nil {
-		return nil, fmt.Errorf("mcpclient: call params 不能为空")
+		return nil, fmt.Errorf("mcpclient: call params must not be nil")
 	}
 	ctx, cancel := withTimeout(ctx, timeout)
 	defer cancel()
@@ -78,7 +81,7 @@ func CallTool(ctx context.Context, endpoint, token, authorizationScheme string, 
 		Arguments: params.Arguments,
 	})
 	if err != nil {
-		return nil, upstreamError(fmt.Errorf("mcpclient: 调用 tool %q 失败: %w", params.Name, err), tracker)
+		return nil, upstreamError(fmt.Errorf("mcpclient: calling tool %q failed: %w", params.Name, err), tracker)
 	}
 	return res, nil
 }
@@ -89,7 +92,7 @@ func CheckEndpoint(endpoint string) error {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Host == "" ||
 		u.User != nil || u.Fragment != "" {
-		return fmt.Errorf("mcpclient: endpoint %q 必须是合法的 https URL", endpoint)
+		return fmt.Errorf("mcpclient: endpoint %q must be a valid https URL", endpoint)
 	}
 	return nil
 }
@@ -127,7 +130,7 @@ func connect(ctx context.Context, endpoint, token, authorizationScheme string) (
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		return nil, tracker, upstreamError(
-			fmt.Errorf("mcpclient: 连接 %s 失败: %w", endpoint, err), tracker)
+			fmt.Errorf("mcpclient: connecting to %s failed: %w", endpoint, err), tracker)
 	}
 	return session, tracker, nil
 }

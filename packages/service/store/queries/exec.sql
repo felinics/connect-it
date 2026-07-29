@@ -1,4 +1,4 @@
--- Tool 调用 metadata-only 审计。
+-- Metadata-only audit of tool calls.
 
 -- name: InsertToolRun :exec
 insert into tool_runs (

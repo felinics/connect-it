@@ -48,7 +48,7 @@ func newEnv(t *testing.T) *env {
 	}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.tokenHit.Add(1)
-		time.Sleep(30 * time.Millisecond) // 放大并发窗口
+		time.Sleep(30 * time.Millisecond) // widen the concurrency window
 		e.respMu.Lock()
 		code, body := e.respCode, e.respBody
 		e.respMu.Unlock()
@@ -89,7 +89,8 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
-// seedOAuth 造一个 OAuth connection，expiresIn 控制离过期还有多久（可为负）。
+// seedOAuth creates an OAuth connection; expiresIn controls how long until
+// it expires and may be negative.
 func (e *env) seedOAuth(t *testing.T, expiresIn time.Duration) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -148,7 +149,7 @@ func TestAPIKeyPassthrough(t *testing.T) {
 		t.Fatalf("got %q err=%v", got, err)
 	}
 	if e.tokenHit.Load() != 0 {
-		t.Fatal("api_key 不应打 token endpoint")
+		t.Fatal("api_key must not hit the token endpoint")
 	}
 }
 
@@ -160,16 +161,16 @@ func TestFreshTokenNoRefresh(t *testing.T) {
 		t.Fatalf("got %q err=%v", got, err)
 	}
 	if e.tokenHit.Load() != 0 {
-		t.Fatal("未过期不应刷新")
+		t.Fatal("an unexpired token must not be refreshed")
 	}
 }
 
 func TestNoExpiryNeverRefreshes(t *testing.T) {
 	e := newEnv(t)
-	id := e.seedOAuth(t, 0) // 无过期时间
+	id := e.seedOAuth(t, 0) // no expiry
 	got, err := e.r.AccessToken(context.Background(), id)
 	if err != nil || got != "at-old" || e.tokenHit.Load() != 0 {
-		t.Fatalf("无过期时间应直通: %q err=%v hits=%d", got, err, e.tokenHit.Load())
+		t.Fatalf("a token without expiry should pass straight through: %q err=%v hits=%d", got, err, e.tokenHit.Load())
 	}
 }
 
@@ -181,19 +182,19 @@ func TestExpiredTriggersRefresh(t *testing.T) {
 		t.Fatalf("got %q err=%v", got, err)
 	}
 	if e.tokenHit.Load() != 1 {
-		t.Fatalf("应恰好刷新一次: %d", e.tokenHit.Load())
+		t.Fatalf("expected exactly one refresh: %d", e.tokenHit.Load())
 	}
-	// 新 credential 已落库：再次调用直接用新 token，不再刷新
+	// The new credential is stored: a second call uses it directly, no refresh.
 	got, err = e.r.AccessToken(context.Background(), id)
 	if err != nil || got != "at-new" || e.tokenHit.Load() != 1 {
-		t.Fatalf("落库后应直通: %q err=%v hits=%d", got, err, e.tokenHit.Load())
+		t.Fatalf("once stored it should pass straight through: %q err=%v hits=%d", got, err, e.tokenHit.Load())
 	}
 }
 
 func TestRefreshKeepsOldRefreshTokenWhenAbsent(t *testing.T) {
 	e := newEnv(t)
 	e.respMu.Lock()
-	e.respBody = map[string]any{"access_token": "at-new", "expires_in": 3600} // 无 refresh_token
+	e.respBody = map[string]any{"access_token": "at-new", "expires_in": 3600} // no refresh_token
 	e.respMu.Unlock()
 	id := e.seedOAuth(t, -time.Minute)
 	if _, err := e.r.AccessToken(context.Background(), id); err != nil {
@@ -209,7 +210,7 @@ func TestRefreshKeepsOldRefreshTokenWhenAbsent(t *testing.T) {
 	}
 	cred, err := credential.UnmarshalOAuth(plain)
 	if err != nil || cred.RefreshToken != "rt-old" {
-		t.Fatalf("响应缺省时应保留旧 refresh token: %+v err=%v", cred, err)
+		t.Fatalf("an omitted response field should keep the old refresh token: %+v err=%v", cred, err)
 	}
 }
 
@@ -235,7 +236,7 @@ func TestConcurrentSingleFlight(t *testing.T) {
 		}
 	}
 	if hits := e.tokenHit.Load(); hits != 1 {
-		t.Fatalf("并发下应恰好刷新一次, got %d", hits)
+		t.Fatalf("concurrent callers should trigger exactly one refresh, got %d", hits)
 	}
 }
 
@@ -248,19 +249,19 @@ func TestRefreshFailureMarksReauth(t *testing.T) {
 	id := e.seedOAuth(t, -time.Minute)
 
 	if _, err := e.r.AccessToken(context.Background(), id); !errors.Is(err, tokens.ErrReauthRequired) {
-		t.Fatalf("刷新失败应 ErrReauthRequired, got %v", err)
+		t.Fatalf("a failed refresh should yield ErrReauthRequired, got %v", err)
 	}
 	row, _ := e.q.GetConnection(context.Background(), id)
 	if row.Status != "reauth_required" {
-		t.Fatalf("状态应为 reauth_required: %s", row.Status)
+		t.Fatalf("status should be reauth_required: %s", row.Status)
 	}
-	// 再次调用：状态挡住，不再打 endpoint
+	// A second call is blocked by the status and never reaches the endpoint.
 	hits := e.tokenHit.Load()
 	if _, err := e.r.AccessToken(context.Background(), id); !errors.Is(err, tokens.ErrReauthRequired) {
-		t.Fatal("reauth_required 状态应直接拒绝")
+		t.Fatal("the reauth_required status should reject outright")
 	}
 	if e.tokenHit.Load() != hits {
-		t.Fatal("拒绝路径不应再打 endpoint")
+		t.Fatal("the reject path must not hit the endpoint again")
 	}
 }
 
@@ -274,11 +275,11 @@ func TestTransientRefreshFailureKeepsConnectionActive(t *testing.T) {
 
 	if _, err := e.r.AccessToken(context.Background(), id); err == nil ||
 		errors.Is(err, tokens.ErrReauthRequired) {
-		t.Fatalf("临时故障应返回可重试错误而非 ErrReauthRequired: %v", err)
+		t.Fatalf("a transient failure should return a retryable error, not ErrReauthRequired: %v", err)
 	}
 	row, err := e.q.GetConnection(context.Background(), id)
 	if err != nil || row.Status != "active" {
-		t.Fatalf("临时故障后 connection 应保持 active: %+v err=%v", row, err)
+		t.Fatalf("a connection should stay active after a transient failure: %+v err=%v", row, err)
 	}
 
 	e.respMu.Lock()
@@ -287,10 +288,10 @@ func TestTransientRefreshFailureKeepsConnectionActive(t *testing.T) {
 	e.respMu.Unlock()
 	got, err := e.r.AccessToken(context.Background(), id)
 	if err != nil || got != "at-retry" {
-		t.Fatalf("后续调用应可重试成功: token=%q err=%v", got, err)
+		t.Fatalf("a later call should retry successfully: token=%q err=%v", got, err)
 	}
 	if e.tokenHit.Load() != 2 {
-		t.Fatalf("应请求两次 token endpoint: %d", e.tokenHit.Load())
+		t.Fatalf("expected two token endpoint requests: %d", e.tokenHit.Load())
 	}
 }
 

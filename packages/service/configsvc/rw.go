@@ -28,8 +28,10 @@ func (s *Service) Get(ctx context.Context, t connector.Type) (ConfigView, error)
 	return s.viewFromRow(row, t)
 }
 
-// Put 写入配置：public 为全量替换；secrets 为部分合并——出现的 key 覆盖，
-// 空串表示删除，未出现的保留原值。Definition 已删除的字段在此顺带清理。
+// Put writes the config. public is replaced wholesale; secrets are merged
+// partially: a present key overwrites, an empty string deletes, and an absent
+// key keeps its stored value. Fields dropped from the Definition are cleaned
+// up along the way.
 func (s *Service) Put(ctx context.Context, t connector.Type, public map[string]any, secrets map[string]string, ifMatch time.Time) (ConfigView, error) {
 	def, ok := s.reg.Get(t)
 	if !ok {
@@ -59,7 +61,8 @@ func (s *Service) Put(ctx context.Context, t connector.Type, public map[string]a
 			return ConfigView{}, err
 		}
 	} else if !ifMatch.IsZero() {
-		// 客户端以为行存在（带了 If-Match），实际已被删除。
+		// The client assumed the row existed because it sent If-Match, but
+		// the row has since been deleted.
 		return ConfigView{}, ErrConflict
 	}
 	for k, v := range secrets {
@@ -166,13 +169,13 @@ func (s *Service) decryptSecrets(row store.ConnectorConfig, t connector.Type) (m
 	}
 	plaintext, err := s.kr.Decrypt(row.SecretConfig, int(row.SecretKeyVersion), []byte(t))
 	if err != nil {
-		return nil, fmt.Errorf("configsvc: 解密 secret_config: %w", err)
+		return nil, fmt.Errorf("configsvc: decrypt secret_config: %w", err)
 	}
 	if len(plaintext) == 0 {
 		return out, nil
 	}
 	if err := json.Unmarshal(plaintext, &out); err != nil {
-		return nil, fmt.Errorf("configsvc: secret_config 明文损坏: %w", err)
+		return nil, fmt.Errorf("configsvc: secret_config plaintext is corrupt: %w", err)
 	}
 	return out, nil
 }
@@ -183,7 +186,7 @@ func unmarshalPublic(raw []byte) (map[string]any, error) {
 		return pub, nil
 	}
 	if err := json.Unmarshal(raw, &pub); err != nil {
-		return nil, fmt.Errorf("configsvc: public_config 损坏: %w", err)
+		return nil, fmt.Errorf("configsvc: public_config is corrupt: %w", err)
 	}
 	return pub, nil
 }

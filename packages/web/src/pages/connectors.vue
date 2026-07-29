@@ -75,7 +75,7 @@ const visible = computed(() => {
 
 <template>
   <PageShell :title="t('connectors.title')" wide>
-    <!-- 工具条：状态筛选＋搜索 -->
+    <!-- Toolbar: status filter and search -->
     <div class="flex flex-wrap items-center justify-between gap-3 px-2">
       <div class="flex items-center gap-3">
         <span class="text-body text-muted-foreground">
@@ -88,7 +88,7 @@ const visible = computed(() => {
       </div>
     </div>
 
-    <!-- 整卡可点的连接器 grid -->
+    <!-- Connector grid where the whole card is clickable -->
     <div class="grid gap-4 sm:grid-cols-2">
       <ActionCard
         v-for="item in visible"

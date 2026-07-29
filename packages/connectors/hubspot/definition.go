@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "hubspot",
 	Name:                "HubSpot",
-	Description:         "HubSpot CRM、营销与客户平台",
+	Description:         "HubSpot CRM, marketing and customer platform",
 	Categories:          []string{"crm", "marketing"},
 	HomepageURL:         "https://www.hubspot.com",
 	IconURL:             "https://cdn.simpleicons.org/hubspot",
@@ -21,7 +21,7 @@ var Definition = connector.Definition{
 			Label:       "OAuth Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "HubSpot MCP Auth App 的 Client ID。",
+			Description: "Client ID of the HubSpot MCP auth app.",
 		},
 		{
 			Key:         "client_secret",
@@ -29,7 +29,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "HubSpot MCP Auth App 的 Client Secret。",
+			Description: "Client secret of the HubSpot MCP auth app.",
 		},
 	},
 	AuthMethods: []connector.AuthMethod{{

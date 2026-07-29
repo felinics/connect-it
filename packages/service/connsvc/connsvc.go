@@ -1,5 +1,5 @@
-// Package connsvc 管理 connection 的创建（api_key / custom_credential）、列表与删除。
-// OAuth connection 的创建走 oauthsvc。
+// Package connsvc creates (for api_key and custom_credential), lists and
+// deletes connections. OAuth connections are created through oauthsvc.
 package connsvc
 
 import (
@@ -19,16 +19,16 @@ import (
 	"github.com/memohai/connect-it/packages/service/store"
 )
 
-// AliasPattern 是可选 Connection 展示标签的合法形式。
+// AliasPattern is the accepted form of the optional connection display label.
 var AliasPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 var (
-	ErrInvalidAlias      = errors.New("connsvc: alias 必须匹配 ^[a-z0-9][a-z0-9-]{0,31}$")
-	ErrUnknownConnector  = errors.New("connsvc: 未知 connector type")
-	ErrUnknownAuthMethod = errors.New("connsvc: 未知 auth method")
-	ErrWrongAuthType     = errors.New("connsvc: auth method 不是 api_key / custom_credential")
-	ErrInvalidFields     = errors.New("connsvc: credential 字段不合法")
-	ErrNotFound          = errors.New("connsvc: connection 不存在")
+	ErrInvalidAlias      = errors.New("connsvc: alias must match ^[a-z0-9][a-z0-9-]{0,31}$")
+	ErrUnknownConnector  = errors.New("connsvc: unknown connector type")
+	ErrUnknownAuthMethod = errors.New("connsvc: unknown auth method")
+	ErrWrongAuthType     = errors.New("connsvc: auth method is not api_key or custom_credential")
+	ErrInvalidFields     = errors.New("connsvc: invalid credential fields")
+	ErrNotFound          = errors.New("connsvc: connection does not exist")
 )
 
 type Service struct {
@@ -41,7 +41,7 @@ func New(q *store.Queries, reg *registry.Registry, kr *crypto.Keyring) *Service 
 	return &Service{q: q, reg: reg, kr: kr}
 }
 
-// ConnectionView 是不含 credential 的对外视图。
+// ConnectionView is the outward-facing view, without the credential.
 type ConnectionView struct {
 	ID            uuid.UUID `json:"id"`
 	ConnectorType string    `json:"connector_type"`
@@ -51,8 +51,9 @@ type ConnectionView struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// CreateAPIKey 创建一条 api_key / custom_credential 连接并返回其持久 ID。
-// alias 是可选展示标签（空串表示不设）。
+// CreateAPIKey creates one api_key or custom_credential connection and
+// returns its durable ID. alias is an optional display label; an empty
+// string means none.
 func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethodKey, alias string, fields map[string]string) (uuid.UUID, error) {
 	if alias != "" && !AliasPattern.MatchString(alias) {
 		return uuid.Nil, ErrInvalidAlias
@@ -72,7 +73,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 		return uuid.Nil, fmt.Errorf("%w: %s", ErrUnknownAuthMethod, authMethodKey)
 	}
 	if method.Type != connector.AuthAPIKey && method.Type != connector.AuthCustomCredential {
-		return uuid.Nil, fmt.Errorf("%w: %s 是 %s", ErrWrongAuthType, authMethodKey, method.Type)
+		return uuid.Nil, fmt.Errorf("%w: %s is %s", ErrWrongAuthType, authMethodKey, method.Type)
 	}
 	if err := validateFields(method.CredentialFields, fields); err != nil {
 		return uuid.Nil, err
@@ -100,7 +101,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 		SecretKeyVersion: int32(ver),
 		Scopes:           []string{},
 		Status:           "active",
-		// AccessTokenExpiresAt 保持 nil（NULL）：api_key 不过期
+		// AccessTokenExpiresAt stays nil (NULL): api_key credentials do not expire.
 	})
 	if err != nil {
 		return uuid.Nil, err
@@ -170,21 +171,21 @@ func validateFields(defs []connector.ConfigField, got map[string]string) error {
 	}
 	for k := range got {
 		if _, ok := byKey[k]; !ok {
-			return fmt.Errorf("%w: 未声明的字段 %q", ErrInvalidFields, k)
+			return fmt.Errorf("%w: undeclared field %q", ErrInvalidFields, k)
 		}
 	}
 	for _, f := range defs {
 		v, ok := got[f.Key]
 		if f.Required && (!ok || v == "") {
-			return fmt.Errorf("%w: 缺少必填字段 %q", ErrInvalidFields, f.Key)
+			return fmt.Errorf("%w: missing required field %q", ErrInvalidFields, f.Key)
 		}
 		if ok && v != "" && f.Validation.Pattern != "" {
 			re, err := regexp.Compile(f.Validation.Pattern)
 			if err != nil {
-				return fmt.Errorf("%w: 字段 %q 的校验正则非法: %v", ErrInvalidFields, f.Key, err)
+				return fmt.Errorf("%w: field %q has an invalid validation pattern: %v", ErrInvalidFields, f.Key, err)
 			}
 			if !re.MatchString(v) {
-				return fmt.Errorf("%w: 字段 %q 不符合 %s", ErrInvalidFields, f.Key, f.Validation.Pattern)
+				return fmt.Errorf("%w: field %q does not match %s", ErrInvalidFields, f.Key, f.Validation.Pattern)
 			}
 		}
 		if ok && v != "" && len(f.Validation.Options) > 0 {
@@ -196,7 +197,7 @@ func validateFields(defs []connector.ConfigField, got map[string]string) error {
 				}
 			}
 			if !valid {
-				return fmt.Errorf("%w: 字段 %q 不是允许的选项", ErrInvalidFields, f.Key)
+				return fmt.Errorf("%w: field %q is not an allowed option", ErrInvalidFields, f.Key)
 			}
 		}
 	}

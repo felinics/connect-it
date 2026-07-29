@@ -30,12 +30,12 @@ func registerMCPSessions(g *echo.Group, deps Deps) {
 
 // createMCPSession godoc
 //
-//	@Summary	签发聚合多个 Connection 的短期 MCP session token
+//	@Summary	Issue a short-lived MCP session token aggregating several connections
 //	@ID			createMcpSession
 //	@Tags		mcp
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.createMCPSessionRequest	true	"connections 为 namespace→connection_id；allowlist 使用 namespace__tool 名称"
+//	@Param		body	body		api.createMCPSessionRequest	true	"connections maps namespace to connection_id; allowlist entries use namespace__tool names"
 //	@Success	201		{object}	api.createMCPSessionResponse
 //	@Failure	400		{object}	api.ErrorResponse
 //	@Failure	502		{object}	api.ErrorResponse

@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。",
+        "description": "Self-hosted connector gateway: catalog, config management, OAuth connections and aggregated MCP.",
         "title": "connect-it API",
         "contact": {},
         "version": "1.0"
@@ -16,11 +16,11 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "修改管理员密码",
+                "summary": "Change the administrator password",
                 "operationId": "changePassword",
                 "parameters": [
                     {
-                        "description": "新密码（至少 8 个字符）",
+                        "description": "New password, at least 8 characters",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -50,7 +50,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "列出 API token（不含明文）",
+                "summary": "List API tokens without plaintext",
                 "operationId": "listApiTokens",
                 "responses": {
                     "200": {
@@ -74,11 +74,11 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "创建 API token（明文仅在响应中出现一次）",
+                "summary": "Create an API token; the plaintext appears in this response only",
                 "operationId": "createApiToken",
                 "parameters": [
                     {
-                        "description": "token 名称",
+                        "description": "Token name",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -102,7 +102,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "撤销 API token",
+                "summary": "Revoke an API token",
                 "operationId": "deleteApiToken",
                 "parameters": [
                     {
@@ -134,7 +134,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "列出全部连接（运维视角，不含 credential）",
+                "summary": "List every connection for operators, without credentials",
                 "operationId": "listConnections",
                 "responses": {
                     "200": {
@@ -154,7 +154,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "删除连接（运维）",
+                "summary": "Delete a connection, operator view",
                 "operationId": "adminDeleteConnection",
                 "parameters": [
                     {
@@ -186,7 +186,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "生成重授权链接（运维转交给对应用户打开）",
+                "summary": "Mint a re-authorization link for an operator to hand to the right end user",
                 "operationId": "adminReauthConnection",
                 "parameters": [
                     {
@@ -221,7 +221,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "列出全部 Connector（管理界面，cookie 鉴权）",
+                "summary": "List every connector for the admin UI, cookie authenticated",
                 "operationId": "adminListConnectors",
                 "responses": {
                     "200": {
@@ -250,7 +250,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "Connector 的认证方式与凭证字段（供创建 connection 的表单）",
+                "summary": "Auth methods and credential fields of a connector, for the create-connection form",
                 "operationId": "listAuthMethods",
                 "parameters": [
                     {
@@ -288,7 +288,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "读取 Connector 配置（Secret 只回显已设置的 key）",
+                "summary": "Read connector config; secrets echo back only the keys that are set",
                 "operationId": "getConfig",
                 "parameters": [
                     {
@@ -324,7 +324,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "写入 Connector 配置（public 全量替换、secrets 增量合并，空串删除）",
+                "summary": "Write connector config; public is replaced wholesale, secrets are merged and an empty string deletes",
                 "operationId": "putConfig",
                 "parameters": [
                     {
@@ -335,7 +335,7 @@
                         "required": true
                     },
                     {
-                        "description": "配置内容；if_match 传上次读到的 updated_at（RFC3339），首次创建留空",
+                        "description": "Config payload; pass the updated_at you last read as if_match (RFC3339), leave empty on first create",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -375,7 +375,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "删除 Connector 配置",
+                "summary": "Delete connector config",
                 "operationId": "deleteConfig",
                 "parameters": [
                     {
@@ -407,7 +407,7 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）",
+                "summary": "Config form metadata for a connector, derived from the ConfigFields of its Definition",
                 "operationId": "getConfigSchema",
                 "parameters": [
                     {
@@ -445,11 +445,11 @@
                 "tags": [
                     "admin"
                 ],
-                "summary": "管理员登录，成功后下发会话 cookie",
+                "summary": "Log in as administrator and receive a session cookie",
                 "operationId": "login",
                 "parameters": [
                     {
-                        "description": "用户名与密码",
+                        "description": "User name and password",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -479,7 +479,7 @@
                 "tags": [
                     "system"
                 ],
-                "summary": "健康检查",
+                "summary": "Health check",
                 "operationId": "healthz",
                 "responses": {
                     "200": {
@@ -510,11 +510,11 @@
                 "tags": [
                     "connections"
                 ],
-                "summary": "用 API key / 自定义凭证创建连接，返回其持久 ID",
+                "summary": "Create a connection from an API key or custom credential and return its durable ID",
                 "operationId": "createApiKeyConnection",
                 "parameters": [
                     {
-                        "description": "凭证字段按 auth method 的 CredentialFields 填写；alias 可选",
+                        "description": "Fill credential fields per the CredentialFields of the auth method; alias is optional",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -561,11 +561,11 @@
                 "tags": [
                     "connections"
                 ],
-                "summary": "发起 OAuth 授权：立即创建 pending 连接并返回其持久 ID 与授权 URL",
+                "summary": "Start an OAuth authorization: create a pending connection and return its durable ID and authorization URL",
                 "operationId": "beginOAuthConnection",
                 "parameters": [
                     {
-                        "description": "alias 为可选展示标签",
+                        "description": "alias is an optional display label",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -609,7 +609,7 @@
                 "tags": [
                     "connections"
                 ],
-                "summary": "查询连接状态（pending / active / reauth_required …）",
+                "summary": "Get connection status (pending / active / reauth_required and so on)",
                 "operationId": "getConnection",
                 "parameters": [
                     {
@@ -644,7 +644,7 @@
                 "tags": [
                     "connections"
                 ],
-                "summary": "删除连接",
+                "summary": "Delete a connection",
                 "operationId": "deleteConnection",
                 "parameters": [
                     {
@@ -681,7 +681,7 @@
                 "tags": [
                     "connections"
                 ],
-                "summary": "对既有连接重新发起授权（ID 不变）",
+                "summary": "Re-authorize an existing connection, keeping the same ID",
                 "operationId": "reauthConnection",
                 "parameters": [
                     {
@@ -721,7 +721,7 @@
                 "tags": [
                     "catalog"
                 ],
-                "summary": "列出全部 Connector（含运行状态）",
+                "summary": "List every connector with its runtime status",
                 "operationId": "listConnectors",
                 "responses": {
                     "200": {
@@ -755,7 +755,7 @@
                 "tags": [
                     "catalog"
                 ],
-                "summary": "查询单个 Connector",
+                "summary": "Get a single connector",
                 "operationId": "getConnector",
                 "parameters": [
                     {
@@ -798,11 +798,11 @@
                 "tags": [
                     "mcp"
                 ],
-                "summary": "签发聚合多个 Connection 的短期 MCP session token",
+                "summary": "Issue a short-lived MCP session token aggregating several connections",
                 "operationId": "createMcpSession",
                 "parameters": [
                     {
-                        "description": "connections 为 namespace→connection_id；allowlist 使用 namespace__tool 名称",
+                        "description": "connections maps namespace to connection_id; allowlist entries use namespace__tool names",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -838,24 +838,24 @@
                 "tags": [
                     "connections"
                 ],
-                "summary": "OAuth 回调（provider 跳转回来，无鉴权，靠一次性 state）",
+                "summary": "OAuth callback where the provider redirects back; unauthenticated and secured by a single-use state",
                 "operationId": "oauthCallback",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "授权发起时生成的 state",
+                        "description": "The state generated when the authorization started",
                         "name": "state",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "授权码",
+                        "description": "Authorization code",
                         "name": "code",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "provider 返回的错误码",
+                        "description": "Error code returned by the provider",
                         "name": "error",
                         "in": "query"
                     }

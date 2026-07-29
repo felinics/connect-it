@@ -29,7 +29,8 @@ func testKeyring(t *testing.T) *crypto.Keyring {
 	return k
 }
 
-// rwDefinition 是读写测试的主 connector：必填公开＋必填 secret＋默认值＋可选 secret。
+// rwDefinition is the main connector for read/write tests: a required public
+// field, a required secret, a default value, and an optional secret.
 func rwDefinition() connector.Definition {
 	return connector.Definition{
 		Type:                "example_app",
@@ -77,13 +78,13 @@ func TestPutGetRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if view.Public["client_id"] != "abc" {
-		t.Fatalf("public 回显失败: %+v", view.Public)
+		t.Fatalf("public was not echoed back: %+v", view.Public)
 	}
 	if !slices.Equal(view.SecretKeysSet, []string{"api_key", "client_secret"}) {
-		t.Fatalf("secret_keys_set 不符: %v", view.SecretKeysSet)
+		t.Fatalf("unexpected secret_keys_set: %v", view.SecretKeysSet)
 	}
 	if view.SchemaVersion != 1 || view.UpdatedAt.IsZero() {
-		t.Fatalf("视图字段不符: %+v", view)
+		t.Fatalf("unexpected view fields: %+v", view)
 	}
 }
 
@@ -94,7 +95,7 @@ func TestPutMergesSecrets(t *testing.T) {
 	mustPut(t, s, "example_app",
 		map[string]any{"client_id": "abc"},
 		map[string]string{"client_secret": "shh", "api_key": "k2"})
-	// 第二次不带 client_secret（保留）、api_key 传空串（删除）
+	// Second write: client_secret absent (kept), api_key empty (deleted).
 	mustPut(t, s, "example_app",
 		map[string]any{"client_id": "new"},
 		map[string]string{"api_key": ""})
@@ -104,10 +105,10 @@ func TestPutMergesSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Equal(view.SecretKeysSet, []string{"client_secret"}) {
-		t.Fatalf("合并语义不符: %v", view.SecretKeysSet)
+		t.Fatalf("unexpected merge semantics: %v", view.SecretKeysSet)
 	}
 	if view.Public["client_id"] != "new" {
-		t.Fatalf("public 应全量替换: %+v", view.Public)
+		t.Fatalf("public should be replaced wholesale: %+v", view.Public)
 	}
 }
 
@@ -119,19 +120,19 @@ func TestPutIfMatchConflict(t *testing.T) {
 		map[string]any{"client_id": "abc"},
 		map[string]string{"client_secret": "shh"})
 
-	// 推进 updated_at
+	// Advance updated_at.
 	if _, err := s.Put(ctx, "example_app", map[string]any{"client_id": "abc"},
 		map[string]string{}, first.UpdatedAt); err != nil {
-		t.Fatalf("匹配的 if_match 应成功: %v", err)
+		t.Fatalf("a matching if_match should succeed: %v", err)
 	}
-	// 旧 if_match → 冲突
+	// A stale if_match must conflict.
 	if _, err := s.Put(ctx, "example_app", map[string]any{"client_id": "x"},
 		map[string]string{}, first.UpdatedAt); !errors.Is(err, configsvc.ErrConflict) {
-		t.Fatalf("过期 if_match 应 ErrConflict, got %v", err)
+		t.Fatalf("a stale if_match should yield ErrConflict, got %v", err)
 	}
-	// 新建时带 if_match → 冲突
+	// Sending if_match on a create must conflict.
 	if _, err := s.Put(ctx, "example_app2", nil, nil, time.Now()); !errors.Is(err, configsvc.ErrUnknownConnector) {
-		t.Fatalf("未知 type 应 ErrUnknownConnector, got %v", err)
+		t.Fatalf("an unknown type should yield ErrUnknownConnector, got %v", err)
 	}
 }
 
@@ -148,13 +149,14 @@ func TestPutIncompatible(t *testing.T) {
 	}
 	if _, err := s.Put(ctx, "example_app", map[string]any{"client_id": "x"},
 		map[string]string{}, time.Time{}); !errors.Is(err, configsvc.ErrIncompatible) {
-		t.Fatalf("行版本比代码新应 ErrIncompatible, got %v", err)
+		t.Fatalf("a row newer than the code should yield ErrIncompatible, got %v", err)
 	}
 }
 
 func TestPutPrunesRemovedSecretFields(t *testing.T) {
-	// 模拟代码升级删除字段：v1 定义含 legacy secret，写入后换用不含 legacy 的
-	// v2 服务实例再保存一次，legacy 应被清理。
+	// Simulate a code upgrade that drops a field: the v1 definition carries a
+	// legacy secret; after writing it, a v2 service instance without legacy
+	// saves again and legacy must be cleaned up.
 	oldDef := rwDefinition()
 	oldDef.ConfigFields = append(oldDef.ConfigFields, connector.ConfigField{
 		Key: "legacy", Label: "Legacy", InputType: connector.InputText, Secret: true,
@@ -183,7 +185,7 @@ func TestPutPrunesRemovedSecretFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if slices.Contains(view.SecretKeysSet, "legacy") {
-		t.Fatalf("已删除字段应被清理: %v", view.SecretKeysSet)
+		t.Fatalf("a removed field should be cleaned up: %v", view.SecretKeysSet)
 	}
 }
 
@@ -198,10 +200,10 @@ func TestDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.Get(ctx, "example_app"); !errors.Is(err, configsvc.ErrNotFound) {
-		t.Fatalf("删除后应 ErrNotFound, got %v", err)
+		t.Fatalf("after delete it should yield ErrNotFound, got %v", err)
 	}
 	if err := s.Delete(ctx, "example_app"); !errors.Is(err, configsvc.ErrNotFound) {
-		t.Fatalf("重复删除应 ErrNotFound, got %v", err)
+		t.Fatalf("deleting twice should yield ErrNotFound, got %v", err)
 	}
 }
 
@@ -209,13 +211,13 @@ func TestResolvedDefaultsAndSecrets(t *testing.T) {
 	s, _ := newRWService(t, rwDefinition())
 	ctx := context.Background()
 
-	// 未配置：只有默认值
+	// Unconfigured: defaults only.
 	resolved, err := s.Resolved(ctx, "example_app")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resolved["tenant"] != "common" || len(resolved) != 1 {
-		t.Fatalf("未配置时应仅默认值: %v", resolved)
+		t.Fatalf("an unconfigured connector should resolve to defaults only: %v", resolved)
 	}
 
 	mustPut(t, s, "example_app",
@@ -226,7 +228,7 @@ func TestResolvedDefaultsAndSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resolved["client_id"] != "abc" || resolved["client_secret"] != "shh" || resolved["tenant"] != "org1" {
-		t.Fatalf("合并结果不符: %v", resolved)
+		t.Fatalf("unexpected merge result: %v", resolved)
 	}
 }
 
@@ -234,7 +236,7 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 	pool := testutil.NewDB(t)
 	kr := testKeyring(t)
 
-	// v1 定义：old_name
+	// v1 definition: old_name.
 	v1 := connector.Definition{
 		Type: "upg_app", Name: "Upg", ConfigSchemaVersion: 1,
 		ConfigFields: []connector.ConfigField{
@@ -250,7 +252,7 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// v2 定义：new_name＋upgrader
+	// v2 definition: new_name plus an upgrader.
 	v2 := connector.Definition{
 		Type: "upg_app", Name: "Upg", ConfigSchemaVersion: 2,
 		ConfigFields: []connector.ConfigField{
@@ -277,15 +279,15 @@ func TestResolvedAppliesUpgrader(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resolved["new_name"] != "kept" {
-		t.Fatalf("upgrader 未生效: %v", resolved)
+		t.Fatalf("the upgrader did not take effect: %v", resolved)
 	}
 	if _, exists := resolved["old_name"]; exists {
-		t.Fatalf("旧字段应被改名: %v", resolved)
+		t.Fatalf("the old field should have been renamed: %v", resolved)
 	}
-	// DB 行保持 v1 原样（升级不落盘）
+	// The DB row stays at v1: upgrades are in-memory only.
 	row, err := store.New(pool).GetConnectorConfig(context.Background(), "upg_app")
 	if err != nil || row.ConfigSchemaVersion != 1 {
-		t.Fatalf("升级不应落盘: %+v err=%v", row, err)
+		t.Fatalf("an upgrade must not be persisted: %+v err=%v", row, err)
 	}
 }
 
@@ -295,7 +297,7 @@ func TestConfigStateMapping(t *testing.T) {
 
 	st, err := s.ConfigState(ctx, "example_app")
 	if err != nil || st.Exists {
-		t.Fatalf("无行时 Exists 应为 false: %+v err=%v", st, err)
+		t.Fatalf("Exists should be false when no row exists: %+v err=%v", st, err)
 	}
 
 	mustPut(t, s, "example_app",
@@ -307,6 +309,6 @@ func TestConfigStateMapping(t *testing.T) {
 	}
 	if !st.Exists || st.SchemaVersion != 1 || st.PublicValues["client_id"] != "abc" ||
 		!st.SecretKeysSet["client_secret"] {
-		t.Fatalf("映射不符: %+v", st)
+		t.Fatalf("unexpected mapping: %+v", st)
 	}
 }

@@ -18,7 +18,7 @@ type createTokenResponse struct {
 
 // listAPITokens godoc
 //
-//	@Summary	列出 API token（不含明文）
+//	@Summary	List API tokens without plaintext
 //	@ID			listApiTokens
 //	@Tags		admin
 //	@Produce	json
@@ -34,21 +34,21 @@ func (h *handlers) listAPITokens(c echo.Context) error {
 
 // createAPIToken godoc
 //
-//	@Summary	创建 API token（明文仅在响应中出现一次）
+//	@Summary	Create an API token; the plaintext appears in this response only
 //	@ID			createApiToken
 //	@Tags		admin
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.createTokenRequest	true	"token 名称"
+//	@Param		body	body		api.createTokenRequest	true	"Token name"
 //	@Success	201		{object}	api.createTokenResponse
 //	@Router		/admin/api-tokens [post]
 func (h *handlers) createAPIToken(c echo.Context) error {
 	var req createTokenRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
 	}
 	if req.Name == "" {
-		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "name 不能为空")
+		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "name must not be empty")
 	}
 	plaintext, id, err := h.deps.Auth.CreateAPIToken(c.Request().Context(), req.Name)
 	if err != nil {
@@ -59,7 +59,7 @@ func (h *handlers) createAPIToken(c echo.Context) error {
 
 // deleteAPIToken godoc
 //
-//	@Summary	撤销 API token
+//	@Summary	Revoke an API token
 //	@ID			deleteApiToken
 //	@Tags		admin
 //	@Param		id	path	string	true	"token id（uuid）"
@@ -69,7 +69,7 @@ func (h *handlers) createAPIToken(c echo.Context) error {
 func (h *handlers) deleteAPIToken(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	if err := h.deps.Auth.RevokeAPIToken(c.Request().Context(), id); err != nil {
 		return mapServiceError(c, err)

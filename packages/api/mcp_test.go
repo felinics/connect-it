@@ -405,6 +405,6 @@ func TestCreateMCPSessionEndpoint(t *testing.T) {
 		t.Fatalf("revoke API token: %d %s", response.StatusCode, body)
 	}
 	if _, err := env.sess.Resolve(t.Context(), issued.Token); !errors.Is(err, sessions.ErrInvalidSession) {
-		t.Fatalf("父 API token 撤销后 session 应失效: %v", err)
+		t.Fatalf("revoking the parent API token should invalidate the session: %v", err)
 	}
 }

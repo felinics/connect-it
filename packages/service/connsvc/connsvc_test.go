@@ -43,7 +43,8 @@ func newReg(t *testing.T) *registry.Registry {
 	return r
 }
 
-// 校验类错误在触库前返回，用 nil store 做纯单测。
+// Validation errors are returned before touching the database, so a nil
+// store is enough for a pure unit test.
 func TestCreateAPIKeyValidation(t *testing.T) {
 	s := connsvc.New(nil, newReg(t), nil)
 	ctx := context.Background()
@@ -56,15 +57,15 @@ func TestCreateAPIKeyValidation(t *testing.T) {
 		fields  map[string]string
 		wantErr error
 	}{
-		{"未知 connector", "nope", "pat", "a1", nil, connsvc.ErrUnknownConnector},
-		{"未知 auth method", "example_app", "nope", "a1", nil, connsvc.ErrUnknownAuthMethod},
-		{"oauth method 不能走 api-key", "example_app", "oauth", "a1", nil, connsvc.ErrWrongAuthType},
-		{"缺必填字段", "example_app", "pat", "a1", map[string]string{}, connsvc.ErrInvalidFields},
-		{"未声明字段", "example_app", "pat", "a1",
+		{"unknown connector", "nope", "pat", "a1", nil, connsvc.ErrUnknownConnector},
+		{"unknown auth method", "example_app", "nope", "a1", nil, connsvc.ErrUnknownAuthMethod},
+		{"oauth method cannot go through api-key", "example_app", "oauth", "a1", nil, connsvc.ErrWrongAuthType},
+		{"missing required field", "example_app", "pat", "a1", map[string]string{}, connsvc.ErrInvalidFields},
+		{"undeclared field", "example_app", "pat", "a1",
 			map[string]string{"token": "tok_1", "extra": "x"}, connsvc.ErrInvalidFields},
-		{"pattern 不符", "example_app", "pat", "a1",
+		{"pattern mismatch", "example_app", "pat", "a1",
 			map[string]string{"token": "bad"}, connsvc.ErrInvalidFields},
-		{"option 不符", "example_app", "pat", "a1",
+		{"option mismatch", "example_app", "pat", "a1",
 			map[string]string{"token": "tok_1", "region": "other"}, connsvc.ErrInvalidFields},
 	}
 	for _, tc := range cases {
@@ -108,22 +109,22 @@ func TestConnectionLifecycle(t *testing.T) {
 	}
 	expired, err := s.Get(ctx, pendingID)
 	if err != nil || expired.Status != "authorization_failed" {
-		t.Fatalf("轮询应收敛过期授权: %+v err=%v", expired, err)
+		t.Fatalf("the sweep should settle expired authorizations: %+v err=%v", expired, err)
 	}
 	if err := s.Delete(ctx, pendingID); err != nil {
 		t.Fatal(err)
 	}
 
-	// alias 不唯一：同名允许；空 alias 也允许
+	// Aliases are not unique: duplicates are allowed, and so is an empty alias.
 	dupID, err := s.CreateAPIKey(ctx, "example_app", "pat", "acct-1",
 		map[string]string{"token": "tok_xyz"})
 	if err != nil {
-		t.Fatalf("同名 alias 应允许: %v", err)
+		t.Fatalf("a duplicate alias should be allowed: %v", err)
 	}
 	noAliasID, err := s.CreateAPIKey(ctx, "example_app", "pat", "",
 		map[string]string{"token": "tok_zzz"})
 	if err != nil {
-		t.Fatalf("空 alias 应允许: %v", err)
+		t.Fatalf("an empty alias should be allowed: %v", err)
 	}
 	if err := s.Delete(ctx, dupID); err != nil {
 		t.Fatal(err)
@@ -137,16 +138,16 @@ func TestConnectionLifecycle(t *testing.T) {
 		t.Fatalf("list: %+v err=%v", list, err)
 	}
 	if list[0].ID != id || list[0].Alias != "acct-1" || list[0].Status != "active" {
-		t.Fatalf("视图不符: %+v", list[0])
+		t.Fatalf("unexpected view: %+v", list[0])
 	}
 
-	// credential 已加密：直接读库不应出现明文
+	// The credential is encrypted: reading the row directly must not reveal plaintext.
 	var raw []byte
 	if err := pool.QueryRow(ctx, "select credential from connections where id = $1", id).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "tok_abc") {
-		t.Fatal("credential 应为密文")
+		t.Fatal("credential should be ciphertext")
 	}
 
 	view, err := s.Get(ctx, id)
@@ -179,12 +180,12 @@ func TestConnectionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if bindingsLeft != 0 {
-		t.Fatal("删除 connection 应同时删除 session binding")
+		t.Fatal("deleting a connection should also delete its session bindings")
 	}
 	if err := s.Delete(ctx, id); !errors.Is(err, connsvc.ErrNotFound) {
-		t.Fatalf("重复删除应 ErrNotFound, got %v", err)
+		t.Fatalf("deleting twice should yield ErrNotFound, got %v", err)
 	}
 	if _, err := s.Get(ctx, uuid.New()); !errors.Is(err, connsvc.ErrNotFound) {
-		t.Fatalf("不存在应 ErrNotFound, got %v", err)
+		t.Fatalf("a missing connection should yield ErrNotFound, got %v", err)
 	}
 }

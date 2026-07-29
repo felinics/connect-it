@@ -246,7 +246,7 @@ type Spec struct {
 // relative paths and fixed request metadata; callers cannot replace the
 // provider origin or its authentication headers.
 func Implementation(spec Spec) connector.Managed {
-	description := "调用 " + spec.ProviderName + " 官方 REST API。path 是相对 API 路径；认证与官方 origin 由 connect-it 固定注入。"
+	description := "Call the official " + spec.ProviderName + " REST API. path is a relative API path; connect-it injects authentication and pins the official origin."
 	return connector.Managed{Tools: []connector.ManagedTool{{
 		Tool: mcp.Tool{
 			Name:        "api_request",
@@ -270,15 +270,15 @@ func Implementation(spec Spec) connector.Managed {
 					"path": map[string]any{
 						"type":        "string",
 						"minLength":   1,
-						"description": "以 / 开头的相对 API 路径",
+						"description": "Relative API path beginning with /",
 					},
 					"query": map[string]any{
 						"type":                 "object",
 						"additionalProperties": true,
-						"description":          "查询参数；数组值会编码为重复参数",
+						"description":          "Query parameters; array values are encoded as repeated parameters",
 					},
 					"body": map[string]any{
-						"description": "JSON 或 form 请求体",
+						"description": "JSON or form request body",
 					},
 					"content_type": map[string]any{
 						"type": "string",
@@ -287,7 +287,7 @@ func Implementation(spec Spec) connector.Managed {
 							"application/x-www-form-urlencoded",
 						},
 						"default":     "application/json",
-						"description": "body 的编码方式",
+						"description": "Encoding used for body",
 					},
 				},
 			},

@@ -44,7 +44,7 @@ type authMethodDTO struct {
 
 // listAuthMethods godoc
 //
-//	@Summary	Connector 的认证方式与凭证字段（供创建 connection 的表单）
+//	@Summary	Auth methods and credential fields of a connector, for the create-connection form
 //	@ID			listAuthMethods
 //	@Tags		admin
 //	@Produce	json
@@ -55,7 +55,7 @@ type authMethodDTO struct {
 func (h *handlers) listAuthMethods(c echo.Context) error {
 	def, ok := h.deps.Registry.Get(connector.Type(c.Param("type")))
 	if !ok {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	out := make([]authMethodDTO, 0, len(def.AuthMethods))
 	for _, m := range def.AuthMethods {
@@ -80,7 +80,7 @@ func (h *handlers) listAuthMethods(c echo.Context) error {
 
 // getConfigSchema godoc
 //
-//	@Summary	Connector 配置表单元数据（由 Definition 的 ConfigFields 生成）
+//	@Summary	Config form metadata for a connector, derived from the ConfigFields of its Definition
 //	@ID			getConfigSchema
 //	@Tags		admin
 //	@Produce	json
@@ -91,7 +91,7 @@ func (h *handlers) listAuthMethods(c echo.Context) error {
 func (h *handlers) getConfigSchema(c echo.Context) error {
 	def, ok := h.deps.Registry.Get(connector.Type(c.Param("type")))
 	if !ok {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	out := make([]configFieldDTO, 0, len(def.ConfigFields))
 	for _, f := range def.ConfigFields {
@@ -116,7 +116,7 @@ func (h *handlers) getConfigSchema(c echo.Context) error {
 
 // getConfig godoc
 //
-//	@Summary	读取 Connector 配置（Secret 只回显已设置的 key）
+//	@Summary	Read connector config; secrets echo back only the keys that are set
 //	@ID			getConfig
 //	@Tags		admin
 //	@Produce	json
@@ -134,13 +134,13 @@ func (h *handlers) getConfig(c echo.Context) error {
 
 // putConfig godoc
 //
-//	@Summary	写入 Connector 配置（public 全量替换、secrets 增量合并，空串删除）
+//	@Summary	Write connector config; public is replaced wholesale, secrets are merged and an empty string deletes
 //	@ID			putConfig
 //	@Tags		admin
 //	@Accept		json
 //	@Produce	json
 //	@Param		type	path		string					true	"connector_type"
-//	@Param		body	body		api.putConfigRequest	true	"配置内容；if_match 传上次读到的 updated_at（RFC3339），首次创建留空"
+//	@Param		body	body		api.putConfigRequest	true	"Config payload; pass the updated_at you last read as if_match (RFC3339), leave empty on first create"
 //	@Success	200		{object}	api.configResponse
 //	@Failure	404		{object}	api.ErrorResponse
 //	@Failure	409		{object}	api.ErrorResponse
@@ -149,13 +149,13 @@ func (h *handlers) getConfig(c echo.Context) error {
 func (h *handlers) putConfig(c echo.Context) error {
 	var req putConfigRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
 	}
 	var ifMatch time.Time
 	if req.IfMatch != "" {
 		ts, err := time.Parse(time.RFC3339Nano, req.IfMatch)
 		if err != nil {
-			return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "if_match 不是 RFC3339 时间")
+			return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "if_match is not an RFC3339 timestamp")
 		}
 		ifMatch = ts
 	}
@@ -169,7 +169,7 @@ func (h *handlers) putConfig(c echo.Context) error {
 
 // deleteConfig godoc
 //
-//	@Summary	删除 Connector 配置
+//	@Summary	Delete connector config
 //	@ID			deleteConfig
 //	@Tags		admin
 //	@Param		type	path	string	true	"connector_type"

@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	ErrConnectionNotFound = errors.New("exec: connection 不存在")
-	ErrConnectionInactive = errors.New("exec: connection 不可用")
-	ErrToolUnavailable    = errors.New("exec: tool 不存在或已下线")
+	ErrConnectionNotFound = errors.New("exec: connection does not exist")
+	ErrConnectionInactive = errors.New("exec: connection is not usable")
+	ErrToolUnavailable    = errors.New("exec: tool does not exist or was withdrawn")
 )
 
 const (
@@ -92,7 +92,7 @@ func (e *Engine) ListTools(ctx context.Context, connectionID uuid.UUID) ([]*mcp.
 		return e.mcp.ListTools(ctx, endpoint, prepared.accessToken,
 			authorizationScheme(impl), requestTimeout(impl))
 	default:
-		return nil, fmt.Errorf("exec: connector %s implementation 非法", def.Type)
+		return nil, fmt.Errorf("exec: connector %s has an invalid implementation", def.Type)
 	}
 }
 
@@ -121,7 +121,7 @@ func (e *Engine) CallTool(
 		toolName:      toolName,
 	}
 	if params == nil || params.Name == "" {
-		err := fmt.Errorf("%w: tool name 不能为空", ErrToolUnavailable)
+		err := fmt.Errorf("%w: tool name must not be empty", ErrToolUnavailable)
 		rec.record(ctx, nil, err)
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (e *Engine) CallTool(
 			AccessToken: prepared.accessToken,
 		})
 		if result == nil && err == nil {
-			err = fmt.Errorf("exec: managed tool %q 返回空结果", params.Name)
+			err = fmt.Errorf("exec: managed tool %q returned an empty result", params.Name)
 		}
 		rec.record(ctx, result, err)
 		return result, err
@@ -172,7 +172,7 @@ func (e *Engine) CallTool(
 		rec.record(ctx, result, err)
 		return result, err
 	default:
-		err := fmt.Errorf("exec: connector %s implementation 非法", def.Type)
+		err := fmt.Errorf("exec: connector %s has an invalid implementation", def.Type)
 		rec.record(ctx, nil, err)
 		return nil, err
 	}
@@ -188,16 +188,16 @@ func (e *Engine) connection(ctx context.Context, connectionID uuid.UUID) (store.
 	}
 	if row.Status == "reauth_required" {
 		return store.Connection{}, connector.Definition{},
-			fmt.Errorf("%w（当前状态 %s）", tokens.ErrReauthRequired, row.Status)
+			fmt.Errorf("%w (current status %s)", tokens.ErrReauthRequired, row.Status)
 	}
 	if row.Status != "active" {
 		return store.Connection{}, connector.Definition{},
-			fmt.Errorf("%w（当前状态 %s）", ErrConnectionInactive, row.Status)
+			fmt.Errorf("%w (current status %s)", ErrConnectionInactive, row.Status)
 	}
 	def, ok := e.reg.Get(connector.Type(row.ConnectorType))
 	if !ok {
 		return store.Connection{}, connector.Definition{},
-			fmt.Errorf("exec: 未知 connector type %s", row.ConnectorType)
+			fmt.Errorf("exec: unknown connector type %s", row.ConnectorType)
 	}
 	return row, def, nil
 }
@@ -239,7 +239,7 @@ func (e *Engine) prepare(ctx context.Context, row store.Connection, def connecto
 		}
 		accessToken := fields.Fields[method.CredentialFields[0].Key]
 		if accessToken == "" {
-			return preparedCall{}, fmt.Errorf("exec: connection %s 的凭证为空", row.ID)
+			return preparedCall{}, fmt.Errorf("exec: connection %s has an empty credential", row.ID)
 		}
 		return preparedCall{
 			config:      resolved,
@@ -253,7 +253,7 @@ func (e *Engine) prepare(ctx context.Context, row store.Connection, def connecto
 		return preparedCall{}, err
 	}
 	if accessToken == "" {
-		return preparedCall{}, fmt.Errorf("exec: connection %s 的凭证为空", row.ID)
+		return preparedCall{}, fmt.Errorf("exec: connection %s has an empty credential", row.ID)
 	}
 	return preparedCall{
 		config:      resolved,
@@ -283,7 +283,7 @@ func remoteEndpoint(remote connector.RemoteMCP, config map[string]any) (string, 
 	option, _ := config[field].(string)
 	endpoint, ok := remote.EndpointSelector.Endpoints[option]
 	if !ok {
-		return "", fmt.Errorf("exec: remote MCP endpoint option %q 无效", option)
+		return "", fmt.Errorf("exec: invalid remote MCP endpoint option %q", option)
 	}
 	return endpoint, nil
 }
@@ -304,42 +304,42 @@ func validateManagedArguments(schema any, arguments json.RawMessage) (json.RawMe
 	} else {
 		data, err := json.Marshal(schema)
 		if err != nil {
-			return nil, fmt.Errorf("InputSchema 不是合法 JSON: %w", err)
+			return nil, fmt.Errorf("InputSchema is not valid JSON: %w", err)
 		}
 		inputSchema = new(jsonschema.Schema)
 		if err := json.Unmarshal(data, inputSchema); err != nil {
-			return nil, fmt.Errorf("InputSchema 无法解析: %w", err)
+			return nil, fmt.Errorf("InputSchema could not be parsed: %w", err)
 		}
 	}
 	resolved, err := inputSchema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
 	if err != nil {
-		return nil, fmt.Errorf("InputSchema 无法解析: %w", err)
+		return nil, fmt.Errorf("InputSchema could not be parsed: %w", err)
 	}
 
 	value := make(map[string]any)
 	if len(arguments) > 0 {
 		if err := json.Unmarshal(arguments, &value); err != nil {
-			return nil, fmt.Errorf("arguments 必须是 JSON object: %w", err)
+			return nil, fmt.Errorf("arguments must be a JSON object: %w", err)
 		}
 		if value == nil {
-			return nil, fmt.Errorf("arguments 必须是 JSON object")
+			return nil, fmt.Errorf("arguments must be a JSON object")
 		}
 	}
 	if err := resolved.ApplyDefaults(&value); err != nil {
-		return nil, fmt.Errorf("应用 arguments 默认值: %w", err)
+		return nil, fmt.Errorf("apply argument defaults: %w", err)
 	}
 	if err := resolved.Validate(&value); err != nil {
 		return nil, err
 	}
 	normalized, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("序列化 arguments: %w", err)
+		return nil, fmt.Errorf("marshal arguments: %w", err)
 	}
 	return normalized, nil
 }
 
 func invalidArgumentsResult(err error) *mcp.CallToolResult {
-	message := "arguments 不符合 InputSchema: " + err.Error()
+	message := "arguments do not conform to InputSchema: " + err.Error()
 	return &mcp.CallToolResult{
 		IsError:           true,
 		Content:           []mcp.Content{&mcp.TextContent{Text: message}},
@@ -354,7 +354,7 @@ func validateResolvedConfig(def connector.Definition, resolved map[string]any) e
 		}
 		value, _ := resolved[field.Key].(string)
 		if value == "" {
-			return fmt.Errorf("exec: connector %s 缺少必填配置 %q", def.Type, field.Key)
+			return fmt.Errorf("exec: connector %s is missing required config %q", def.Type, field.Key)
 		}
 	}
 	return nil
@@ -366,7 +366,7 @@ func findAuthMethod(def connector.Definition, key string) (connector.AuthMethod,
 			return method, nil
 		}
 	}
-	return connector.AuthMethod{}, fmt.Errorf("exec: 未知 auth method %s", key)
+	return connector.AuthMethod{}, fmt.Errorf("exec: unknown auth method %s", key)
 }
 
 // recorder writes metadata-only audit rows for attempted tool calls.

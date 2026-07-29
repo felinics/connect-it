@@ -42,7 +42,7 @@ const currentLocale = computed({
   set: (v: Locale) => setLocale(v),
 })
 
-// 服务健康探测：驱动侧栏底部的状态点。
+// Service health probe driving the status dot at the bottom of the sidebar.
 const healthy = ref(true)
 let timer: ReturnType<typeof setInterval> | null = null
 

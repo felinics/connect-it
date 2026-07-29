@@ -1,6 +1,7 @@
 [settings]
-# 本机若有系统 Go，PATH 上的 go 与 mise 注入的 GOROOT 会错配（driver/toolchain
-# version mismatch）。关闭注入让每个 go 二进制使用自身 GOROOT。
+# When a system Go is installed, the go on PATH and the GOROOT mise injects can
+# disagree (driver/toolchain version mismatch). Disable the injection so every
+# go binary uses its own GOROOT.
 go_set_goroot = false
 
 [tools]
@@ -10,7 +11,7 @@ pnpm = "10"
 sqlc = "1.29.0"
 
 [tasks.test]
-description = "逐 Go module 运行测试"
+description = "Run tests for every Go module"
 run = '''
 set -e
 for d in packages/*/ sdk/go/; do
@@ -22,7 +23,7 @@ done
 '''
 
 [tasks.vet]
-description = "逐 Go module 运行 go vet"
+description = "Run go vet for every Go module"
 run = '''
 set -e
 for d in packages/*/ sdk/go/; do
@@ -34,7 +35,7 @@ done
 '''
 
 [tasks.db-up]
-description = "启动本地测试 postgres:17（host 端口 5433）"
+description = "Start a local postgres:17 for tests on host port 5433"
 run = '''
 docker run -d --name connect-it-pg \
   -e POSTGRES_PASSWORD=postgres \
@@ -46,23 +47,23 @@ echo "postgres ready on :5433"
 '''
 
 [tasks.db-down]
-description = "停止并删除本地测试 postgres"
+description = "Stop and remove the local test postgres"
 run = "docker rm -f connect-it-pg"
 
 [tasks.sqlc]
-description = "生成 sqlc store 代码"
+description = "Generate the sqlc store code"
 run = "cd packages/service && sqlc generate"
 
 [tasks.swagger]
-description = "由 swag 注释生成 packages/api/docs（swagger.json 供 SDK 消费）"
+description = "Generate packages/api/docs from swag annotations; swagger.json feeds the SDK"
 run = "cd packages/api && go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/connect-it/main.go --output docs --parseDependency"
 
 [tasks.build-web]
-description = "构建管理界面（产物在 packages/web/dist，由 web 容器的 nginx 托管）"
+description = "Build the admin UI into packages/web/dist, served by nginx in the web container"
 run = "pnpm --dir packages/web run build"
 
 [tasks.sdk]
-description = "由 packages/api/docs/swagger.json 重新生成 TypeScript SDK"
+description = "Regenerate the TypeScript SDK from packages/api/docs/swagger.json"
 run = "pnpm --dir packages/sdk run generate"
 
 [tasks.docker-build]
@@ -75,14 +76,14 @@ docker build -f docker/web.Dockerfile -t connect-it-web:dev .
 
 [tasks.docker-up]
 description = "Build and start the docker compose stack, wait until healthy"
-run = "docker compose -f docker/docker-compose.yml up --build --wait"
+run = "docker compose up --build --wait"
 
 [tasks.docker-down]
 description = "Stop the docker compose stack (postgres volume is kept)"
-run = "docker compose -f docker/docker-compose.yml down"
+run = "docker compose down"
 
 [tasks.dev]
-description = "本地开发起 API（先 mise run db-up）"
+description = "Run the API locally; start the database first with mise run db-up"
 run = '''
 cd packages/api && \
 DATABASE_URL='postgres://postgres:postgres@localhost:5433/connect_it?sslmode=disable' \

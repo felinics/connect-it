@@ -34,12 +34,12 @@ func hashPassword(password string) (string, error) {
 func verifyPassword(encoded, password string) (bool, error) {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" {
-		return false, errors.New("authsvc: 未知密码哈希格式")
+		return false, errors.New("authsvc: unknown password hash format")
 	}
 	var m, t uint32
 	var p uint8
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
-		return false, fmt.Errorf("authsvc: 解析哈希参数: %w", err)
+		return false, fmt.Errorf("authsvc: parse hash parameters: %w", err)
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {

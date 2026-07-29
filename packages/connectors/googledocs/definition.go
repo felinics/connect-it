@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_docs",
 	Name:                "Google Docs",
-	Description:         "Google Docs 在线文档",
+	Description:         "Google Docs online documents",
 	Categories:          []string{"productivity"},
 	HomepageURL:         "https://docs.google.com/document",
 	IconURL:             "https://cdn.simpleicons.org/googledocs",

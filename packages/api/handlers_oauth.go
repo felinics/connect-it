@@ -12,23 +12,24 @@ import (
 
 // oauthCallback godoc
 //
-//	@Summary	OAuth 回调（provider 跳转回来，无鉴权，靠一次性 state）
+//	@Summary	OAuth callback where the provider redirects back; unauthenticated and secured by a single-use state
 //	@ID			oauthCallback
 //	@Tags		connections
-//	@Param		state	query	string	false	"授权发起时生成的 state"
-//	@Param		code	query	string	false	"授权码"
-//	@Param		error	query	string	false	"provider 返回的错误码"
+//	@Param		state	query	string	false	"The state generated when the authorization started"
+//	@Param		code	query	string	false	"Authorization code"
+//	@Param		error	query	string	false	"Error code returned by the provider"
 //	@Success	200
 //	@Router		/v1/oauth/callback [get]
 func (h *handlers) oauthCallback(c echo.Context) error {
 	state, code := c.QueryParam("state"), c.QueryParam("code")
 
-	// provider 直接报错（用户拒绝等）：state 有效时结束对应授权。
+	// The provider reported an error, for example the user declined. When the
+	// state is valid, end the matching authorization.
 	if provErr := c.QueryParam("error"); provErr != "" {
 		if state != "" {
 			if err := h.deps.OAuth.RejectCallback(c.Request().Context(), state); err != nil &&
 				!errors.Is(err, oauthsvc.ErrInvalidState) {
-				c.Logger().Errorf("结束 OAuth 授权失败: %v", err)
+				c.Logger().Errorf("ending the OAuth authorization failed: %v", err)
 			}
 		}
 		return h.finishCallback(c, provErr)
@@ -39,7 +40,7 @@ func (h *handlers) oauthCallback(c echo.Context) error {
 
 	err := h.deps.OAuth.HandleCallback(c.Request().Context(), state, code)
 	if err != nil {
-		c.Logger().Errorf("oauth 回调失败: %v", err)
+		c.Logger().Errorf("oauth callback failed: %v", err)
 		code := "oauth_failed"
 		if err == oauthsvc.ErrInvalidState {
 			code = "invalid_state"
@@ -49,13 +50,14 @@ func (h *handlers) oauthCallback(c echo.Context) error {
 	return h.finishCallback(c, "")
 }
 
-// finishCallback 渲染 connect-it 自己的完成页。可信下游通过 connection
-// 状态判断授权结果，不需要第二次跨服务回跳。
+// finishCallback renders the completion page owned by connect-it. Trusted
+// downstream services read the connection status to learn the outcome, so no
+// second cross-service redirect is needed.
 func (h *handlers) finishCallback(c echo.Context, errCode string) error {
 	if errCode != "" {
-		return c.HTML(http.StatusOK, callbackPage("授权失败", "错误代码："+errCode+"，请回到原应用重试。"))
+		return c.HTML(http.StatusOK, callbackPage("Authorization failed", "Error code: "+errCode+". Please return to the original application and try again."))
 	}
-	return c.HTML(http.StatusOK, callbackPage("授权完成", "现在可以关闭本页，回到原应用继续。"))
+	return c.HTML(http.StatusOK, callbackPage("Authorization complete", "You can close this page and return to the original application."))
 }
 
 func callbackPage(title, body string) string {

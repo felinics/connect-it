@@ -3,8 +3,10 @@ import type { Component } from 'vue'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
-// 侧栏导航行（owner 组件）：内部路由传 to，外部链接传 href。
-// 交互态走 overlay ladder token（--ui-hover / --ui-selected）。
+// Sidebar navigation row (owner component): pass to for internal routes and
+// href for external links.
+// Interaction states use the overlay ladder tokens --ui-hover and
+// --ui-selected.
 const props = defineProps<{
   to?: string
   href?: string

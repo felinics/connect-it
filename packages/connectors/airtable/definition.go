@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "airtable",
 	Name:                "Airtable",
-	Description:         "Airtable 数据库与协作平台",
+	Description:         "Airtable database and collaboration platform",
 	Categories:          []string{"database", "productivity"},
 	HomepageURL:         "https://www.airtable.com",
 	IconURL:             "https://cdn.simpleicons.org/airtable",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "仅授权所需 base 和 scopes 的 Airtable Personal Access Token。",
+			Description: "Airtable personal access token, scoped to only the bases and scopes you need.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

@@ -7,10 +7,12 @@ import (
 
 var endpointPlaceholder = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
 
-// ExpandEndpoint 把 OAuth endpoint 中的 {config_key} 占位符替换为管理员配置值
-// （config 是运行时装配、合并默认值之后的公开配置）。
-// OAuthConfig 是纯数据，模板替换是 oauthsvc 的运行时职责；
-// 不含占位符的 endpoint 原样返回。占位符缺少对应的非空字符串值时报错。
+// ExpandEndpoint replaces {config_key} placeholders in an OAuth endpoint with
+// administrator config values, where config is the public config assembled at
+// runtime with defaults merged in. OAuthConfig is pure data, so template
+// expansion is a runtime responsibility of oauthsvc. An endpoint without
+// placeholders is returned unchanged, and a placeholder with no corresponding
+// non-empty string value is an error.
 func ExpandEndpoint(endpoint string, config map[string]any) (string, error) {
 	var firstErr error
 	out := endpointPlaceholder.ReplaceAllStringFunc(endpoint, func(m string) string {
@@ -18,7 +20,7 @@ func ExpandEndpoint(endpoint string, config map[string]any) (string, error) {
 		v, ok := config[key].(string)
 		if !ok || v == "" {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("oauth endpoint 占位符 {%s} 缺少对应配置值", key)
+				firstErr = fmt.Errorf("oauth endpoint placeholder {%s} has no config value", key)
 			}
 			return m
 		}

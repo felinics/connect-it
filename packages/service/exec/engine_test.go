@@ -188,7 +188,7 @@ func TestManagedValidatesInputSchemaBeforeHandler(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	if h.managedCall.Arguments != nil {
-		t.Fatalf("handler 不应被调用: %+v", h.managedCall)
+		t.Fatalf("the handler must not be called: %+v", h.managedCall)
 	}
 	var errorKind string
 	if err := h.pool.QueryRow(t.Context(),
@@ -205,7 +205,7 @@ func TestManagedValidatesInputSchemaBeforeHandler(t *testing.T) {
 	_, err = h.engine.CallTool(t.Context(), uuid.Nil, uuid.Nil, h.remoteID,
 		&mcp.CallToolParamsRaw{Name: "upstream.echo", Arguments: json.RawMessage(`{}`)})
 	if err == nil {
-		t.Fatal("remote call 应返回错误")
+		t.Fatal("the remote call should return an error")
 	}
 	var upstreamStatus int
 	if err := h.pool.QueryRow(t.Context(),

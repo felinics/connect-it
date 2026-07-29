@@ -10,7 +10,7 @@ import (
 
 // healthz godoc
 //
-//	@Summary	健康检查
+//	@Summary	Health check
 //	@ID			healthz
 //	@Tags		system
 //	@Produce	json
@@ -22,7 +22,7 @@ func (h *handlers) healthz(c echo.Context) error {
 
 // listConnectors godoc
 //
-//	@Summary	列出全部 Connector（含运行状态）
+//	@Summary	List every connector with its runtime status
 //	@ID			listConnectors
 //	@Tags		catalog
 //	@Produce	json
@@ -40,7 +40,7 @@ func (h *handlers) listConnectors(c echo.Context) error {
 
 // getConnector godoc
 //
-//	@Summary	查询单个 Connector
+//	@Summary	Get a single connector
 //	@ID			getConnector
 //	@Tags		catalog
 //	@Produce	json
@@ -59,7 +59,7 @@ func (h *handlers) getConnector(c echo.Context) error {
 
 // adminListConnectors godoc
 //
-//	@Summary	列出全部 Connector（管理界面，cookie 鉴权）
+//	@Summary	List every connector for the admin UI, cookie authenticated
 //	@ID			adminListConnectors
 //	@Tags		admin
 //	@Produce	json

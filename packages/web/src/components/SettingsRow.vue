@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 卡内行（owner 组件）：inset 分隔线、固定最小高度、左标签右控件。
+// Row inside a card (owner component): inset divider, fixed minimum height,
+// label on the left and control on the right.
 defineProps<{ label?: string; description?: string }>()
 </script>
 

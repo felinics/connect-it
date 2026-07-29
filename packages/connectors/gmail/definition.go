@@ -1,4 +1,4 @@
-// Package gmail 是 Gmail Connector 的固定 Definition。
+// Package gmail holds the code-fixed Definition of the Gmail connector.
 package gmail
 
 import (
@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "gmail",
 	Name:                "Gmail",
-	Description:         "Google Gmail 邮件服务",
+	Description:         "Google Gmail email service",
 	Categories:          []string{"communication"},
 	HomepageURL:         "https://mail.google.com",
 	IconURL:             "https://cdn.simpleicons.org/gmail",

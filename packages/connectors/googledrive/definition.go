@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_drive",
 	Name:                "Google Drive",
-	Description:         "Google Drive 云存储与文件协作",
+	Description:         "Google Drive cloud storage and file collaboration",
 	Categories:          []string{"storage", "productivity"},
 	HomepageURL:         "https://drive.google.com",
 	IconURL:             "https://cdn.simpleicons.org/googledrive",

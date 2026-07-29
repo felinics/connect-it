@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "postman",
 	Name:                "Postman",
-	Description:         "Postman API 开发与协作平台",
+	Description:         "Postman API development and collaboration platform",
 	Categories:          []string{"developer_tools"},
 	HomepageURL:         "https://www.postman.com",
 	IconURL:             "https://cdn.simpleicons.org/postman",
@@ -25,7 +25,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Postman 账户生成的 API Key。",
+			Description: "API key generated from your Postman account.",
 		}},
 	}},
 	Implementation: connector.RemoteMCP{

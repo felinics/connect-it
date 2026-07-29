@@ -1,24 +1,25 @@
-# Connect-It SDK
+# connect-it SDK
 
-`sdk/` 放面向 Connect-It 下游服务的 SDK。当前只提供 Go SDK，因为首个下游
-Memoh Cloud 的服务端使用 Go。
+`sdk/` holds the SDKs aimed at services downstream of connect-it. Only a Go SDK
+exists today, because the first downstream service is written in Go.
 
-仓库中的两个 SDK 职责不同：
+The two SDKs in this repository have different jobs:
 
-| 目录 | 用途 |
+| Directory | Purpose |
 |---|---|
-| `packages/sdk` | 从 OpenAPI 自动生成的私有 TypeScript Client，供 Connect-It 自己的管理界面使用 |
-| `sdk/go` | 手写的下游 Go SDK，供 Memoh Cloud 等可信服务调用 Connect-It |
+| `packages/sdk` | Private TypeScript client generated from the OpenAPI spec, used by the connect-it admin UI |
+| `sdk/go` | Hand-written Go SDK for trusted downstream services calling connect-it |
 
 ## Go SDK
 
-发布后安装：
+Install:
 
 ```bash
 go get github.com/memohai/connect-it/sdk/go
 ```
 
-仓库联调阶段先在下游 `go.mod` 使用本地替换：
+While developing against a local checkout, use a replace directive in the
+downstream `go.mod`:
 
 ```go
 require github.com/memohai/connect-it/sdk/go v0.0.0
@@ -26,21 +27,23 @@ require github.com/memohai/connect-it/sdk/go v0.0.0
 replace github.com/memohai/connect-it/sdk/go => ../connect-it/sdk/go
 ```
 
-正式发布子模块时使用 `sdk/go/vX.Y.Z` 形式的 Git tag。
+Releases of the submodule are tagged as `sdk/go/vX.Y.Z`.
 
-创建 Client。API Token 是下游服务的部署级密钥，不能传给浏览器：
+Create a client. The API token is a deployment-level secret of the downstream
+service and must never reach a browser:
 
 ```go
 client, err := connectit.New(
-    os.Getenv("MEMOH_CONNECT_IT_BASE_URL"),
-    os.Getenv("MEMOH_CONNECT_IT_API_TOKEN"),
+    os.Getenv("CONNECT_IT_BASE_URL"),
+    os.Getenv("CONNECT_IT_API_TOKEN"),
 )
 if err != nil {
     return err
 }
 ```
 
-创建 OAuth Connection，并把返回的 `ConnectionID` 持久化到下游自己的业务记录：
+Create an OAuth connection and persist the returned `ConnectionID` in your own
+records:
 
 ```go
 authorization, err := client.BeginOAuth(ctx, connectit.BeginOAuthRequest{
@@ -52,14 +55,15 @@ if err != nil {
     return err
 }
 
-// 让终端用户打开 authorization.AuthorizationURL。
-// 下游只需长期保存 authorization.ConnectionID。
+// Send the end user to authorization.AuthorizationURL.
+// Downstream only needs to store authorization.ConnectionID long term.
 ```
 
-连接 MCP 时使用官方 Go MCP SDK。下游把当前 Bot 启用的 Connection 组成
-`namespace → connection_id` 映射；`MCPAuthHandler` 会用 API Token 和这组绑定
-按需签发一个聚合的短期 MCP Session Token，在到期前自动更新，并在服务端返回
-`401` 或 `403` 后清除缓存、重新签发一次：
+Connect to MCP with the official Go MCP SDK. Downstream builds a
+`namespace → connection_id` map of the connections enabled for the current bot.
+`MCPAuthHandler` uses the API token and that map to issue one aggregated,
+short-lived MCP session token on demand, refreshes it before expiry, and clears
+the cache and re-issues once after the server returns `401` or `403`:
 
 ```go
 authHandler := client.MCPAuthHandler(connectit.MCPSessionConfig{
@@ -71,7 +75,7 @@ authHandler := client.MCPAuthHandler(connectit.MCPSessionConfig{
 })
 
 mcpClient := mcp.NewClient(&mcp.Implementation{
-    Name:    "memoh-cloud",
+    Name:    "my-service",
     Version: "1.0.0",
 }, nil)
 
@@ -85,15 +89,17 @@ if err != nil {
 defer session.Close()
 ```
 
-Session 签发时会发现并固化当前工具集。`ToolAllowlist` 为空表示允许本次签发时
-发现到的全部工具；非空时每个名字都必须存在，否则签发失败。撤销 Client 使用的
-Connect-It API Token 会立即使它签发的 Session 失效。
+Issuing a session discovers the current tool set and freezes it. An empty
+`ToolAllowlist` allows every tool discovered at issue time; a non-empty one
+requires every listed name to exist, or issuing fails. Revoking the connect-it
+API token used by the client invalidates every session it issued, immediately.
 
-凭证边界：
+Credential boundaries:
 
-- Connect-It API Token：保存在下游服务端的 Secret/环境变量中。
-- Connection ID：保存在下游独立的 Connector 业务表中。
-- MCP Session Token：由 `MCPAuthHandler` 缓存在进程内，不落库。
-- 第三方 access/refresh token：只保存在 Connect-It。
+- connect-it API token: kept in the downstream server's secret store or environment.
+- Connection ID: kept in the downstream service's own connector records.
+- MCP session token: cached in process by `MCPAuthHandler`, never persisted.
+- Third-party access and refresh tokens: kept only inside connect-it.
 
-`sdk/go` 不封装 `tools/list` 和 `tools/call`，这些协议能力直接使用官方 MCP SDK。
+`sdk/go` does not wrap `tools/list` or `tools/call`. Use the official MCP SDK
+directly for those protocol calls.

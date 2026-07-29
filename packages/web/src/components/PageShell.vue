@@ -3,9 +3,11 @@ import { Button } from '@felinic/ui'
 import { ArrowLeftIcon } from '@radix-icons/vue'
 import { useRouter } from 'vue-router'
 
-// 页面壳（owner 组件，规范见 packages/ui/skills/web/SKILL.md「The shell」）：
-// 居中列、左右留白、标题下有呼吸、区块间 space-y-8。
-// wide 用于列表型页面（连接器、概览）；backTo 渲染标题左侧的返回按钮。
+// Page shell (owner component; see "The shell" in
+// packages/ui/skills/web/SKILL.md): a centred column with side gutters,
+// breathing room under the title, and space-y-8 between sections.
+// wide suits list pages such as connectors and overview; backTo renders a
+// back button to the left of the title.
 const props = defineProps<{ title: string; wide?: boolean; backTo?: string }>()
 
 const router = useRouter()

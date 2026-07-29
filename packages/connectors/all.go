@@ -1,5 +1,6 @@
-// Package connectors 显式注册全部 provider 的 Definition。
-// 新增 Connector：加目录、加 definition.go（及可选 managed.go）、在这里加注册行。
+// Package connectors explicitly registers the Definition of every provider.
+// To add a connector: create a directory, add definition.go (and optionally
+// managed.go), then add a registration line here.
 package connectors
 
 import (
@@ -37,7 +38,7 @@ import (
 	"github.com/memohai/connect-it/packages/core/registry"
 )
 
-// RegisterAll 注册全部 Definition。
+// RegisterAll registers every Definition.
 func RegisterAll(r *registry.Registry) {
 	r.MustRegister(airtable.Definition)
 	r.MustRegister(asana.Definition)

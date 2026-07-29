@@ -9,7 +9,7 @@ import (
 
 func strPtr(s string) *string { return &s }
 
-// makeDef 返回一个有必填字段（含 secret）的 definition。
+// makeDef returns a definition with required fields, including a secret one.
 func makeDef() connector.Definition {
 	return connector.Definition{
 		Type:                "example_app",
@@ -24,7 +24,7 @@ func makeDef() connector.Definition {
 	}
 }
 
-// fullConfig 返回满足 makeDef 全部要求的配置状态。
+// fullConfig returns a config state that satisfies every makeDef requirement.
 func fullConfig() status.ConfigState {
 	return status.ConfigState{
 		Exists:        true,
@@ -43,12 +43,12 @@ func TestCompute(t *testing.T) {
 	}{
 		{"definition_missing", func() *connector.Definition { return nil },
 			fullConfig, status.DefinitionMissing},
-		{"deprecated 优先于其他", func() *connector.Definition {
+		{"deprecated takes precedence", func() *connector.Definition {
 			d := makeDef()
 			d.Deprecated = true
 			return &d
 		}, fullConfig, status.Deprecated},
-		{"config 比代码新", func() *connector.Definition {
+		{"config newer than code", func() *connector.Definition {
 			d := makeDef()
 			return &d
 		}, func() status.ConfigState {
@@ -56,7 +56,7 @@ func TestCompute(t *testing.T) {
 			c.SchemaVersion = 3
 			return c
 		}, status.ConfigIncompatible},
-		{"缺必填公开字段", func() *connector.Definition {
+		{"missing required public field", func() *connector.Definition {
 			d := makeDef()
 			return &d
 		}, func() status.ConfigState {
@@ -64,7 +64,7 @@ func TestCompute(t *testing.T) {
 			delete(c.PublicValues, "client_id")
 			return c
 		}, status.NeedsConfig},
-		{"缺必填 secret 字段", func() *connector.Definition {
+		{"missing required secret field", func() *connector.Definition {
 			d := makeDef()
 			return &d
 		}, func() status.ConfigState {
@@ -72,7 +72,7 @@ func TestCompute(t *testing.T) {
 			c.SecretKeysSet = nil
 			return c
 		}, status.NeedsConfig},
-		{"必填但有默认值不算缺", func() *connector.Definition {
+		{"required with default is not missing", func() *connector.Definition {
 			d := makeDef()
 			return &d
 		}, fullConfig, status.Ready},

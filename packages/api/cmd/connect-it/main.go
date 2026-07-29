@@ -1,8 +1,8 @@
-// connect-it API 服务入口。
+// Command connect-it is the API server entry point.
 //
 //	@title						connect-it API
 //	@version					1.0
-//	@description				内部 Connector 服务：catalog、配置管理、OAuth 连接与聚合 MCP。
+//	@description				Self-hosted connector gateway: catalog, config management, OAuth connections and aggregated MCP.
 //	@BasePath					/
 //	@securityDefinitions.apikey	BearerAuth
 //	@in							header
@@ -49,16 +49,16 @@ func main() {
 
 	keyring, err := crypto.ParseKeyring(keySpec)
 	if err != nil {
-		log.Fatalf("解析 %s: %v", crypto.EnvSecretKey, err)
+		log.Fatalf("parse %s: %v", crypto.EnvSecretKey, err)
 	}
 
 	if err := service.MigrateUp(dbURL); err != nil {
-		log.Fatalf("数据库 migration: %v", err)
+		log.Fatalf("database migration: %v", err)
 	}
 
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		log.Fatalf("连接数据库: %v", err)
+		log.Fatalf("connect to database: %v", err)
 	}
 	defer pool.Close()
 
@@ -76,7 +76,7 @@ func main() {
 	engine := exec.New(queries, reg, configSvc, refresher, keyring, mcpclient.Client{})
 
 	if err := authSvc.EnsureAdminFromEnv(ctx); err != nil {
-		log.Fatalf("初始化 admin 账号: %v", err)
+		log.Fatalf("initialize admin account: %v", err)
 	}
 
 	e := api.New(api.Deps{
@@ -91,14 +91,14 @@ func main() {
 		Sessions:     sessions.New(queries, engine),
 		CookieSecret: []byte(cookieSecret),
 	})
-	log.Printf("connect-it 监听 %s", addr)
+	log.Printf("connect-it listening on %s", addr)
 	log.Fatal(e.Start(addr))
 }
 
 func mustEnv(name string) string {
 	v := os.Getenv(name)
 	if v == "" {
-		log.Fatalf("缺少必填环境变量 %s", name)
+		log.Fatalf("missing required environment variable %s", name)
 	}
 	return v
 }

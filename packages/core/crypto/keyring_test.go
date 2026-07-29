@@ -26,14 +26,14 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ver != 2 {
-		t.Fatalf("应使用最大版本 2 加密, got %d", ver)
+		t.Fatalf("expected encryption with highest version 2, got %d", ver)
 	}
 	pt, err := k.Decrypt(ct, ver, aad)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(pt, []byte(`{"client_secret":"x"}`)) {
-		t.Fatalf("roundtrip 失败: %s", pt)
+		t.Fatalf("roundtrip failed: %s", pt)
 	}
 }
 
@@ -41,12 +41,13 @@ func TestDecryptWrongAADFails(t *testing.T) {
 	k := testKeyring(t)
 	ct, ver, _ := k.Encrypt([]byte("data"), []byte("gmail"))
 	if _, err := k.Decrypt(ct, ver, []byte("github")); err == nil {
-		t.Fatal("错误 AAD 应解密失败")
+		t.Fatal("decryption with a wrong AAD should fail")
 	}
 }
 
 func TestDecryptOldVersion(t *testing.T) {
-	// 只有版本 1 的旧 keyring 加密的数据，新 keyring（1+2）仍能按版本 1 解密。
+	// Data encrypted by an old version-1-only keyring is still decryptable by
+	// a newer keyring holding versions 1 and 2.
 	old, err := crypto.ParseKeyring("1:" + strings.Repeat("11", 32))
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +58,7 @@ func TestDecryptOldVersion(t *testing.T) {
 	}
 	pt, err := testKeyring(t).Decrypt(ct, 1, []byte("a"))
 	if err != nil || string(pt) != "data" {
-		t.Fatalf("旧版本解密失败: %v %q", err, pt)
+		t.Fatalf("decrypting an older version failed: %v %q", err, pt)
 	}
 }
 
@@ -65,7 +66,7 @@ func TestDecryptUnknownVersionFails(t *testing.T) {
 	k := testKeyring(t)
 	ct, _, _ := k.Encrypt([]byte("data"), nil)
 	if _, err := k.Decrypt(ct, 9, nil); err == nil {
-		t.Fatal("未知版本应报错")
+		t.Fatal("an unknown version should return an error")
 	}
 }
 
@@ -74,12 +75,13 @@ func TestDecryptTamperedFails(t *testing.T) {
 	ct, ver, _ := k.Encrypt([]byte("data"), nil)
 	ct[len(ct)-1] ^= 0xff
 	if _, err := k.Decrypt(ct, ver, nil); err == nil {
-		t.Fatal("被篡改的密文应解密失败")
+		t.Fatal("tampered ciphertext should fail to decrypt")
 	}
 }
 
 func TestEncryptEmptyPlaintext(t *testing.T) {
-	// 无 Secret 字段的 Connector 存空配置，允许空明文。
+	// Connectors without secret fields store an empty config, so empty
+	// plaintext must be allowed.
 	k := testKeyring(t)
 	ct, ver, err := k.Encrypt(nil, []byte("x"))
 	if err != nil {
@@ -87,7 +89,7 @@ func TestEncryptEmptyPlaintext(t *testing.T) {
 	}
 	pt, err := k.Decrypt(ct, ver, []byte("x"))
 	if err != nil || len(pt) != 0 {
-		t.Fatalf("空明文 roundtrip 失败: %v %q", err, pt)
+		t.Fatalf("empty plaintext roundtrip failed: %v %q", err, pt)
 	}
 }
 
@@ -101,7 +103,7 @@ func TestParseKeyringRejectsBadInput(t *testing.T) {
 		"1:" + strings.Repeat("11", 32) + ",1:" + strings.Repeat("22", 32),
 	} {
 		if _, err := crypto.ParseKeyring(spec); err == nil {
-			t.Fatalf("spec %q 应被拒绝", spec)
+			t.Fatalf("spec %q should have been rejected", spec)
 		}
 	}
 }

@@ -1,6 +1,7 @@
-// Package testutil 为集成测试提供隔离的数据库环境。
-// 约定：读 TEST_DATABASE_URL，未设置则 t.Skip；
-// 每个测试创建随机 schema、在其中跑全量 migration，结束后 DROP SCHEMA CASCADE。
+// Package testutil provides an isolated database environment for integration
+// tests. It reads TEST_DATABASE_URL and skips when the variable is unset.
+// Each test gets its own random schema, runs the full migration set inside
+// it, and drops that schema with CASCADE when finished.
 package testutil
 
 import (
@@ -17,13 +18,14 @@ import (
 	service "github.com/memohai/connect-it/packages/service"
 )
 
-// NewDB 返回一个连接到独立随机 schema、已跑完全部 migration 的连接池。
-// 清理（DROP SCHEMA、关闭连接）通过 t.Cleanup 自动完成。
+// NewDB returns a pool connected to a dedicated random schema with every
+// migration applied. Cleanup, meaning DROP SCHEMA and closing the pool, runs
+// automatically through t.Cleanup.
 func NewDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	base := os.Getenv("TEST_DATABASE_URL")
 	if base == "" {
-		t.Skip("TEST_DATABASE_URL 未设置，跳过集成测试")
+		t.Skip("TEST_DATABASE_URL is not set, skipping integration test")
 	}
 	ctx := context.Background()
 
@@ -35,11 +37,11 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 
 	admin, err := pgxpool.New(ctx, base)
 	if err != nil {
-		t.Fatalf("连接 TEST_DATABASE_URL: %v", err)
+		t.Fatalf("connect to TEST_DATABASE_URL: %v", err)
 	}
 	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
 		admin.Close()
-		t.Fatalf("创建 schema: %v", err)
+		t.Fatalf("create schema: %v", err)
 	}
 
 	schemaURL, err := WithSearchPath(base, schema)
@@ -47,11 +49,11 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	if err := service.MigrateUp(schemaURL); err != nil {
-		t.Fatalf("migration 失败: %v", err)
+		t.Fatalf("migration failed: %v", err)
 	}
 	pool, err := pgxpool.New(ctx, schemaURL)
 	if err != nil {
-		t.Fatalf("连接测试 schema: %v", err)
+		t.Fatalf("connect to the test schema: %v", err)
 	}
 	t.Cleanup(func() {
 		pool.Close()
@@ -61,11 +63,12 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// WithSearchPath 给数据库 URL 追加 search_path 参数（pgx 将其作为运行时参数下发）。
+// WithSearchPath appends a search_path parameter to a database URL; pgx sends
+// it as a runtime parameter.
 func WithSearchPath(databaseURL, schema string) (string, error) {
 	u, err := url.Parse(databaseURL)
 	if err != nil {
-		return "", fmt.Errorf("解析数据库 URL: %w", err)
+		return "", fmt.Errorf("parse database URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("search_path", schema)

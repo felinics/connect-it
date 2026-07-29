@@ -34,3 +34,6 @@ go.work.sum
 # Node
 node_modules/
 dist/
+
+# Local design notes and implementation plans, not part of the published docs
+docs/superpowers/

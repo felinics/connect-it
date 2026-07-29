@@ -27,9 +27,9 @@ type TokenEndpointError struct {
 
 func (e *TokenEndpointError) Error() string {
 	if e.OAuthCode != "" {
-		return fmt.Sprintf("oauthsvc: token endpoint 返回 %d (%s)", e.StatusCode, e.OAuthCode)
+		return fmt.Sprintf("oauthsvc: token endpoint returned %d (%s)", e.StatusCode, e.OAuthCode)
 	}
-	return fmt.Sprintf("oauthsvc: token endpoint 返回 %d", e.StatusCode)
+	return fmt.Sprintf("oauthsvc: token endpoint returned %d", e.StatusCode)
 }
 
 func (e *TokenEndpointError) UpstreamStatusCode() int { return e.StatusCode }
@@ -85,7 +85,7 @@ func ExchangeToken(
 	}
 	resp, err := noRedirectClient(hc).Do(req)
 	if err != nil {
-		return TokenResponse{}, fmt.Errorf("oauthsvc: 请求 token endpoint: %w", err)
+		return TokenResponse{}, fmt.Errorf("oauthsvc: request token endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -104,7 +104,7 @@ func ExchangeToken(
 		}
 	}
 	if jsonErr != nil {
-		return TokenResponse{}, fmt.Errorf("oauthsvc: token 响应不是 JSON: %w", jsonErr)
+		return TokenResponse{}, fmt.Errorf("oauthsvc: token response is not JSON: %w", jsonErr)
 	}
 	if payload.Error != "" {
 		return TokenResponse{}, &TokenEndpointError{
@@ -113,7 +113,7 @@ func ExchangeToken(
 		}
 	}
 	if payload.AccessToken == "" {
-		return TokenResponse{}, errors.New("oauthsvc: token 响应缺少 access_token")
+		return TokenResponse{}, errors.New("oauthsvc: token response has no access_token")
 	}
 	return payload.TokenResponse, nil
 }

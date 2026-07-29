@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// newTestSchema 创建随机 schema，返回带 search_path 的数据库 URL。
-// 未设置 TEST_DATABASE_URL 时 t.Skip。
+// newTestSchema creates a random schema and returns a database URL carrying
+// the matching search_path. It skips the test when TEST_DATABASE_URL is unset.
 func newTestSchema(t *testing.T) string {
 	t.Helper()
 	base := os.Getenv("TEST_DATABASE_URL")
 	if base == "" {
-		t.Skip("TEST_DATABASE_URL 未设置，跳过集成测试")
+		t.Skip("TEST_DATABASE_URL is not set, skipping integration test")
 	}
 	ctx := context.Background()
 	var buf [8]byte
@@ -27,10 +27,10 @@ func newTestSchema(t *testing.T) string {
 	schema := "test_" + hex.EncodeToString(buf[:])
 	conn, err := pgx.Connect(ctx, base)
 	if err != nil {
-		t.Fatalf("连接 TEST_DATABASE_URL: %v", err)
+		t.Fatalf("connect to TEST_DATABASE_URL: %v", err)
 	}
 	if _, err := conn.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
-		t.Fatalf("创建 schema: %v", err)
+		t.Fatalf("create schema: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = conn.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
@@ -73,7 +73,7 @@ func TestMigrateUpCreatesAllTables(t *testing.T) {
 	}
 	for _, tbl := range wantTables {
 		if !tableExists(t, dbURL, tbl) {
-			t.Errorf("表 %s 未创建", tbl)
+			t.Errorf("table %s was not created", tbl)
 		}
 	}
 }
@@ -84,7 +84,7 @@ func TestMigrateUpIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := MigrateUp(dbURL); err != nil {
-		t.Fatalf("第二次 MigrateUp 应为 no-op: %v", err)
+		t.Fatalf("a second MigrateUp should be a no-op: %v", err)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestMigrateDownDropsAllTables(t *testing.T) {
 	}
 	for _, tbl := range wantTables {
 		if tableExists(t, dbURL, tbl) {
-			t.Errorf("表 %s 未被 down migration 删除", tbl)
+			t.Errorf("table %s was not dropped by the down migration", tbl)
 		}
 	}
 }

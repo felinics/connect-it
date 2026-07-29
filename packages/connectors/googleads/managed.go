@@ -35,19 +35,19 @@ func search(ctx context.Context, call connector.ManagedCall) (*mcp.CallToolResul
 		LoginCustomerID string `json:"login_customer_id"`
 	}
 	if err := json.Unmarshal(call.Arguments, &args); err != nil {
-		return googleAdsToolError("arguments 必须是 JSON object"), nil
+		return googleAdsToolError("arguments must be a JSON object"), nil
 	}
 	customerID, ok := normalizeCustomerID(args.CustomerID)
 	if !ok {
-		return googleAdsToolError("customer_id 必须是 10 位数字"), nil
+		return googleAdsToolError("customer_id must be 10 digits"), nil
 	}
 	if strings.TrimSpace(args.Query) == "" {
-		return googleAdsToolError("query 不能为空"), nil
+		return googleAdsToolError("query must not be empty"), nil
 	}
 	loginCustomerID := ""
 	if args.LoginCustomerID != "" {
 		if loginCustomerID, ok = normalizeCustomerID(args.LoginCustomerID); !ok {
-			return googleAdsToolError("login_customer_id 必须是 10 位数字"), nil
+			return googleAdsToolError("login_customer_id must be 10 digits"), nil
 		}
 	}
 	payload := map[string]string{"query": args.Query}
@@ -86,10 +86,10 @@ func callGoogleAds(
 ) (*mcp.CallToolResult, error) {
 	developerToken, _ := call.Config["developer_token"].(string)
 	if developerToken == "" {
-		return nil, fmt.Errorf("google ads: 缺少 developer_token")
+		return nil, fmt.Errorf("google ads: developer_token is missing")
 	}
 	if call.AccessToken == "" {
-		return nil, fmt.Errorf("google ads: 缺少 OAuth access token")
+		return nil, fmt.Errorf("google ads: OAuth access token is missing")
 	}
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -113,10 +113,10 @@ func callGoogleAds(
 		return nil, err
 	}
 	if int64(len(data)) > maxAPIResponseBytes {
-		return nil, fmt.Errorf("google ads: 响应超过 %d bytes", maxAPIResponseBytes)
+		return nil, fmt.Errorf("google ads: response exceeds %d bytes", maxAPIResponseBytes)
 	}
 	if resp.StatusCode >= 400 {
-		message := fmt.Sprintf("Google Ads API 返回 %d", resp.StatusCode)
+		message := fmt.Sprintf("Google Ads API returned %d", resp.StatusCode)
 		var payload struct {
 			Error struct {
 				Message string `json:"message"`

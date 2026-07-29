@@ -33,12 +33,12 @@ type createConnectionResponse struct {
 
 // beginOAuthConnection godoc
 //
-//	@Summary	发起 OAuth 授权：立即创建 pending 连接并返回其持久 ID 与授权 URL
+//	@Summary	Start an OAuth authorization: create a pending connection and return its durable ID and authorization URL
 //	@ID			beginOAuthConnection
 //	@Tags		connections
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.beginOAuthRequest	true	"alias 为可选展示标签"
+//	@Param		body	body		api.beginOAuthRequest	true	"alias is an optional display label"
 //	@Success	201		{object}	api.beginOAuthResponse
 //	@Failure	404		{object}	api.ErrorResponse
 //	@Failure	422		{object}	api.ErrorResponse
@@ -47,7 +47,7 @@ type createConnectionResponse struct {
 func (h *handlers) beginOAuthConnection(c echo.Context) error {
 	var req beginOAuthRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
 	}
 	result, err := h.deps.OAuth.Begin(c.Request().Context(),
 		connector.Type(req.ConnectorType), req.AuthMethod, req.Alias)
@@ -62,12 +62,12 @@ func (h *handlers) beginOAuthConnection(c echo.Context) error {
 
 // createApiKeyConnection godoc
 //
-//	@Summary	用 API key / 自定义凭证创建连接，返回其持久 ID
+//	@Summary	Create a connection from an API key or custom credential and return its durable ID
 //	@ID			createApiKeyConnection
 //	@Tags		connections
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.createAPIKeyRequest	true	"凭证字段按 auth method 的 CredentialFields 填写；alias 可选"
+//	@Param		body	body		api.createAPIKeyRequest	true	"Fill credential fields per the CredentialFields of the auth method; alias is optional"
 //	@Success	201		{object}	api.createConnectionResponse
 //	@Failure	404		{object}	api.ErrorResponse
 //	@Failure	422		{object}	api.ErrorResponse
@@ -76,7 +76,7 @@ func (h *handlers) beginOAuthConnection(c echo.Context) error {
 func (h *handlers) createAPIKeyConnection(c echo.Context) error {
 	var req createAPIKeyRequest
 	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "bad_request", "请求体不是合法 JSON")
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
 	}
 	id, err := h.deps.Conns.CreateAPIKey(c.Request().Context(),
 		connector.Type(req.ConnectorType), req.AuthMethod, req.Alias, req.Fields)
@@ -88,7 +88,7 @@ func (h *handlers) createAPIKeyConnection(c echo.Context) error {
 
 // getConnection godoc
 //
-//	@Summary	查询连接状态（pending / active / reauth_required …）
+//	@Summary	Get connection status (pending / active / reauth_required and so on)
 //	@ID			getConnection
 //	@Tags		connections
 //	@Produce	json
@@ -100,7 +100,7 @@ func (h *handlers) createAPIKeyConnection(c echo.Context) error {
 func (h *handlers) getConnection(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	view, err := h.deps.Conns.Get(c.Request().Context(), id)
 	if err != nil {
@@ -111,7 +111,7 @@ func (h *handlers) getConnection(c echo.Context) error {
 
 // reauthConnection godoc
 //
-//	@Summary	对既有连接重新发起授权（ID 不变）
+//	@Summary	Re-authorize an existing connection, keeping the same ID
 //	@ID			reauthConnection
 //	@Tags		connections
 //	@Produce	json
@@ -123,7 +123,7 @@ func (h *handlers) getConnection(c echo.Context) error {
 func (h *handlers) reauthConnection(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	result, err := h.deps.OAuth.BeginReauth(c.Request().Context(), id)
 	if err != nil {
@@ -137,7 +137,7 @@ func (h *handlers) reauthConnection(c echo.Context) error {
 
 // deleteConnection godoc
 //
-//	@Summary	删除连接
+//	@Summary	Delete a connection
 //	@ID			deleteConnection
 //	@Tags		connections
 //	@Param		id	path	string	true	"connection id（uuid）"
@@ -148,7 +148,7 @@ func (h *handlers) reauthConnection(c echo.Context) error {
 func (h *handlers) deleteConnection(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	if err := h.deps.Conns.Delete(c.Request().Context(), id); err != nil {
 		return mapServiceError(c, err)
@@ -156,11 +156,12 @@ func (h *handlers) deleteConnection(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// —— 管理台运维视角（cookie 鉴权）：查看全部连接、删除、生成重授权链接 ——
+// Operator view, cookie authenticated: list every connection, delete one, and
+// mint a re-authorization link.
 
 // listConnections godoc
 //
-//	@Summary	列出全部连接（运维视角，不含 credential）
+//	@Summary	List every connection for operators, without credentials
 //	@ID			listConnections
 //	@Tags		admin
 //	@Produce	json
@@ -176,7 +177,7 @@ func (h *handlers) listConnections(c echo.Context) error {
 
 // adminReauthConnection godoc
 //
-//	@Summary	生成重授权链接（运维转交给对应用户打开）
+//	@Summary	Mint a re-authorization link for an operator to hand to the right end user
 //	@ID			adminReauthConnection
 //	@Tags		admin
 //	@Produce	json
@@ -187,7 +188,7 @@ func (h *handlers) listConnections(c echo.Context) error {
 func (h *handlers) adminReauthConnection(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return writeError(c, http.StatusNotFound, "not_found", "资源不存在")
+		return writeError(c, http.StatusNotFound, "not_found", "resource not found")
 	}
 	result, err := h.deps.OAuth.BeginReauth(c.Request().Context(), id)
 	if err != nil {
@@ -201,7 +202,7 @@ func (h *handlers) adminReauthConnection(c echo.Context) error {
 
 // adminDeleteConnection godoc
 //
-//	@Summary	删除连接（运维）
+//	@Summary	Delete a connection, operator view
 //	@ID			adminDeleteConnection
 //	@Tags		admin
 //	@Param		id	path	string	true	"connection id（uuid）"

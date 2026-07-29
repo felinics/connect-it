@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "dropbox",
 	Name:                "Dropbox",
-	Description:         "Dropbox 云存储与文件协作平台",
+	Description:         "Dropbox cloud storage and file collaboration platform",
 	Categories:          []string{"storage", "productivity"},
 	HomepageURL:         "https://www.dropbox.com",
 	IconURL:             "https://cdn.simpleicons.org/dropbox",
@@ -21,7 +21,7 @@ var Definition = connector.Definition{
 			Label:       "OAuth App Key",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "Dropbox App Console 中的 App key。",
+			Description: "App key from the Dropbox app console.",
 		},
 		{
 			Key:         "client_secret",
@@ -29,7 +29,7 @@ var Definition = connector.Definition{
 			InputType:   connector.InputText,
 			Required:    true,
 			Secret:      true,
-			Description: "Dropbox App Console 中的 App secret。",
+			Description: "App secret from the Dropbox app console.",
 		},
 	},
 	AuthMethods: []connector.AuthMethod{{

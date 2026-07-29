@@ -112,7 +112,7 @@ func TestBearerTokenDoesNotFollowRedirect(t *testing.T) {
 
 	_, err := mcpclient.ListTools(t.Context(), redirect.URL, "secret-token", "Bearer", time.Second)
 	if err == nil {
-		t.Fatal("重定向不应被当作成功的 MCP 握手")
+		t.Fatal("a redirect must not count as a successful MCP handshake")
 	}
 	var upstreamErr *mcpclient.UpstreamError
 	if !errors.As(err, &upstreamErr) ||
@@ -120,7 +120,7 @@ func TestBearerTokenDoesNotFollowRedirect(t *testing.T) {
 		t.Fatalf("upstream error=%T %v", err, err)
 	}
 	if targetHit.Load() {
-		t.Fatal("Bearer token 请求跟随了重定向")
+		t.Fatal("a Bearer token request followed a redirect")
 	}
 }
 

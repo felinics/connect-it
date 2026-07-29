@@ -74,7 +74,7 @@ func newCatalog(t *testing.T) (*catalogsvc.Service, context.Context, func(sql st
 
 func TestListStatuses(t *testing.T) {
 	svc, ctx, exec := newCatalog(t)
-	// 孤儿配置行（代码不认识的 type）
+	// Orphaned config row: a type the code does not know.
 	exec(`insert into connector_configs
 	      (connector_type, config_schema_version, public_config, secret_config, secret_key_version, created_at, updated_at)
 	      values ('ghost_app', 1, '{}', '\x'::bytea, 1, now(), now())`)
@@ -98,11 +98,11 @@ func TestListStatuses(t *testing.T) {
 		}
 	}
 	if len(items) != 4 {
-		t.Fatalf("应有 4 条: %+v", items)
+		t.Fatalf("expected 4 items: %+v", items)
 	}
-	// 排序按 type 升序
+	// Sorted by type, ascending.
 	if items[0].Type != "ghost_app" || items[3].Type != "shelf_app" {
-		t.Fatalf("排序不符: %+v", items)
+		t.Fatalf("unexpected order: %+v", items)
 	}
 }
 
@@ -142,6 +142,6 @@ func TestGet(t *testing.T) {
 	}
 
 	if _, err := svc.Get(ctx, "nope"); !errors.Is(err, configsvc.ErrNotFound) {
-		t.Fatalf("未知 type 应 ErrNotFound, got %v", err)
+		t.Fatalf("an unknown type should yield ErrNotFound, got %v", err)
 	}
 }

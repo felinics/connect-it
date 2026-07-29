@@ -28,13 +28,13 @@ func TestExpandEndpointMissingValue(t *testing.T) {
 		map[string]any{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "tenant") {
-		t.Fatalf("缺配置值应报含字段名的错误, got %v", err)
+		t.Fatalf("a missing config value should error and name the field, got %v", err)
 	}
 }
 
 func TestExpandEndpointNonStringValue(t *testing.T) {
 	_, err := ExpandEndpoint("https://x.example.com/{tenant}/y", map[string]any{"tenant": 42})
 	if err == nil {
-		t.Fatal("非字符串配置值应报错")
+		t.Fatal("a non-string config value should error")
 	}
 }

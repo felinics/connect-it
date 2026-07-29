@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_slides",
 	Name:                "Google Slides",
-	Description:         "Google Slides 在线演示文稿",
+	Description:         "Google Slides online presentations",
 	Categories:          []string{"productivity"},
 	HomepageURL:         "https://docs.google.com/presentation",
 	IconURL:             "https://cdn.simpleicons.org/googleslides",

@@ -10,7 +10,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "slack",
 	Name:                "Slack",
-	Description:         "Slack 消息、文件与协作平台",
+	Description:         "Slack messaging, file and collaboration platform",
 	Categories:          []string{"communication", "productivity"},
 	HomepageURL:         "https://slack.com",
 	IconURL:             "https://api.iconify.design/streamline-color:slack.svg",
@@ -21,7 +21,7 @@ var Definition = connector.Definition{
 			Label:       "OAuth Client ID",
 			InputType:   connector.InputText,
 			Required:    true,
-			Description: "已启用 MCP 的 Slack internal app 或 directory-published app Client ID。",
+			Description: "Client ID of an MCP-enabled Slack internal app or directory-published app.",
 		},
 		{
 			Key:         "client_secret",

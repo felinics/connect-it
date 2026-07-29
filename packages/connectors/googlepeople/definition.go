@@ -11,7 +11,7 @@ import (
 var Definition = connector.Definition{
 	Type:                "google_people",
 	Name:                "Google People",
-	Description:         "Google 个人资料、联系人与组织目录",
+	Description:         "Google profile, contacts and organization directory",
 	Categories:          []string{"productivity"},
 	HomepageURL:         "https://contacts.google.com",
 	IconURL:             "https://cdn.simpleicons.org/google",

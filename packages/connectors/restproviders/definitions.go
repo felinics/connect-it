@@ -477,7 +477,7 @@ var Definitions = []connector.Definition{
 func apiKey(spec providerSpec) connector.Definition {
 	description := spec.description
 	if description == "" {
-		description = spec.name + " 官方 REST API"
+		description = spec.name + " official REST API"
 	}
 	iconURL := providerIconURLs[spec.connectorType]
 	if iconURL == "" && spec.icon != "" {
