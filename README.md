@@ -64,9 +64,3 @@ architecture and the development workflow.
 ## License
 
 [MIT](LICENSE)
-
----
-
-<div align="center">
-  <a href="https://github.com/memohai/connect-it">github.com/memohai/connect-it</a>
-</div>
