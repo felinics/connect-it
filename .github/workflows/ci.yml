@@ -1,16 +1,17 @@
-# Versions verified 2026-07-22:
-#   actions/checkout v7 (latest v7.0.1)  https://github.com/actions/checkout/releases
-#   jdx/mise-action  v4 (latest v4.2.1)  https://github.com/jdx/mise-action/releases
 name: CI
 
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:17
@@ -58,3 +59,19 @@ jobs:
         run: |
           docker build -f docker/server.Dockerfile -t connect-it-server:ci .
           docker build -f docker/web.Dockerfile -t connect-it-web:ci .
+
+  publish:
+    name: Publish container images
+    needs: ci
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    concurrency:
+      # Serialize publishes per ref so repeated pushes queue up. The group must
+      # include the ref: GitHub keeps only the newest pending run per group, so
+      # a shared group would let a later main push silently cancel a queued tag
+      # publish and the release images would never be pushed.
+      group: publish-images-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-images.yml

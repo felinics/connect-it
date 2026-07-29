@@ -5,7 +5,8 @@
 #   docker build -f docker/web.Dockerfile -t connect-it-web:dev .
 
 # ---------- Stage 1: build the Vue admin UI ----------
-FROM node:22 AS web-builder
+# Static web assets are architecture-independent, so build them natively once.
+FROM --platform=$BUILDPLATFORM node:22 AS web-builder
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 # corepack prepare needs an exact version; keep in sync with pnpm-lock.yaml.
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
@@ -18,7 +19,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --dir packages/web run build
 
 # ---------- Stage 2: nginx runtime ----------
-FROM nginx:1.29-alpine
+FROM nginx:1.30-alpine
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-builder /src/packages/web/dist /usr/share/nginx/html
 EXPOSE 8080
