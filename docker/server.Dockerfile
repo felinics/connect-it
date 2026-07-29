@@ -4,7 +4,7 @@
 
 # ---------- Stage 1: build the Go binary ----------
 # Keep the compiler native and cross-compile the static binary for each target.
-FROM --platform=$BUILDPLATFORM golang:1.25 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26 AS go-builder
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
