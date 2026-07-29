@@ -6,7 +6,7 @@
 
 # ---------- Stage 1: build the Vue admin UI ----------
 # Static web assets are architecture-independent, so build them natively once.
-FROM --platform=$BUILDPLATFORM node:22 AS web-builder
+FROM --platform=$BUILDPLATFORM node:26 AS web-builder
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 # corepack prepare needs an exact version; keep in sync with pnpm-lock.yaml.
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
