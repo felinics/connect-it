@@ -65,12 +65,14 @@ jobs:
     needs: ci
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     concurrency:
-      # Serialize publishes per ref so repeated pushes queue up. The group must
-      # include the ref: GitHub keeps only the newest pending run per group, so
-      # a shared group would let a later main push silently cancel a queued tag
-      # publish and the release images would never be pushed.
-      group: publish-images-${{ github.ref }}
+      # Serialize ALL publishes in one group: main and stable tags both move
+      # `latest` (and release tags share floating 1 / 1.2 tags), so concurrent
+      # runs from different refs could interleave and leave server/web `latest`
+      # pointing at different commits. `queue: max` keeps up to 100 pending
+      # runs, so a queued release publish is not cancelled by later pushes.
+      group: publish-images
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
       packages: write
