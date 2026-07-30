@@ -201,3 +201,25 @@ func TestMigrateDownDropsAllTables(t *testing.T) {
 		}
 	}
 }
+
+// Concurrent replicas passing first start together must all come up:
+// CREATE SCHEMA IF NOT EXISTS only guards a pre-check, so the losing
+// replica has to tolerate the catalog conflict instead of exiting.
+func TestMigrateUpConcurrentFirstStart(t *testing.T) {
+	dbURL, _ := newMissingSchemaURL(t)
+	const replicas = 4
+	errs := make(chan error, replicas)
+	for i := 0; i < replicas; i++ {
+		go func() { errs <- MigrateUp(dbURL) }()
+	}
+	for i := 0; i < replicas; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent MigrateUp: %v", err)
+		}
+	}
+	for _, tbl := range wantTables {
+		if !tableExists(t, dbURL, tbl) {
+			t.Errorf("table %s was not created", tbl)
+		}
+	}
+}

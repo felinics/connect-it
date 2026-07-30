@@ -100,17 +100,31 @@ func ensureSearchPathSchema(db *sql.DB) error {
 		}
 		return errors.New("search_path names no schema to create")
 	}
-	var exists bool
-	if err := db.QueryRow(
-		"SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", target,
-	).Scan(&exists); err != nil {
+	exists, err := schemaExists(db, target)
+	if err != nil {
 		return fmt.Errorf("check schema %s: %w", target, err)
 	}
 	if exists {
 		return nil
 	}
 	if _, err := db.Exec("CREATE SCHEMA IF NOT EXISTS " + pgx.Identifier{target}.Sanitize()); err != nil {
+		// IF NOT EXISTS only guards a pre-check: replicas racing through
+		// first start can all pass it, and the losers fail on the catalog's
+		// unique index. The schema exists either way, so only a boot where
+		// it is truly still missing may fail. This runs before golang-migrate
+		// takes its advisory lock, so no lock covers the race here.
+		if exists, checkErr := schemaExists(db, target); checkErr == nil && exists {
+			return nil
+		}
 		return fmt.Errorf("create schema %s: %w", target, err)
 	}
 	return nil
+}
+
+func schemaExists(db *sql.DB, name string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(
+		"SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", name,
+	).Scan(&exists)
+	return exists, err
 }
