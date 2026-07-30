@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -66,9 +67,10 @@ func tableExists(t *testing.T, dbURL, table string) bool {
 	return ok
 }
 
-// newMissingSchemaURL returns a database URL whose search_path names a schema
-// that does not exist yet, plus cleanup for whatever MigrateUp creates.
-func newMissingSchemaURL(t *testing.T) string {
+// newMissingSchemaURL returns a database URL whose search_path starts with a
+// schema that does not exist yet (followed by any extra entries), the schema
+// name, and cleanup for whatever MigrateUp creates.
+func newMissingSchemaURL(t *testing.T, extra ...string) (string, string) {
 	t.Helper()
 	base := os.Getenv("TEST_DATABASE_URL")
 	if base == "" {
@@ -93,19 +95,67 @@ func newMissingSchemaURL(t *testing.T) string {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	q.Set("search_path", schema)
+	q.Set("search_path", strings.Join(append([]string{schema}, extra...), ","))
 	u.RawQuery = q.Encode()
-	return u.String()
+	return u.String(), schema
 }
 
 func TestMigrateUpCreatesMissingSchema(t *testing.T) {
-	dbURL := newMissingSchemaURL(t)
+	dbURL, _ := newMissingSchemaURL(t)
 	if err := MigrateUp(dbURL); err != nil {
 		t.Fatalf("MigrateUp should create the search_path schema itself: %v", err)
 	}
 	for _, tbl := range wantTables {
 		if !tableExists(t, dbURL, tbl) {
 			t.Errorf("table %s was not created", tbl)
+		}
+	}
+}
+
+// publicTables returns the table names currently present in public. The
+// shared test database may carry pre-existing tables there, so leak checks
+// compare snapshots instead of asserting absence.
+func publicTables(t *testing.T, dbURL string) map[string]bool {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	rows, err := conn.Query(ctx, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	tables := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables[name] = true
+	}
+	return tables
+}
+
+// A fallback entry must not swallow the intended schema: with
+// search_path=missing,public, current_schema() resolves to public while the
+// first entry is missing, and migrations would silently land in public.
+func TestMigrateUpPrefersFirstSearchPathEntry(t *testing.T) {
+	dbURL, schema := newMissingSchemaURL(t, "public")
+	before := publicTables(t, dbURL)
+	if err := MigrateUp(dbURL); err != nil {
+		t.Fatalf("MigrateUp should create the first search_path schema: %v", err)
+	}
+	for _, tbl := range wantTables {
+		if !tableExists(t, dbURL, schema+"."+tbl) {
+			t.Errorf("table %s was not created in schema %s", tbl, schema)
+		}
+	}
+	for tbl := range publicTables(t, dbURL) {
+		if !before[tbl] {
+			t.Errorf("table %s leaked into the public fallback schema", tbl)
 		}
 	}
 }

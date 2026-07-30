@@ -46,7 +46,7 @@ func newMigrator(databaseURL string) (*migrate.Migrate, *sql.DB, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
-	if err := ensureCurrentSchema(db); err != nil {
+	if err := ensureSearchPathSchema(db); err != nil {
 		db.Close()
 		return nil, nil, err
 	}
@@ -63,31 +63,54 @@ func newMigrator(databaseURL string) (*migrate.Migrate, *sql.DB, error) {
 	return m, db, nil
 }
 
-// ensureCurrentSchema creates the schema that search_path points at when it
-// does not exist yet. The service owns its schema even when DATABASE_URL
+// ensureSearchPathSchema creates the first schema named by search_path when
+// it does not exist yet. The service owns its schema even when DATABASE_URL
 // shares a database with a host application (search_path=connect_it), so
 // startup must not depend on the host having provisioned the schema first.
-func ensureCurrentSchema(db *sql.DB) error {
-	var current sql.NullString
-	if err := db.QueryRow("SELECT current_schema()").Scan(&current); err != nil {
-		return fmt.Errorf("resolve current schema: %w", err)
-	}
-	if current.Valid {
-		return nil
-	}
+//
+// The first non-$user entry is checked directly against the catalog rather
+// than through current_schema(): with a fallback entry such as
+// search_path=connect_it,public, current_schema() silently resolves to the
+// fallback while the intended schema is missing, and migrations would land in
+// the wrong schema. When the entry already exists nothing is executed, which
+// keeps restricted roles without CREATE privilege working.
+func ensureSearchPathSchema(db *sql.DB) error {
 	var searchPath string
 	if err := db.QueryRow("SHOW search_path").Scan(&searchPath); err != nil {
 		return fmt.Errorf("read search_path: %w", err)
 	}
+	target := ""
 	for _, entry := range strings.Split(searchPath, ",") {
 		name := strings.Trim(strings.TrimSpace(entry), `"`)
 		if name == "" || name == "$user" {
 			continue
 		}
-		if _, err := db.Exec("CREATE SCHEMA IF NOT EXISTS " + pgx.Identifier{name}.Sanitize()); err != nil {
-			return fmt.Errorf("create schema %s: %w", name, err)
+		target = name
+		break
+	}
+	if target == "" {
+		// search_path names only $user (or nothing). There is no schema this
+		// service could own; accept the session default when it resolves.
+		var current sql.NullString
+		if err := db.QueryRow("SELECT current_schema()").Scan(&current); err != nil {
+			return fmt.Errorf("resolve current schema: %w", err)
 		}
+		if current.Valid {
+			return nil
+		}
+		return errors.New("search_path names no schema to create")
+	}
+	var exists bool
+	if err := db.QueryRow(
+		"SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)", target,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("check schema %s: %w", target, err)
+	}
+	if exists {
 		return nil
 	}
-	return errors.New("search_path names no schema to create")
+	if _, err := db.Exec("CREATE SCHEMA IF NOT EXISTS " + pgx.Identifier{target}.Sanitize()); err != nil {
+		return fmt.Errorf("create schema %s: %w", target, err)
+	}
+	return nil
 }
