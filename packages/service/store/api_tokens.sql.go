@@ -44,6 +44,26 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 	return err
 }
 
+const insertAPITokenIfAbsent = `-- name: InsertAPITokenIfAbsent :execrows
+INSERT INTO api_tokens (id, name, token_hash, created_at)
+VALUES ($1, $2, $3, now())
+ON CONFLICT (token_hash) DO NOTHING
+`
+
+type InsertAPITokenIfAbsentParams struct {
+	ID        uuid.UUID
+	Name      string
+	TokenHash string
+}
+
+func (q *Queries) InsertAPITokenIfAbsent(ctx context.Context, arg InsertAPITokenIfAbsentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertAPITokenIfAbsent, arg.ID, arg.Name, arg.TokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listAPITokens = `-- name: ListAPITokens :many
 SELECT id, name, token_hash, created_at, revoked_at FROM api_tokens ORDER BY created_at DESC
 `

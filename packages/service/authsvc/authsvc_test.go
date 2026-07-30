@@ -128,3 +128,66 @@ func TestAPITokenLifecycle(t *testing.T) {
 		t.Fatalf("an unknown id should yield ErrNotFound, got %v", err)
 	}
 }
+
+func TestEnsureBootstrapTokenFromEnv(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	valid := "cit_" + strings.Repeat("ab", 16)
+
+	t.Setenv(EnvBootstrapAPIToken, "")
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err != nil {
+		t.Fatalf("an unset environment variable should be a no-op: %v", err)
+	}
+
+	t.Setenv(EnvBootstrapAPIToken, "no-prefix-token-of-decent-length-here")
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err == nil {
+		t.Fatal("a token without the cit_ prefix should be rejected")
+	}
+
+	t.Setenv(EnvBootstrapAPIToken, "cit_tooshort")
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err == nil {
+		t.Fatal("a too-short token should be rejected")
+	}
+
+	t.Setenv(EnvBootstrapAPIToken, valid)
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err != nil {
+		t.Fatal(err)
+	}
+	id, ok, err := s.VerifyAPIToken(ctx, valid)
+	if err != nil || !ok {
+		t.Fatalf("the seeded token should verify: ok=%v err=%v", ok, err)
+	}
+	list, err := s.ListAPITokens(ctx)
+	if err != nil || len(list) != 1 || list[0].Name != "bootstrap" {
+		t.Fatalf("unexpected list: %+v err=%v", list, err)
+	}
+
+	// Idempotent: a restart must not insert a second row.
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.ListAPITokens(ctx); len(list) != 1 {
+		t.Fatalf("a rerun must not duplicate the token, got %d rows", len(list))
+	}
+
+	// A revoked bootstrap token stays revoked across restarts.
+	if err := s.RevokeAPIToken(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.VerifyAPIToken(ctx, valid); ok {
+		t.Fatal("a revoked bootstrap token must not be resurrected on restart")
+	}
+
+	// A rotated value seeds a new token alongside the revoked one.
+	rotated := "cit_" + strings.Repeat("cd", 16)
+	t.Setenv(EnvBootstrapAPIToken, rotated)
+	if err := s.EnsureBootstrapTokenFromEnv(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.VerifyAPIToken(ctx, rotated); !ok {
+		t.Fatal("a rotated bootstrap token should verify")
+	}
+}

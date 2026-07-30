@@ -98,6 +98,7 @@ connections, or letting the session expire all invalidate it.
 | `COOKIE_SECRET` | yes | HMAC secret for the admin session cookie |
 | `CONNECT_IT_BASE_URL` | yes | Public address used to build OAuth callbacks |
 | `CONNECT_IT_ADMIN_PASSWORD` | first start | Seeds the `admin` account |
+| `CONNECT_IT_BOOTSTRAP_API_TOKEN` | no | Seeds a static API token named `bootstrap` (plaintext, `cit_` + ≥32 chars) so a host application can call the machine API without minting one through the admin UI; revoking it through the admin API is respected across restarts |
 | `LISTEN_ADDR` | no | Defaults to `:8080` |
 | `TEST_DATABASE_URL` | tests | Database for Go integration tests; those tests skip when unset |
 
