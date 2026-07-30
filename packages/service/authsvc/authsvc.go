@@ -102,9 +102,11 @@ func (s *Service) ChangeAdminPassword(ctx context.Context, newPassword string) e
 }
 
 // EnsureBootstrapTokenFromEnv inserts the environment-provided API token when
-// its hash is not in the database yet. Restarts are no-ops, and a bootstrap
-// token revoked through the admin API stays revoked: the hash lookup includes
-// revoked rows, so the token is never silently resurrected.
+// its hash is not in the database yet. The insert resolves on the token_hash
+// unique constraint, so concurrent replicas racing through first start are
+// safe, restarts are no-ops, and a bootstrap token revoked through the admin
+// API stays revoked: its row still holds the hash, the insert conflicts, and
+// the token is never silently resurrected.
 func (s *Service) EnsureBootstrapTokenFromEnv(ctx context.Context) error {
 	token := strings.TrimSpace(os.Getenv(EnvBootstrapAPIToken))
 	if token == "" {
@@ -119,16 +121,10 @@ func (s *Service) EnsureBootstrapTokenFromEnv(ctx context.Context) error {
 			EnvBootstrapAPIToken, bootstrapTokenMinLen-len(tokenPrefix), tokenPrefix,
 		)
 	}
-	exists, err := s.q.APITokenHashExists(ctx, hashToken(token))
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	return s.q.InsertAPIToken(ctx, store.InsertAPITokenParams{
+	_, err := s.q.InsertAPITokenIfAbsent(ctx, store.InsertAPITokenIfAbsentParams{
 		ID: uuid.New(), Name: "bootstrap", TokenHash: hashToken(token),
 	})
+	return err
 }
 
 type APITokenView struct {

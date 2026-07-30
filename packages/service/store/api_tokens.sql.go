@@ -11,17 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const aPITokenHashExists = `-- name: APITokenHashExists :one
-SELECT EXISTS (SELECT 1 FROM api_tokens WHERE token_hash = $1)
-`
-
-func (q *Queries) APITokenHashExists(ctx context.Context, tokenHash string) (bool, error) {
-	row := q.db.QueryRow(ctx, aPITokenHashExists, tokenHash)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const getAPITokenByHash = `-- name: GetAPITokenByHash :one
 SELECT id, name, token_hash, created_at, revoked_at FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL
 `
@@ -53,6 +42,26 @@ type InsertAPITokenParams struct {
 func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) error {
 	_, err := q.db.Exec(ctx, insertAPIToken, arg.ID, arg.Name, arg.TokenHash)
 	return err
+}
+
+const insertAPITokenIfAbsent = `-- name: InsertAPITokenIfAbsent :execrows
+INSERT INTO api_tokens (id, name, token_hash, created_at)
+VALUES ($1, $2, $3, now())
+ON CONFLICT (token_hash) DO NOTHING
+`
+
+type InsertAPITokenIfAbsentParams struct {
+	ID        uuid.UUID
+	Name      string
+	TokenHash string
+}
+
+func (q *Queries) InsertAPITokenIfAbsent(ctx context.Context, arg InsertAPITokenIfAbsentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertAPITokenIfAbsent, arg.ID, arg.Name, arg.TokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const listAPITokens = `-- name: ListAPITokens :many
