@@ -8,10 +8,12 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	pgxmigrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -44,6 +46,10 @@ func newMigrator(databaseURL string) (*migrate.Migrate, *sql.DB, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
+	if err := ensureCurrentSchema(db); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
 	driver, err := pgxmigrate.WithInstance(db, &pgxmigrate.Config{})
 	if err != nil {
 		db.Close()
@@ -55,4 +61,33 @@ func newMigrator(databaseURL string) (*migrate.Migrate, *sql.DB, error) {
 		return nil, nil, fmt.Errorf("migrate init: %w", err)
 	}
 	return m, db, nil
+}
+
+// ensureCurrentSchema creates the schema that search_path points at when it
+// does not exist yet. The service owns its schema even when DATABASE_URL
+// shares a database with a host application (search_path=connect_it), so
+// startup must not depend on the host having provisioned the schema first.
+func ensureCurrentSchema(db *sql.DB) error {
+	var current sql.NullString
+	if err := db.QueryRow("SELECT current_schema()").Scan(&current); err != nil {
+		return fmt.Errorf("resolve current schema: %w", err)
+	}
+	if current.Valid {
+		return nil
+	}
+	var searchPath string
+	if err := db.QueryRow("SHOW search_path").Scan(&searchPath); err != nil {
+		return fmt.Errorf("read search_path: %w", err)
+	}
+	for _, entry := range strings.Split(searchPath, ",") {
+		name := strings.Trim(strings.TrimSpace(entry), `"`)
+		if name == "" || name == "$user" {
+			continue
+		}
+		if _, err := db.Exec("CREATE SCHEMA IF NOT EXISTS " + pgx.Identifier{name}.Sanitize()); err != nil {
+			return fmt.Errorf("create schema %s: %w", name, err)
+		}
+		return nil
+	}
+	return errors.New("search_path names no schema to create")
 }

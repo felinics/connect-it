@@ -66,6 +66,50 @@ func tableExists(t *testing.T, dbURL, table string) bool {
 	return ok
 }
 
+// newMissingSchemaURL returns a database URL whose search_path names a schema
+// that does not exist yet, plus cleanup for whatever MigrateUp creates.
+func newMissingSchemaURL(t *testing.T) string {
+	t.Helper()
+	base := os.Getenv("TEST_DATABASE_URL")
+	if base == "" {
+		t.Skip("TEST_DATABASE_URL is not set, skipping integration test")
+	}
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		t.Fatal(err)
+	}
+	schema := "test_" + hex.EncodeToString(buf[:])
+	t.Cleanup(func() {
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, base)
+		if err != nil {
+			return
+		}
+		defer conn.Close(ctx)
+		_, _ = conn.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func TestMigrateUpCreatesMissingSchema(t *testing.T) {
+	dbURL := newMissingSchemaURL(t)
+	if err := MigrateUp(dbURL); err != nil {
+		t.Fatalf("MigrateUp should create the search_path schema itself: %v", err)
+	}
+	for _, tbl := range wantTables {
+		if !tableExists(t, dbURL, tbl) {
+			t.Errorf("table %s was not created", tbl)
+		}
+	}
+}
+
 func TestMigrateUpCreatesAllTables(t *testing.T) {
 	dbURL := newTestSchema(t)
 	if err := MigrateUp(dbURL); err != nil {
