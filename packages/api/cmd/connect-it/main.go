@@ -78,6 +78,9 @@ func main() {
 	if err := authSvc.EnsureAdminFromEnv(ctx); err != nil {
 		log.Fatalf("initialize admin account: %v", err)
 	}
+	if err := authSvc.EnsureBootstrapTokenFromEnv(ctx); err != nil {
+		log.Fatalf("initialize bootstrap API token: %v", err)
+	}
 
 	e := api.New(api.Deps{
 		Registry:     reg,

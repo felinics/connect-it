@@ -24,7 +24,16 @@ import (
 // always admin.
 const EnvAdminPassword = "CONNECT_IT_ADMIN_PASSWORD"
 
+// EnvBootstrapAPIToken seeds a static API token on start so an internal
+// application can call the machine API without first minting a token through
+// the admin UI. The value is the plaintext token itself.
+const EnvBootstrapAPIToken = "CONNECT_IT_BOOTSTRAP_API_TOKEN"
+
 const tokenPrefix = "cit_"
+
+// bootstrapTokenMinLen keeps operators from seeding guessable tokens: the
+// cit_ prefix plus at least 32 characters (16 bytes of entropy in hex).
+const bootstrapTokenMinLen = len(tokenPrefix) + 32
 
 // ErrNotFound means the target row does not exist, for example when revoking
 	// a token that is already gone.
@@ -90,6 +99,36 @@ func (s *Service) ChangeAdminPassword(ctx context.Context, newPassword string) e
 		return ErrNotFound
 	}
 	return nil
+}
+
+// EnsureBootstrapTokenFromEnv inserts the environment-provided API token when
+// its hash is not in the database yet. Restarts are no-ops, and a bootstrap
+// token revoked through the admin API stays revoked: the hash lookup includes
+// revoked rows, so the token is never silently resurrected.
+func (s *Service) EnsureBootstrapTokenFromEnv(ctx context.Context) error {
+	token := strings.TrimSpace(os.Getenv(EnvBootstrapAPIToken))
+	if token == "" {
+		return nil
+	}
+	if !strings.HasPrefix(token, tokenPrefix) {
+		return fmt.Errorf("authsvc: %s must start with %q", EnvBootstrapAPIToken, tokenPrefix)
+	}
+	if len(token) < bootstrapTokenMinLen {
+		return fmt.Errorf(
+			"authsvc: %s must carry at least %d characters after the %q prefix",
+			EnvBootstrapAPIToken, bootstrapTokenMinLen-len(tokenPrefix), tokenPrefix,
+		)
+	}
+	exists, err := s.q.APITokenHashExists(ctx, hashToken(token))
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	return s.q.InsertAPIToken(ctx, store.InsertAPITokenParams{
+		ID: uuid.New(), Name: "bootstrap", TokenHash: hashToken(token),
+	})
 }
 
 type APITokenView struct {

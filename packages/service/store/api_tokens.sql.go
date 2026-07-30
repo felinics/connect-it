@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const aPITokenHashExists = `-- name: APITokenHashExists :one
+SELECT EXISTS (SELECT 1 FROM api_tokens WHERE token_hash = $1)
+`
+
+func (q *Queries) APITokenHashExists(ctx context.Context, tokenHash string) (bool, error) {
+	row := q.db.QueryRow(ctx, aPITokenHashExists, tokenHash)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getAPITokenByHash = `-- name: GetAPITokenByHash :one
 SELECT id, name, token_hash, created_at, revoked_at FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL
 `

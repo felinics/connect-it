@@ -10,3 +10,6 @@ SELECT * FROM api_tokens ORDER BY created_at DESC;
 
 -- name: RevokeAPIToken :execrows
 UPDATE api_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL;
+
+-- name: APITokenHashExists :one
+SELECT EXISTS (SELECT 1 FROM api_tokens WHERE token_hash = $1);
