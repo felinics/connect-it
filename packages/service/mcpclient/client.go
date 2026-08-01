@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/memohai/connect-it/packages/core/buildinfo"
 )
 
 // Client is a stateless adapter that exposes the package-level functions to
@@ -109,7 +111,7 @@ func connect(ctx context.Context, endpoint, token, authorizationScheme string) (
 		return nil, nil, err
 	}
 	tracker := &responseTracker{}
-	client := mcp.NewClient(&mcp.Implementation{Name: "connect-it", Version: "0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "connect-it", Version: buildinfo.Version}, nil)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint: endpoint,
 		HTTPClient: &http.Client{

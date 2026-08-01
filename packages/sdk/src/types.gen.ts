@@ -9,6 +9,10 @@ export type ApiErrorResponse = {
     message?: string;
 };
 
+export type ApiVersionResponse = {
+    version?: string;
+};
+
 export type ApiAuthMethodDto = {
     credential_fields?: Array<ApiConfigFieldDto>;
     key?: string;
@@ -814,3 +818,19 @@ export type OauthCallbackResponses = {
      */
     200: unknown;
 };
+
+export type GetVersionData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/version';
+};
+
+export type GetVersionResponses = {
+    /**
+     * OK
+     */
+    200: ApiVersionResponse;
+};
+
+export type GetVersionResponse = GetVersionResponses[keyof GetVersionResponses];

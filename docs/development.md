@@ -12,7 +12,7 @@ packages/
 ├── ui/          git submodule → github.com/memohai/ui
 └── web/         Vue 3 admin UI
 sdk/go/          Hand-written Go SDK for trusted downstream services
-docker/          Dockerfiles and nginx config
+Dockerfile       Combined Go API and admin UI container image
 ```
 
 Every Go directory under `packages/` is its own module. There is no `go.work`;
@@ -40,6 +40,8 @@ pnpm --dir packages/web run dev
 |---|---|
 | `mise run test` | Test every Go module, including `sdk/go` |
 | `mise run vet` | `go vet` every Go module |
+| `mise run test-release` | Test version parsing and release helpers |
+| `mise run release` | Interactively bump, commit, tag, and push a release |
 | `mise run dev` | Run the API against the `db-up` database |
 | `mise run build-web` | Build the admin UI into `packages/web/dist` |
 | `mise run docker-up` | Build and start the compose stack, wait until healthy |
@@ -105,8 +107,32 @@ pnpm --dir packages/web run test
 mise run build-web
 ```
 
-CI runs the same set plus a Docker build smoke test. See
+CI runs the same set plus a combined Docker image build smoke test. See
 `.github/workflows/ci.yml`.
+
+## Releasing
+
+`version.json` is the application version source of truth. Go module and npm
+package versions remain independent. Start from a clean `main` that exactly
+matches `origin/main`, then run:
+
+```bash
+mise run release
+```
+
+The command shows the current version, suggests the next patch version, and
+asks for confirmation. It then updates `version.json`, creates a Conventional
+Commit (`chore(release): vX.Y.Z`), creates an annotated `vX.Y.Z` tag, and pushes
+the commit and tag atomically. Pass an explicit version when needed:
+
+```bash
+mise run release -- 0.2.0
+```
+
+The tag workflow verifies that the tag matches `version.json`, runs CI,
+publishes `ghcr.io/memohai/connect-it`, and finally creates a GitHub Release
+with generated notes. A failed CI or image publish therefore cannot create a
+GitHub Release.
 
 ## Status
 

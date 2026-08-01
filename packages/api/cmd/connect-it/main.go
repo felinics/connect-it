@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -44,8 +45,9 @@ func main() {
 	baseURL := mustEnv("CONNECT_IT_BASE_URL")
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":8421"
 	}
+	web := loadWebFS()
 
 	keyring, err := crypto.ParseKeyring(keySpec)
 	if err != nil {
@@ -93,9 +95,22 @@ func main() {
 		Exec:         engine,
 		Sessions:     sessions.New(queries, engine),
 		CookieSecret: []byte(cookieSecret),
+		Web:          web,
 	})
 	log.Printf("connect-it listening on %s", addr)
 	log.Fatal(e.Start(addr))
+}
+
+func loadWebFS() fs.FS {
+	dir := os.Getenv("CONNECT_IT_WEB_DIR")
+	if dir == "" {
+		return nil
+	}
+	web := os.DirFS(dir)
+	if _, err := fs.Stat(web, "index.html"); err != nil {
+		log.Fatalf("load admin UI from %s: %v", dir, err)
+	}
+	return web
 }
 
 func mustEnv(name string) string {

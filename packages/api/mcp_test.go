@@ -232,7 +232,7 @@ func TestMCPAcceptsNonLocalHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Host = "host.docker.internal:8080"
+	request.Host = "host.docker.internal:8421"
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")

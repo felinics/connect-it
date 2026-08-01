@@ -7,6 +7,8 @@ import type { ConnectorConfig } from './types'
 
 export const healthz = () => unwrap(sdk.healthz())
 
+export const getVersion = () => unwrap(sdk.getVersion())
+
 export const login = (username: string, password: string) =>
   unwrap(sdk.login({ body: { username, password } }), { allowUnauthorized: true })
 

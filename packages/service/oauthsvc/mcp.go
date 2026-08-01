@@ -19,6 +19,7 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
+	"github.com/memohai/connect-it/packages/core/buildinfo"
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/service/store"
@@ -341,7 +342,22 @@ func probeMCPAuthorization(
 	hc *http.Client,
 	endpoint string,
 ) (metadataURL string, scopes []string, err error) {
-	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"connect-it","version":"0.1.0"}}}`)
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-11-25",
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]string{
+				"name":    "connect-it",
+				"version": buildinfo.Version,
+			},
+		},
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("encode MCP initialize request: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", nil, err

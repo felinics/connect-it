@@ -1,7 +1,12 @@
-name: Publish container images
+name: Publish container image
 
 on:
   workflow_call:
+    inputs:
+      version:
+        description: Application version from version.json
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,18 +17,8 @@ env:
 
 jobs:
   publish:
-    name: Publish ${{ matrix.image }}
+    name: Publish connect-it
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: connect-it-server
-            dockerfile: docker/server.Dockerfile
-            qemu: true
-          - image: connect-it-web
-            dockerfile: docker/web.Dockerfile
-            qemu: false
 
     steps:
       - name: Check out repository (with ui submodule)
@@ -32,7 +27,6 @@ jobs:
           submodules: recursive
 
       - name: Set up QEMU
-        if: matrix.qemu
         uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
@@ -51,7 +45,7 @@ jobs:
         id: metadata
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/connect-it
           # Stable semver tags also receive latest; pre-releases do not.
           flavor: |
             latest=auto
@@ -66,12 +60,13 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ inputs.version }}
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=connect-it
+          cache-to: type=gha,mode=max,scope=connect-it
           provenance: mode=max
           sbom: true

@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"io/fs"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -43,6 +44,7 @@ type Deps struct {
 	Exec         ToolExecutor
 	Sessions     *sessions.Service
 	CookieSecret []byte
+	Web          fs.FS
 }
 
 func New(deps Deps) *echo.Echo {
@@ -54,6 +56,7 @@ func New(deps Deps) *echo.Echo {
 	h := &handlers{deps: deps}
 
 	e.GET("/healthz", h.healthz)
+	e.GET("/version", h.getVersion)
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 	e.POST("/admin/login", h.login)
 	// The callback skips the Bearer gate; a single-use state secures it.
@@ -84,6 +87,8 @@ func New(deps Deps) *echo.Echo {
 	admin.POST("/api-tokens", h.createAPIToken)
 	admin.DELETE("/api-tokens/:id", h.deleteAPIToken)
 	admin.PUT("/account/password", h.changePassword)
+
+	registerWeb(e, deps.Web)
 
 	return e
 }

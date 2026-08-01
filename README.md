@@ -24,10 +24,10 @@
 - **Credentials stay put.** Access and refresh tokens are sealed with a
   rotatable AES-256-GCM keyring. Downstream services only ever see connection
   IDs.
-- **Built for concurrency.** Written in Go and shipped as a single static
-  binary. Tool discovery fans out across connections in parallel, and OAuth
-  refreshes are collapsed by an in-process single-flight plus a database row
-  lock.
+- **Built for concurrency.** Written in Go and shipped as one container image
+  that serves both the API and admin UI. Tool discovery fans out across
+  connections in parallel, and OAuth refreshes are collapsed by an in-process
+  single-flight plus a database row lock.
 
 ## Deploy
 
@@ -53,8 +53,16 @@ Then start the stack:
 docker compose up -d --build
 ```
 
-Open <http://localhost:8080> and sign in as `admin` with the
+The same multi-architecture image is published as
+`ghcr.io/memohai/connect-it:latest` from the default branch and with semver tags
+from version tags.
+
+Open <http://localhost:8421> and sign in as `admin` with the
 `CONNECT_IT_ADMIN_PASSWORD` from your `.env`.
+
+Maintainers create releases with `mise run release`. The command updates the
+canonical `version.json`, commits it, creates an annotated tag, and pushes both;
+CI then publishes the image and creates the matching GitHub Release.
 
 ## Documentation
 

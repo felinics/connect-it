@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, OauthCallbackResponses, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses } from './types.gen';
+import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, GetVersionData, GetVersionResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, OauthCallbackResponses, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -330,6 +330,16 @@ export const createMcpSession = <ThrowOnError extends boolean = false>(options: 
 export const oauthCallback = <ThrowOnError extends boolean = false>(options?: Options<OauthCallbackData, ThrowOnError>) => {
     return (options?.client ?? client).get<OauthCallbackResponses, unknown, ThrowOnError>({
         url: '/v1/oauth/callback',
+        ...options
+    });
+};
+
+/**
+ * Get the running service version
+ */
+export const getVersion = <ThrowOnError extends boolean = false>(options?: Options<GetVersionData, ThrowOnError>) => {
+    return (options?.client ?? client).get<GetVersionResponses, unknown, ThrowOnError>({
+        url: '/version',
         ...options
     });
 };

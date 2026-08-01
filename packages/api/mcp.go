@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/memohai/connect-it/packages/core/buildinfo"
 	execsvc "github.com/memohai/connect-it/packages/service/exec"
 	"github.com/memohai/connect-it/packages/service/sessions"
 	"github.com/memohai/connect-it/packages/service/tokens"
@@ -62,7 +63,7 @@ func (h *mcpHost) serverForRequest(request *http.Request) *mcp.Server {
 		return nil
 	}
 	server := mcp.NewServer(
-		&mcp.Implementation{Name: "connect-it", Version: "0.1.0"},
+		&mcp.Implementation{Name: "connect-it", Version: buildinfo.Version},
 		&mcp.ServerOptions{
 			Capabilities: &mcp.ServerCapabilities{
 				Tools: &mcp.ToolCapabilities{},

@@ -13,8 +13,8 @@ cd connect-it
 cp .env.example .env
 ```
 
-`--recursive` matters: `packages/ui` is a submodule and the web image will not
-build without it. If you already cloned without it, run
+`--recursive` matters: `packages/ui` is a submodule and the combined image will
+not build without it. If you already cloned without it, run
 `git submodule update --init --recursive`.
 
 Generate the three secrets and put them in `.env`:
@@ -42,20 +42,20 @@ Start the stack:
 docker compose up -d --build
 ```
 
-All traffic goes through the web container's nginx, including the `/v1` and
-`/mcp` machine APIs. Postgres lives in a named volume, so `docker compose down`
-keeps your data; `docker compose down -v` deletes it.
+The Go service serves the admin UI, `/v1`, and `/mcp` from the same container
+and port. Postgres lives in a named volume, so `docker compose down` keeps your
+data; `docker compose down -v` deletes it.
 
 Check it is alive:
 
 ```bash
-curl http://localhost:8080/healthz
+curl http://localhost:8421/healthz
 # {"status":"ok"}
 ```
 
 ## 2. Configure a connector
 
-Open <http://localhost:8080> and sign in as `admin`.
+Open <http://localhost:8421> and sign in as `admin`.
 
 Under **Connectors** you will find every provider compiled into the build, each
 with a status:
@@ -88,7 +88,7 @@ store or environment variable. Never send it to a browser.
 Everything under `/v1` authenticates with it:
 
 ```bash
-export BASE=http://localhost:8080
+export BASE=http://localhost:8421
 export API_TOKEN=cit_...
 
 curl -s "$BASE/v1/connectors" -H "Authorization: Bearer $API_TOKEN"
@@ -246,7 +246,7 @@ Point any MCP client at `/mcp` over Streamable HTTP, with the session token as
 a bearer credential:
 
 ```text
-POST http://localhost:8080/mcp
+POST http://localhost:8421/mcp
 Authorization: Bearer 4f1c9ae2…
 ```
 

@@ -123,6 +123,10 @@ export default {
   },
   settings: {
     title: 'Settings',
+    about: 'About',
+    version: 'Version',
+    versionDescription: 'Version reported by the running service',
+    versionUnavailable: 'Unavailable',
     changePassword: 'Change password',
     newPassword: 'New password',
     confirmPassword: 'Confirm new password',

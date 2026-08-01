@@ -7,6 +7,11 @@ definitions:
       message:
         type: string
     type: object
+  api.VersionResponse:
+    properties:
+      version:
+        type: string
+    type: object
   api.authMethodDTO:
     properties:
       credential_fields:
@@ -848,6 +853,19 @@ paths:
         secured by a single-use state
       tags:
       - connections
+  /version:
+    get:
+      operationId: getVersion
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.VersionResponse'
+      summary: Get the running service version
+      tags:
+      - system
 securityDefinitions:
   BearerAuth:
     in: header

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { Button, Input, Label, toast } from '@felinic/ui'
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError } from '../api/client'
-import { changePassword } from '../api/endpoints'
+import { changePassword, getVersion } from '../api/endpoints'
 import PageShell from '../components/PageShell.vue'
+import SettingsRow from '../components/SettingsRow.vue'
 import SettingsSection from '../components/SettingsSection.vue'
 
 const { t } = useI18n()
@@ -13,6 +14,21 @@ const password = ref('')
 const confirm = ref('')
 const error = ref('')
 const busy = ref(false)
+const serviceVersion = ref<string | null>(null)
+const versionUnavailable = ref(false)
+const versionLabel = computed(() => {
+  if (versionUnavailable.value) return t('settings.versionUnavailable')
+  return serviceVersion.value ?? '—'
+})
+
+onMounted(async () => {
+  try {
+    const response = await getVersion()
+    serviceVersion.value = response.version
+  } catch {
+    versionUnavailable.value = true
+  }
+})
 
 async function submit() {
   error.value = ''
@@ -53,6 +69,12 @@ async function submit() {
         <p v-if="error" class="text-body text-destructive">{{ error }}</p>
         <Button type="submit" :disabled="busy || password === ''">{{ t('settings.save') }}</Button>
       </form>
+    </SettingsSection>
+
+    <SettingsSection :title="t('settings.about')">
+      <SettingsRow :label="t('settings.version')" :description="t('settings.versionDescription')">
+        <span class="text-body text-muted-foreground">{{ versionLabel }}</span>
+      </SettingsRow>
     </SettingsSection>
   </PageShell>
 </template>

@@ -10,6 +10,8 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     permissions:
       contents: read
     services:
@@ -38,6 +40,23 @@ jobs:
       - name: Install toolchain (go/node/pnpm) via mise
         uses: jdx/mise-action@v4
 
+      - name: Validate release version
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          version=$(node -p "require('./version.json').version")
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "version.json must contain stable semver, got: $version" >&2
+            exit 1
+          fi
+          if [[ "$REF_TYPE" == "tag" && "$REF_NAME" != "v$version" ]]; then
+            echo "tag $REF_NAME does not match version.json v$version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Vet Go modules
         run: mise run vet
 
@@ -52,24 +71,22 @@ jobs:
       - name: Run web unit tests
         run: pnpm --dir packages/web run test
 
+      - name: Test release helpers
+        run: mise run test-release
+
       - name: Build web UI
         run: mise run build-web
 
-      - name: Docker build smoke test (server + web images)
-        run: |
-          docker build -f docker/server.Dockerfile -t connect-it-server:ci .
-          docker build -f docker/web.Dockerfile -t connect-it-web:ci .
+      - name: Docker build smoke test
+        run: docker build --build-arg VERSION=${{ steps.version.outputs.version }} -t connect-it:ci .
 
   publish:
-    name: Publish container images
+    name: Publish container image
     needs: ci
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     concurrency:
-      # Serialize ALL publishes in one group: main and stable tags both move
-      # `latest` (and release tags share floating 1 / 1.2 tags), so concurrent
-      # runs from different refs could interleave and leave server/web `latest`
-      # pointing at different commits. `queue: max` keeps up to 100 pending
-      # runs, so a queued release publish is not cancelled by later pushes.
+      # Serialize publishes because main and stable tags can both move `latest`,
+      # while release tags can share floating 1 / 1.2 tags.
       group: publish-images
       cancel-in-progress: false
       queue: max
@@ -77,3 +94,27 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/publish-images.yml
+    with:
+      version: ${{ needs.ci.outputs.version }}
+
+  release:
+    name: Create GitHub Release
+    needs: [ci, publish]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release with generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $GITHUB_REF_NAME already exists"
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"

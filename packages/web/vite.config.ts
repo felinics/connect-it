@@ -4,7 +4,7 @@ import { defineConfig } from 'vite'
 
 // In dev mode, proxy API requests to the local Go server started by
 // `mise run dev`.
-const backend = 'http://localhost:8080'
+const backend = 'http://localhost:8421'
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],

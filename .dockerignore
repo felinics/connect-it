@@ -3,6 +3,5 @@ docs
 node_modules
 **/node_modules
 packages/web/dist
-packages/api/webdist
 **/*.test
 .env

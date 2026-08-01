@@ -99,12 +99,21 @@ connections, or letting the session expire all invalidate it.
 | `CONNECT_IT_BASE_URL` | yes | Public address used to build OAuth callbacks |
 | `CONNECT_IT_ADMIN_PASSWORD` | first start | Seeds the `admin` account |
 | `CONNECT_IT_BOOTSTRAP_API_TOKEN` | no | Seeds a static API token named `bootstrap` (plaintext, `cit_` + ≥32 chars) so a host application can call the machine API without minting one through the admin UI; revoking it through the admin API is respected across restarts |
-| `LISTEN_ADDR` | no | Defaults to `:8080` |
+| `LISTEN_ADDR` | no | Defaults to `:8421` |
+| `CONNECT_IT_WEB_DIR` | no | Directory containing the built admin UI; unset disables static Web serving for local API development |
 | `TEST_DATABASE_URL` | tests | Database for Go integration tests; those tests skip when unset |
 
 The keyring accepts several versions, as in `1:<hex>,2:<hex>`. Writes use the
 highest version and reads use the version stored with the ciphertext, which
 allows rotation without downtime.
+
+## Runtime version
+
+The repository's `version.json` is injected into release builds. `GET /version`
+returns that running version as `{"version":"X.Y.Z"}`; the admin UI and MCP
+server metadata both consume the same value. Development binaries built without
+the official `mise` or Docker tasks report `dev` instead of guessing a release
+version.
 
 ## Security boundaries
 

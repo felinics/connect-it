@@ -123,6 +123,10 @@ export default {
   },
   settings: {
     title: '设置',
+    about: '关于',
+    version: '版本',
+    versionDescription: '当前运行服务报告的版本',
+    versionUnavailable: '无法获取',
     changePassword: '修改密码',
     newPassword: '新密码',
     confirmPassword: '确认新密码',
