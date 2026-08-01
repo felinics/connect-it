@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { bumpPatch } from './lib/version.mjs'
+
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 
 function run(command, args, cwd) {
@@ -33,15 +35,18 @@ test('release script commits, tags, and atomically pushes the next version', asy
     run('git', ['commit', '-m', 'chore: initialize release test'], worktree)
     run('git', ['push', '-u', 'origin', 'main'], worktree)
 
+    const currentVersion = JSON.parse(await readFile(join(worktree, 'version.json'), 'utf8')).version
+    const releasedVersion = bumpPatch(currentVersion)
     run(process.execPath, ['scripts/release.mjs', '--yes'], worktree)
 
     const version = JSON.parse(await readFile(join(worktree, 'version.json'), 'utf8')).version
-    assert.equal(version, '0.1.1')
-    assert.equal(run('git', ['describe', '--tags', '--exact-match'], worktree), 'v0.1.1')
-    assert.equal(run('git', [`--git-dir=${remote}`, 'tag', '--list', 'v0.1.1'], fixture), 'v0.1.1')
+    const tag = `v${releasedVersion}`
+    assert.equal(version, releasedVersion)
+    assert.equal(run('git', ['describe', '--tags', '--exact-match'], worktree), tag)
+    assert.equal(run('git', [`--git-dir=${remote}`, 'tag', '--list', tag], fixture), tag)
     assert.equal(
       run('git', [`--git-dir=${remote}`, 'log', '-1', '--format=%s', 'main'], fixture),
-      'chore(release): v0.1.1',
+      `chore(release): ${tag}`,
     )
   } finally {
     await rm(fixture, { recursive: true })
