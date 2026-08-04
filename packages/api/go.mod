@@ -11,7 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/labstack/echo/v4 v4.15.4
 	github.com/memohai/connect-it/packages/connectors v0.0.0
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/swaggo/echo-swagger v1.5.2
 	github.com/swaggo/swag v1.16.2
 )

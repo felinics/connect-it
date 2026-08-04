@@ -3,7 +3,7 @@ module github.com/memohai/connect-it/sdk/go
 go 1.25.7
 
 require (
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/oauth2 v0.35.0
 )
 
