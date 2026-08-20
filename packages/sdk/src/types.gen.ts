@@ -97,6 +97,10 @@ export type ApiLoginRequest = {
     username?: string;
 };
 
+export type ApiOauthRedirectUrlResponse = {
+    redirect_url?: string;
+};
+
 export type ApiPutConfigRequest = {
     if_match?: string;
     public?: {
@@ -534,6 +538,31 @@ export type LoginResponses = {
      */
     204: unknown;
 };
+
+export type GetOAuthRedirectUrlData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/admin/oauth/redirect-url';
+};
+
+export type GetOAuthRedirectUrlErrors = {
+    /**
+     * Unauthorized
+     */
+    401: ApiErrorResponse;
+};
+
+export type GetOAuthRedirectUrlError = GetOAuthRedirectUrlErrors[keyof GetOAuthRedirectUrlErrors];
+
+export type GetOAuthRedirectUrlResponses = {
+    /**
+     * OK
+     */
+    200: ApiOauthRedirectUrlResponse;
+};
+
+export type GetOAuthRedirectUrlResponse = GetOAuthRedirectUrlResponses[keyof GetOAuthRedirectUrlResponses];
 
 export type HealthzData = {
     body?: never;

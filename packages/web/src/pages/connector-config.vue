@@ -9,6 +9,7 @@ import {
   deleteConfig,
   getConfig,
   getConfigSchema,
+  getOAuthRedirectUrl,
   listConnectors,
   putConfig,
 } from '../api/endpoints'
@@ -28,6 +29,7 @@ const type = computed(() => String(route.params.type))
 const item = ref<CatalogItem | null>(null)
 const fields = ref<ConfigField[]>([])
 const config = ref<ConnectorConfig | null>(null)
+const oauthRedirectUrl = ref('')
 const busy = ref(false)
 
 async function reload(includeSchema = false) {
@@ -36,6 +38,10 @@ async function reload(includeSchema = false) {
   config.value = cfg
   if (includeSchema) {
     fields.value = await getConfigSchema(type.value)
+    if (fields.value.some((field) => field.key === 'client_id')) {
+      const response = await getOAuthRedirectUrl()
+      oauthRedirectUrl.value = response.redirect_url ?? ''
+    }
   }
 }
 
@@ -95,6 +101,7 @@ async function onDelete() {
         v-if="fields.length > 0"
         :fields="fields"
         :config="config"
+        :oauth-redirect-url="oauthRedirectUrl"
         :busy="busy"
         @save="onSave"
       />

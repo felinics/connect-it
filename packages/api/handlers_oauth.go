@@ -10,6 +10,23 @@ import (
 	"github.com/memohai/connect-it/packages/service/oauthsvc"
 )
 
+type oauthRedirectURLResponse struct {
+	RedirectURL string `json:"redirect_url"`
+}
+
+// getOAuthRedirectURL godoc
+//
+//	@Summary	Get the OAuth callback URL that operators must register with providers
+//	@ID			getOAuthRedirectURL
+//	@Tags		admin
+//	@Produce	json
+//	@Success	200	{object}	api.oauthRedirectURLResponse
+//	@Failure	401	{object}	api.ErrorResponse
+//	@Router		/admin/oauth/redirect-url [get]
+func (h *handlers) getOAuthRedirectURL(c echo.Context) error {
+	return c.JSON(http.StatusOK, oauthRedirectURLResponse{RedirectURL: h.deps.OAuth.RedirectURL()})
+}
+
 // oauthCallback godoc
 //
 //	@Summary	OAuth callback where the provider redirects back; unauthenticated and secured by a single-use state

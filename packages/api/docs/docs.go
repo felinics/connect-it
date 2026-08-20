@@ -478,6 +478,32 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/oauth/redirect-url": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get the OAuth callback URL that operators must register with providers",
+                "operationId": "getOAuthRedirectURL",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.oauthRedirectURLResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/healthz": {
             "get": {
                 "produces": [
@@ -1112,6 +1138,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.oauthRedirectURLResponse": {
+            "type": "object",
+            "properties": {
+                "redirect_url": {
                     "type": "string"
                 }
             }

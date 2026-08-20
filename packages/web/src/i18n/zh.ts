@@ -76,6 +76,8 @@ export default {
     deleteConfig: '删除配置',
     deleteConfigDesc: '删除后回到待配置状态，已有连接不受影响',
     configSection: '平台配置',
+    oauthRedirectUrl: 'Redirect URL',
+    oauthRedirectUrlDesc: '请先在 OAuth Client 中登记此 URL，再在这里保存 Client 凭据。',
     noFields: '该连接器没有需要管理员填写的配置',
     save: '保存配置',
     saved: '配置已保存',

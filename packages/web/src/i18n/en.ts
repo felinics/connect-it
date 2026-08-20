@@ -76,6 +76,8 @@ export default {
     deleteConfig: 'Delete config',
     deleteConfigDesc: 'Reverts to needs-config; existing connections are unaffected',
     configSection: 'Platform configuration',
+    oauthRedirectUrl: 'Redirect URL',
+    oauthRedirectUrlDesc: 'Register this URL in the OAuth client before saving its credentials here.',
     noFields: 'This connector has no admin-provided configuration',
     save: 'Save',
     saved: 'Configuration saved',

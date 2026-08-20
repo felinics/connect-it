@@ -1,3 +1,16 @@
 @import "tailwindcss";
 @import "@felinic/ui/style.css";
 @source "../../ui/src";
+
+/* Keep application copy legible across Inter and system-font fallbacks. */
+@theme {
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+}
+
+@layer base {
+  body {
+    font-weight: 400;
+  }
+}

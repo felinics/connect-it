@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Button, NativeSelect, NativeSelectOption, Toaster } from '@felinic/ui'
+import {
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Toaster,
+} from '@felinic/ui'
 import {
   CubeIcon,
   DesktopIcon,
@@ -84,10 +92,15 @@ onBeforeUnmount(() => {
         <div class="space-y-3 border-t border-border px-4 py-4">
           <div class="flex items-center justify-between gap-2">
             <span class="text-caption text-muted-foreground">{{ t('sidebar.language') }}</span>
-            <NativeSelect v-model="currentLocale" size="sm" class="w-28">
-              <NativeSelectOption value="zh-CN">简体中文</NativeSelectOption>
-              <NativeSelectOption value="en">English</NativeSelectOption>
-            </NativeSelect>
+            <Select v-model="currentLocale">
+              <SelectTrigger size="sm" class="w-28" :aria-label="t('sidebar.language')">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent size="sm">
+                <SelectItem value="zh-CN">简体中文</SelectItem>
+                <SelectItem value="en">English</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div class="flex items-center justify-between gap-2">
             <span class="text-caption text-muted-foreground">{{ t('sidebar.theme') }}</span>

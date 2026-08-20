@@ -75,6 +75,7 @@ func New(deps Deps) *echo.Echo {
 
 	admin := e.Group("/admin", RequireAdminSession(deps.CookieSecret))
 	admin.GET("/connections", h.listConnections)
+	admin.GET("/oauth/redirect-url", h.getOAuthRedirectURL)
 	admin.POST("/connections/:id/reauth", h.adminReauthConnection)
 	admin.DELETE("/connections/:id", h.adminDeleteConnection)
 	admin.GET("/connectors", h.adminListConnectors)

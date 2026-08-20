@@ -142,6 +142,11 @@ definitions:
       username:
         type: string
     type: object
+  api.oauthRedirectURLResponse:
+    properties:
+      redirect_url:
+        type: string
+    type: object
   api.putConfigRequest:
     properties:
       if_match:
@@ -597,6 +602,23 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       summary: Log in as administrator and receive a session cookie
+      tags:
+      - admin
+  /admin/oauth/redirect-url:
+    get:
+      operationId: getOAuthRedirectURL
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.oauthRedirectURLResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Get the OAuth callback URL that operators must register with providers
       tags:
       - admin
   /healthz:

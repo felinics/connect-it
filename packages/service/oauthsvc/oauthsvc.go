@@ -76,6 +76,12 @@ func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *c
 	return &Service{q: q, reg: reg, cfg: cfg, kr: kr, hc: hc, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
+// RedirectURL returns the callback URL operators must register with OAuth
+// providers when configuring a client.
+func (s *Service) RedirectURL() string {
+	return s.baseURL + CallbackPath
+}
+
 // Begin creates a pending connection and builds the authorization URL. alias
 // is an optional display label.
 func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, alias string) (BeginResult, error) {

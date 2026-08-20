@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button, Input, Label, NativeSelect, NativeSelectOption } from '@felinic/ui'
+import { Button, Input, Label, NativeSelect, NativeSelectOption, toast } from '@felinic/ui'
 import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -16,6 +16,7 @@ export interface ConfigPayload {
 const props = defineProps<{
   fields: ConfigField[]
   config: ConnectorConfig | null
+  oauthRedirectUrl?: string
   busy?: boolean
 }>()
 const emit = defineEmits<{
@@ -91,10 +92,27 @@ function onSave() {
   emit('save', buildPayload())
 }
 
+async function copyOAuthRedirectUrl() {
+  if (!props.oauthRedirectUrl) return
+  await navigator.clipboard.writeText(props.oauthRedirectUrl)
+  toast.success(t('common.copied'))
+}
+
 </script>
 
 <template>
   <form class="space-y-4 p-5" @submit.prevent="onSave">
+    <div v-if="props.oauthRedirectUrl" class="space-y-1.5">
+      <Label for="oauth-redirect-url">{{ t('connector.oauthRedirectUrl') }}</Label>
+      <div class="flex items-center gap-2">
+        <Input id="oauth-redirect-url" :model-value="props.oauthRedirectUrl" readonly />
+        <Button type="button" variant="outline" @click="copyOAuthRedirectUrl">
+          {{ t('common.copy') }}
+        </Button>
+      </div>
+      <p class="text-body text-muted-foreground">{{ t('connector.oauthRedirectUrlDesc') }}</p>
+    </div>
+
     <div v-for="f in props.fields" :key="f.key" class="space-y-1.5">
       <Label :for="`cfg-${f.key}`">
         {{ f.label || f.key }}<span v-if="f.required" class="text-destructive"> *</span>

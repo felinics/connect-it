@@ -134,6 +134,16 @@ func TestAdminRoutesRequireSession(t *testing.T) {
 	}
 }
 
+func TestOAuthRedirectURL(t *testing.T) {
+	srv, _ := newTestServer(t)
+	h := adminLogin(t, srv)
+
+	resp, body := doReq(t, http.MethodGet, srv.URL+"/admin/oauth/redirect-url", "", h)
+	if resp.StatusCode != http.StatusOK || body != `{"redirect_url":"http://connect.test/v1/oauth/callback"}`+"\n" {
+		t.Fatalf("redirect URL: %d %s", resp.StatusCode, body)
+	}
+}
+
 func TestLoginWrongPassword(t *testing.T) {
 	srv, _ := newTestServer(t)
 	resp, body := doReq(t, http.MethodPost, srv.URL+"/admin/login",
