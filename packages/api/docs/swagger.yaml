@@ -159,6 +159,13 @@ definitions:
           type: string
         type: object
     type: object
+  api.updateConnectorEnabledRequest:
+    properties:
+      enabled:
+        type: boolean
+    required:
+    - enabled
+    type: object
   authsvc.APITokenView:
     properties:
       created_at:
@@ -218,6 +225,8 @@ definitions:
         type: array
       description:
         type: string
+      enabled:
+        type: boolean
       homepage_url:
         type: string
       icon_url:
@@ -281,6 +290,7 @@ definitions:
     - ready
     - deprecated
     - definition_missing
+    - disabled
     type: string
     x-enum-varnames:
     - NeedsConfig
@@ -288,6 +298,7 @@ definitions:
     - Ready
     - Deprecated
     - DefinitionMissing
+    - Disabled
 info:
   contact: {}
   description: 'Self-hosted connector gateway: catalog, config management, OAuth connections
@@ -580,6 +591,41 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       summary: Config form metadata for a connector, derived from the ConfigFields
         of its Definition
+      tags:
+      - admin
+  /admin/connectors/{type}/enabled:
+    put:
+      consumes:
+      - application/json
+      operationId: updateConnectorEnabled
+      parameters:
+      - description: connector_type
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: Connector enabled state
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.updateConnectorEnabledRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogsvc.Item'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: Enable or disable a connector
       tags:
       - admin
   /admin/login:

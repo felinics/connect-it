@@ -97,12 +97,41 @@ func TestListStatuses(t *testing.T) {
 			t.Errorf("%s: got %s want %s", typ, got[typ], st)
 		}
 	}
+	for _, item := range items {
+		if item.Type != "ghost_app" && !item.Enabled {
+			t.Errorf("registered connector %s should be enabled by default", item.Type)
+		}
+		if item.Type == "ghost_app" && item.Enabled {
+			t.Error("a connector without a registered definition must not be enabled")
+		}
+	}
 	if len(items) != 4 {
 		t.Fatalf("expected 4 items: %+v", items)
 	}
 	// Sorted by type, ascending.
 	if items[0].Type != "ghost_app" || items[3].Type != "shelf_app" {
 		t.Fatalf("unexpected order: %+v", items)
+	}
+
+	exec(`insert into connector_settings (connector_type, enabled, updated_at)
+	      values ('needs_app', false, now())`)
+	items, err = svc.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.Type == "needs_app" && (item.Enabled || item.Status != status.Disabled) {
+			t.Fatalf("disabled connector has unexpected catalog state: %+v", item)
+		}
+	}
+	enabledItems, err := svc.ListEnabled(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range enabledItems {
+		if item.Type == "needs_app" || item.Type == "ghost_app" {
+			t.Fatalf("downstream catalog must omit unusable connectors: %+v", enabledItems)
+		}
 	}
 }
 
@@ -143,5 +172,15 @@ func TestGet(t *testing.T) {
 
 	if _, err := svc.Get(ctx, "nope"); !errors.Is(err, configsvc.ErrNotFound) {
 		t.Fatalf("an unknown type should yield ErrNotFound, got %v", err)
+	}
+
+	exec(`insert into connector_settings (connector_type, enabled, updated_at)
+	      values ('ready_app', false, now())`)
+	item, err = svc.Get(ctx, "ready_app")
+	if err != nil || item.Enabled || item.Status != status.Disabled {
+		t.Fatalf("disabled ready_app: %+v err=%v", item, err)
+	}
+	if _, err := svc.GetEnabled(ctx, "ready_app"); !errors.Is(err, configsvc.ErrNotFound) {
+		t.Fatalf("a disabled connector should be hidden downstream, got %v", err)
 	}
 }

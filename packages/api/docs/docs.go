@@ -444,6 +444,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connectors/{type}/enabled": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Enable or disable a connector",
+                "operationId": "updateConnectorEnabled",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "connector_type",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connector enabled state",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.updateConnectorEnabledRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/catalogsvc.Item"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/login": {
             "post": {
                 "consumes": [
@@ -1168,6 +1221,17 @@ const docTemplate = `{
                 }
             }
         },
+        "api.updateConnectorEnabledRequest": {
+            "type": "object",
+            "required": [
+                "enabled"
+            ],
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "authsvc.APITokenView": {
             "type": "object",
             "properties": {
@@ -1258,6 +1322,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "enabled": {
+                    "type": "boolean"
+                },
                 "homepage_url": {
                     "type": "string"
                 },
@@ -1345,14 +1412,16 @@ const docTemplate = `{
                 "config_incompatible",
                 "ready",
                 "deprecated",
-                "definition_missing"
+                "definition_missing",
+                "disabled"
             ],
             "x-enum-varnames": [
                 "NeedsConfig",
                 "ConfigIncompatible",
                 "Ready",
                 "Deprecated",
-                "DefinitionMissing"
+                "DefinitionMissing",
+                "Disabled"
             ]
         }
     },

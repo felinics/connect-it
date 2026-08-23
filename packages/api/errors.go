@@ -30,6 +30,7 @@ func mapServiceError(c echo.Context, err error) error {
 	switch {
 	case errors.Is(err, configsvc.ErrUnknownConnector),
 		errors.Is(err, configsvc.ErrNotFound),
+		errors.Is(err, configsvc.ErrConnectorDisabled),
 		errors.Is(err, authsvc.ErrNotFound),
 		errors.Is(err, connsvc.ErrNotFound),
 		errors.Is(err, connsvc.ErrUnknownConnector),

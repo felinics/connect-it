@@ -312,3 +312,32 @@ func TestConfigStateMapping(t *testing.T) {
 		t.Fatalf("unexpected mapping: %+v", st)
 	}
 }
+
+func TestConnectorEnabledState(t *testing.T) {
+	s, _ := newRWService(t, rwDefinition())
+	ctx := context.Background()
+
+	enabled, err := s.Enabled(ctx, "example_app")
+	if err != nil || !enabled {
+		t.Fatalf("a connector without a stored override should be enabled: enabled=%v err=%v", enabled, err)
+	}
+	if err := s.SetEnabled(ctx, "example_app", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequireEnabled(ctx, "example_app"); !errors.Is(err, configsvc.ErrConnectorDisabled) {
+		t.Fatalf("a disabled connector should be rejected, got %v", err)
+	}
+	states, err := s.EnabledStates(ctx)
+	if err != nil || states["example_app"] {
+		t.Fatalf("unexpected enabled states: %+v err=%v", states, err)
+	}
+	if err := s.SetEnabled(ctx, "example_app", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequireEnabled(ctx, "example_app"); err != nil {
+		t.Fatalf("a re-enabled connector should be usable: %v", err)
+	}
+	if err := s.SetEnabled(ctx, "unknown", false); !errors.Is(err, configsvc.ErrUnknownConnector) {
+		t.Fatalf("an unknown connector should be rejected, got %v", err)
+	}
+}

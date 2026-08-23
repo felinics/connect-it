@@ -111,6 +111,10 @@ export type ApiPutConfigRequest = {
     };
 };
 
+export type ApiUpdateConnectorEnabledRequest = {
+    enabled: boolean;
+};
+
 export type AuthsvcApiTokenView = {
     created_at?: string;
     id?: string;
@@ -141,6 +145,7 @@ export type CatalogsvcItem = {
     auth_methods?: Array<CatalogsvcAuthMethodSummary>;
     categories?: Array<string>;
     description?: string;
+    enabled?: boolean;
     homepage_url?: string;
     icon_url?: string;
     mode?: ConnectorMode;
@@ -164,7 +169,7 @@ export type ConnsvcConnectionView = {
     status?: string;
 };
 
-export type StatusStatus = 'needs_config' | 'config_incompatible' | 'ready' | 'deprecated' | 'definition_missing';
+export type StatusStatus = 'needs_config' | 'config_incompatible' | 'ready' | 'deprecated' | 'definition_missing' | 'disabled';
 
 export type ChangePasswordData = {
     /**
@@ -512,6 +517,43 @@ export type GetConfigSchemaResponses = {
 };
 
 export type GetConfigSchemaResponse = GetConfigSchemaResponses[keyof GetConfigSchemaResponses];
+
+export type UpdateConnectorEnabledData = {
+    /**
+     * Connector enabled state
+     */
+    body: ApiUpdateConnectorEnabledRequest;
+    path: {
+        /**
+         * connector_type
+         */
+        type: string;
+    };
+    query?: never;
+    url: '/admin/connectors/{type}/enabled';
+};
+
+export type UpdateConnectorEnabledErrors = {
+    /**
+     * Not Found
+     */
+    404: ApiErrorResponse;
+    /**
+     * Unprocessable Entity
+     */
+    422: ApiErrorResponse;
+};
+
+export type UpdateConnectorEnabledError = UpdateConnectorEnabledErrors[keyof UpdateConnectorEnabledErrors];
+
+export type UpdateConnectorEnabledResponses = {
+    /**
+     * OK
+     */
+    200: CatalogsvcItem;
+};
+
+export type UpdateConnectorEnabledResponse = UpdateConnectorEnabledResponses[keyof UpdateConnectorEnabledResponses];
 
 export type LoginData = {
     /**

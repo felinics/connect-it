@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ActionCard, Input, SegmentedControl, toast } from '@felinic/ui'
+import { ActionCard, Input, SegmentedControl, Switch, toast } from '@felinic/ui'
 import { ChevronRightIcon } from '@radix-icons/vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError } from '../api/client'
-import { listConnectors } from '../api/endpoints'
+import { listConnectors, updateConnectorEnabled } from '../api/endpoints'
 import type { CatalogItem } from '../api/types'
 import PageShell from '../components/PageShell.vue'
 import ProviderLogo from '../components/ProviderLogo.vue'
@@ -19,6 +19,7 @@ const items = ref<CatalogItem[]>([])
 const loading = ref(true)
 const query = ref('')
 const filter = ref<Filter>('all')
+const updating = ref(new Set<string>())
 
 onMounted(async () => {
   try {
@@ -71,6 +72,22 @@ const visible = computed(() => {
       .some((s) => s.toLowerCase().includes(q))
   })
 })
+
+async function onEnabledChange(item: CatalogItem, enabled: boolean) {
+  const type = item.type ?? ''
+  if (type === '' || updating.value.has(type)) return
+  updating.value.add(type)
+  try {
+    const updated = await updateConnectorEnabled(type, enabled)
+    const index = items.value.findIndex((candidate) => candidate.type === type)
+    if (index >= 0) items.value[index] = updated
+    toast.success(t(enabled ? 'connectors.enabled' : 'connectors.disabled', { name: item.name || type }))
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : t('connectors.updateFailed'))
+  } finally {
+    updating.value.delete(type)
+  }
+}
 </script>
 
 <template>
@@ -103,6 +120,14 @@ const visible = computed(() => {
         <template #trailing>
           <div class="flex shrink-0 items-center gap-2">
             <StatusBadge :status="item.status ?? ''" />
+            <Switch
+              :model-value="item.enabled ?? true"
+              :disabled="updating.has(item.type ?? '') || item.status === 'definition_missing'"
+              :aria-label="t('connectors.enabledLabel', { name: item.name || item.type })"
+              @click.stop
+              @pointerdown.stop
+              @update:model-value="onEnabledChange(item, $event)"
+            />
             <ChevronRightIcon class="size-4 text-muted-foreground" />
           </div>
         </template>

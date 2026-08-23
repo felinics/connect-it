@@ -79,6 +79,7 @@ func New(deps Deps) *echo.Echo {
 	admin.POST("/connections/:id/reauth", h.adminReauthConnection)
 	admin.DELETE("/connections/:id", h.adminDeleteConnection)
 	admin.GET("/connectors", h.adminListConnectors)
+	admin.PUT("/connectors/:type/enabled", h.updateConnectorEnabled)
 	admin.GET("/connectors/:type/config-schema", h.getConfigSchema)
 	admin.GET("/connectors/:type/auth-methods", h.listAuthMethods)
 	admin.GET("/connectors/:type/config", h.getConfig)

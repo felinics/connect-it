@@ -21,6 +21,7 @@ type Item struct {
 	IconURL     string              `json:"icon_url"`
 	Mode        connector.Mode      `json:"mode,omitempty"`
 	Status      status.Status       `json:"status"`
+	Enabled     bool                `json:"enabled"`
 	AuthMethods []AuthMethodSummary `json:"auth_methods"`
 }
 
@@ -65,10 +66,18 @@ func (s *Service) List(ctx context.Context) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	enabledStates, err := s.cfg.EnabledStates(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := []Item{}
 	seen := map[string]bool{}
 	for _, def := range s.reg.All() {
-		out = append(out, s.item(def, states[def.Type]))
+		enabled, exists := enabledStates[def.Type]
+		if !exists {
+			enabled = true
+		}
+		out = append(out, s.item(def, states[def.Type], enabled))
 		seen[string(def.Type)] = true
 	}
 	for connectorType := range states {
@@ -77,10 +86,25 @@ func (s *Service) List(ctx context.Context) ([]Item, error) {
 		}
 		out = append(out, Item{
 			Type: string(connectorType), Categories: []string{}, AuthMethods: []AuthMethodSummary{},
-			Status: status.DefinitionMissing,
+			Status: status.DefinitionMissing, Enabled: false,
 		})
 	}
 	sortItems(out)
+	return out, nil
+}
+
+// ListEnabled returns only connectors that downstream clients may use.
+func (s *Service) ListEnabled(ctx context.Context) ([]Item, error) {
+	items, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Item, 0, len(items))
+	for _, item := range items {
+		if item.Enabled {
+			out = append(out, item)
+		}
+	}
 	return out, nil
 }
 
@@ -98,17 +122,33 @@ func (s *Service) Get(ctx context.Context, t connector.Type) (Item, error) {
 		}
 		return Item{
 			Type: string(t), Categories: []string{}, AuthMethods: []AuthMethodSummary{},
-			Status: status.DefinitionMissing,
+			Status: status.DefinitionMissing, Enabled: false,
 		}, nil
 	}
 	cfgState, err := s.cfg.ConfigState(ctx, def.Type)
 	if err != nil {
 		return Item{}, err
 	}
-	return s.item(def, cfgState), nil
+	enabled, err := s.cfg.Enabled(ctx, def.Type)
+	if err != nil {
+		return Item{}, err
+	}
+	return s.item(def, cfgState, enabled), nil
 }
 
-func (s *Service) item(def connector.Definition, cfgState status.ConfigState) Item {
+// GetEnabled returns a connector only when downstream clients may use it.
+func (s *Service) GetEnabled(ctx context.Context, t connector.Type) (Item, error) {
+	item, err := s.Get(ctx, t)
+	if err != nil {
+		return Item{}, err
+	}
+	if !item.Enabled {
+		return Item{}, configsvc.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *Service) item(def connector.Definition, cfgState status.ConfigState, enabled bool) Item {
 	categories := def.Categories
 	if categories == nil {
 		categories = []string{}
@@ -140,6 +180,10 @@ func (s *Service) item(def connector.Definition, cfgState status.ConfigState) It
 			CredentialFields: fields,
 		})
 	}
+	connectorStatus := status.Compute(&def, cfgState)
+	if !enabled {
+		connectorStatus = status.Disabled
+	}
 	return Item{
 		Type:        string(def.Type),
 		Name:        def.Name,
@@ -148,7 +192,8 @@ func (s *Service) item(def connector.Definition, cfgState status.ConfigState) It
 		HomepageURL: def.HomepageURL,
 		IconURL:     def.IconURL,
 		Mode:        def.Mode(),
-		Status:      status.Compute(&def, cfgState),
+		Status:      connectorStatus,
+		Enabled:     enabled,
 		AuthMethods: authMethods,
 	}
 }

@@ -22,6 +22,9 @@ var (
 	// ErrIncompatible means the stored config_schema_version is newer than the
 	// code, so an overwriting write is refused.
 	ErrIncompatible = errors.New("config schema newer than code")
+	// ErrConnectorDisabled means the connector has been disabled by an
+	// administrator and cannot be used through downstream APIs.
+	ErrConnectorDisabled = errors.New("connector is disabled")
 )
 
 // ValidationError describes a validation failure on one field.

@@ -199,6 +199,9 @@ func (e *Engine) connection(ctx context.Context, connectionID uuid.UUID) (store.
 		return store.Connection{}, connector.Definition{},
 			fmt.Errorf("exec: unknown connector type %s", row.ConnectorType)
 	}
+	if err := e.cfg.RequireEnabled(ctx, def.Type); err != nil {
+		return store.Connection{}, connector.Definition{}, fmt.Errorf("exec: %w", err)
+	}
 	return row, def, nil
 }
 

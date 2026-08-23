@@ -31,7 +31,7 @@ func (h *handlers) healthz(c echo.Context) error {
 //	@Security	BearerAuth
 //	@Router		/v1/connectors [get]
 func (h *handlers) listConnectors(c echo.Context) error {
-	items, err := h.deps.Catalog.List(c.Request().Context())
+	items, err := h.deps.Catalog.ListEnabled(c.Request().Context())
 	if err != nil {
 		return mapServiceError(c, err)
 	}
@@ -50,7 +50,43 @@ func (h *handlers) listConnectors(c echo.Context) error {
 //	@Security	BearerAuth
 //	@Router		/v1/connectors/{type} [get]
 func (h *handlers) getConnector(c echo.Context) error {
-	item, err := h.deps.Catalog.Get(c.Request().Context(), connector.Type(c.Param("type")))
+	item, err := h.deps.Catalog.GetEnabled(c.Request().Context(), connector.Type(c.Param("type")))
+	if err != nil {
+		return mapServiceError(c, err)
+	}
+	return c.JSON(http.StatusOK, item)
+}
+
+type updateConnectorEnabledRequest struct {
+	Enabled *bool `json:"enabled" binding:"required"`
+}
+
+// updateConnectorEnabled godoc
+//
+//	@Summary	Enable or disable a connector
+//	@ID			updateConnectorEnabled
+//	@Tags		admin
+//	@Accept		json
+//	@Produce	json
+//	@Param		type	path	string						true	"connector_type"
+//	@Param		body	body	api.updateConnectorEnabledRequest	true	"Connector enabled state"
+//	@Success	200		{object}	catalogsvc.Item
+//	@Failure	404		{object}	api.ErrorResponse
+//	@Failure	422		{object}	api.ErrorResponse
+//	@Router		/admin/connectors/{type}/enabled [put]
+func (h *handlers) updateConnectorEnabled(c echo.Context) error {
+	var req updateConnectorEnabledRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "bad_request", "request body is not valid JSON")
+	}
+	if req.Enabled == nil {
+		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", "enabled is required")
+	}
+	t := connector.Type(c.Param("type"))
+	if err := h.deps.Config.SetEnabled(c.Request().Context(), t, *req.Enabled); err != nil {
+		return mapServiceError(c, err)
+	}
+	item, err := h.deps.Catalog.Get(c.Request().Context(), t)
 	if err != nil {
 		return mapServiceError(c, err)
 	}

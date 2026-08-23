@@ -51,6 +51,12 @@ type ConnectorConfig struct {
 	UpdatedAt           time.Time
 }
 
+type ConnectorSetting struct {
+	ConnectorType string
+	Enabled       bool
+	UpdatedAt     time.Time
+}
+
 type McpSession struct {
 	ID           uuid.UUID
 	TokenHash    string

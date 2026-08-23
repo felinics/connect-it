@@ -57,6 +57,7 @@ func (e *fakeUpstreamError) UpstreamStatusCode() int { return e.statusCode }
 
 type harness struct {
 	engine      *exec.Engine
+	cfg         *configsvc.Service
 	managedID   uuid.UUID
 	remoteID    uuid.UUID
 	managedCall connector.ManagedCall
@@ -115,7 +116,8 @@ func newHarness(t *testing.T) *harness {
 		tools:  []*mcp.Tool{{Name: "dynamic-tool", InputSchema: map[string]any{"type": "object"}}},
 		result: &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "remote-ok"}}},
 	}
-	h.engine = exec.New(q, reg, configsvc.New(q, reg, keyring), nil, keyring, h.mcp)
+	h.cfg = configsvc.New(q, reg, keyring)
+	h.engine = exec.New(q, reg, h.cfg, nil, keyring, h.mcp)
 	h.managedID = uuid.New()
 	h.remoteID = uuid.New()
 	for id, connectorType := range map[uuid.UUID]string{
@@ -237,5 +239,19 @@ func TestUnavailableAndInactive(t *testing.T) {
 	}
 	if _, err := h.engine.ListTools(t.Context(), h.managedID); !errors.Is(err, tokens.ErrReauthRequired) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestDisabledConnectorCannotDiscoverOrCallTools(t *testing.T) {
+	h := newHarness(t)
+	if err := h.cfg.SetEnabled(t.Context(), "managed_app", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.engine.ListTools(t.Context(), h.managedID); !errors.Is(err, configsvc.ErrConnectorDisabled) {
+		t.Fatalf("tool discovery should reject a disabled connector, got %v", err)
+	}
+	if _, err := h.engine.CallTool(t.Context(), uuid.Nil, uuid.Nil, h.managedID,
+		&mcp.CallToolParamsRaw{Name: "echo", Arguments: json.RawMessage(`{"x":1}`)}); !errors.Is(err, configsvc.ErrConnectorDisabled) {
+		t.Fatalf("existing sessions should reject a disabled connector, got %v", err)
 	}
 }

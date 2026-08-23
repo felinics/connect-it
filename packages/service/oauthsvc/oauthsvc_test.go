@@ -293,6 +293,19 @@ func TestBeginWithoutAlias(t *testing.T) {
 	}
 }
 
+func TestDisabledConnectorRejectsOAuth(t *testing.T) {
+	env := newEnv(t, false)
+	if _, err := env.q.UpsertConnectorEnabled(t.Context(), store.UpsertConnectorEnabledParams{
+		ConnectorType: "example_app",
+		Enabled:       false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.svc.Begin(t.Context(), "example_app", "oauth", ""); !errors.Is(err, configsvc.ErrConnectorDisabled) {
+		t.Fatalf("a disabled connector should reject OAuth, got %v", err)
+	}
+}
+
 func TestConcurrentCallbackClaimsStateOnce(t *testing.T) {
 	env := newEnv(t, false)
 	begin, err := env.svc.Begin(context.Background(), "example_app", "oauth", "acct-1")

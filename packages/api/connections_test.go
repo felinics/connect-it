@@ -64,7 +64,7 @@ func newConnServer(t *testing.T) (*httptest.Server, http.Header) {
 	auth := authsvc.New(q)
 	cat := catalogsvc.New(reg, cfg)
 	oauth := oauthsvc.New(q, reg, cfg, kr, provider.Client(), "http://connect.test")
-	conns := connsvc.New(q, reg, kr)
+	conns := connsvc.New(q, reg, cfg, kr)
 
 	t.Setenv(authsvc.EnvAdminPassword, adminPassword)
 	if err := auth.EnsureAdminFromEnv(t.Context()); err != nil {

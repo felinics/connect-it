@@ -14,6 +14,7 @@ const (
 	Ready              Status = "ready"
 	Deprecated         Status = "deprecated"
 	DefinitionMissing  Status = "definition_missing"
+	Disabled           Status = "disabled"
 )
 
 // ConfigState is the in-memory view of a connector_configs row. It never

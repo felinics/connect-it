@@ -68,6 +68,10 @@ export default {
     empty: 'No connectors registered',
     noMatch: 'No connectors match',
     loadFailed: 'Failed to load connectors',
+    enabledLabel: 'Enable {name}',
+    enabled: '{name} enabled',
+    disabled: '{name} disabled',
+    updateFailed: 'Failed to update connector',
   },
   connector: {
     statusSection: 'Status',

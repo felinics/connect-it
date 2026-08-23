@@ -92,6 +92,9 @@ func (s *Service) Begin(ctx context.Context, t connector.Type, authMethodKey, al
 	if !ok {
 		return BeginResult{}, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
 	}
+	if err := s.cfg.RequireEnabled(ctx, t); err != nil {
+		return BeginResult{}, err
+	}
 	method, err := findOAuthMethod(def, authMethodKey)
 	if err != nil {
 		return BeginResult{}, err
@@ -160,6 +163,9 @@ func (s *Service) BeginReauth(ctx context.Context, connectionID uuid.UUID) (Begi
 	def, ok := s.reg.Get(t)
 	if !ok {
 		return BeginResult{}, fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+	}
+	if err := s.cfg.RequireEnabled(ctx, t); err != nil {
+		return BeginResult{}, err
 	}
 	method, err := findOAuthMethod(def, row.AuthMethod)
 	if err != nil {
@@ -346,6 +352,9 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) error 
 	def, ok := s.reg.Get(t)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrUnknownConnector, t)
+	}
+	if err := s.cfg.RequireEnabled(ctx, t); err != nil {
+		return err
 	}
 	method, err := findOAuthMethod(def, authz.AuthMethod)
 	if err != nil {

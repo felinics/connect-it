@@ -14,6 +14,9 @@ export const login = (username: string, password: string) =>
 
 export const listConnectors = () => unwrap(sdk.adminListConnectors())
 
+export const updateConnectorEnabled = (type: string, enabled: boolean) =>
+  unwrap(sdk.updateConnectorEnabled({ path: { type }, body: { enabled } }))
+
 export const getOAuthRedirectUrl = () => unwrap(sdk.getOAuthRedirectUrl())
 
 export const getConfigSchema = (type: string) =>

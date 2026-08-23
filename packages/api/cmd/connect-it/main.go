@@ -73,7 +73,7 @@ func main() {
 	catalogSvc := catalogsvc.New(reg, configSvc)
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	oauthSvc := oauthsvc.New(queries, reg, configSvc, keyring, httpClient, baseURL)
-	connSvc := connsvc.New(queries, reg, keyring)
+	connSvc := connsvc.New(queries, reg, configSvc, keyring)
 	refresher := tokens.New(queries, reg, configSvc, keyring, httpClient)
 	engine := exec.New(queries, reg, configSvc, refresher, keyring, mcpclient.Client{})
 

@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/memohai/connect-it/packages/core/buildinfo"
+	"github.com/memohai/connect-it/packages/service/configsvc"
 	execsvc "github.com/memohai/connect-it/packages/service/exec"
 	"github.com/memohai/connect-it/packages/service/sessions"
 	"github.com/memohai/connect-it/packages/service/tokens"
@@ -147,6 +148,7 @@ func publicToolError(err error) (string, string) {
 	case errors.Is(err, execsvc.ErrToolUnavailable),
 		errors.Is(err, execsvc.ErrConnectionNotFound),
 		errors.Is(err, execsvc.ErrConnectionInactive),
+		errors.Is(err, configsvc.ErrConnectorDisabled),
 		errors.Is(err, tokens.ErrNotFound):
 		return "tool_unavailable", "tool is unavailable"
 	}

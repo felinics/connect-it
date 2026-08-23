@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, GetOAuthRedirectUrlData, GetOAuthRedirectUrlErrors, GetOAuthRedirectUrlResponses, GetVersionData, GetVersionResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, OauthCallbackResponses, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses } from './types.gen';
+import type { AdminDeleteConnectionData, AdminDeleteConnectionErrors, AdminDeleteConnectionResponses, AdminListConnectorsData, AdminListConnectorsErrors, AdminListConnectorsResponses, AdminReauthConnectionData, AdminReauthConnectionErrors, AdminReauthConnectionResponses, BeginOAuthConnectionData, BeginOAuthConnectionErrors, BeginOAuthConnectionResponses, ChangePasswordData, ChangePasswordErrors, ChangePasswordResponses, CreateApiKeyConnectionData, CreateApiKeyConnectionErrors, CreateApiKeyConnectionResponses, CreateApiTokenData, CreateApiTokenResponses, CreateMcpSessionData, CreateMcpSessionErrors, CreateMcpSessionResponses, DeleteApiTokenData, DeleteApiTokenErrors, DeleteApiTokenResponses, DeleteConfigData, DeleteConfigErrors, DeleteConfigResponses, DeleteConnectionData, DeleteConnectionErrors, DeleteConnectionResponses, GetConfigData, GetConfigErrors, GetConfigResponses, GetConfigSchemaData, GetConfigSchemaErrors, GetConfigSchemaResponses, GetConnectionData, GetConnectionErrors, GetConnectionResponses, GetConnectorData, GetConnectorErrors, GetConnectorResponses, GetOAuthRedirectUrlData, GetOAuthRedirectUrlErrors, GetOAuthRedirectUrlResponses, GetVersionData, GetVersionResponses, HealthzData, HealthzResponses, ListApiTokensData, ListApiTokensResponses, ListAuthMethodsData, ListAuthMethodsErrors, ListAuthMethodsResponses, ListConnectionsData, ListConnectionsResponses, ListConnectorsData, ListConnectorsErrors, ListConnectorsResponses, LoginData, LoginErrors, LoginResponses, OauthCallbackData, OauthCallbackResponses, PutConfigData, PutConfigErrors, PutConfigResponses, ReauthConnectionData, ReauthConnectionErrors, ReauthConnectionResponses, UpdateConnectorEnabledData, UpdateConnectorEnabledErrors, UpdateConnectorEnabledResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -157,6 +157,20 @@ export const getConfigSchema = <ThrowOnError extends boolean = false>(options: O
     return (options.client ?? client).get<GetConfigSchemaResponses, GetConfigSchemaErrors, ThrowOnError>({
         url: '/admin/connectors/{type}/config-schema',
         ...options
+    });
+};
+
+/**
+ * Enable or disable a connector
+ */
+export const updateConnectorEnabled = <ThrowOnError extends boolean = false>(options: Options<UpdateConnectorEnabledData, ThrowOnError>) => {
+    return (options.client ?? client).put<UpdateConnectorEnabledResponses, UpdateConnectorEnabledErrors, ThrowOnError>({
+        url: '/admin/connectors/{type}/enabled',
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+        }
     });
 };
 

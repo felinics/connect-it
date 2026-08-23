@@ -15,6 +15,7 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
+	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/credential"
 	"github.com/memohai/connect-it/packages/service/store"
 )
@@ -34,11 +35,12 @@ var (
 type Service struct {
 	q   *store.Queries
 	reg *registry.Registry
+	cfg *configsvc.Service
 	kr  *crypto.Keyring
 }
 
-func New(q *store.Queries, reg *registry.Registry, kr *crypto.Keyring) *Service {
-	return &Service{q: q, reg: reg, kr: kr}
+func New(q *store.Queries, reg *registry.Registry, cfg *configsvc.Service, kr *crypto.Keyring) *Service {
+	return &Service{q: q, reg: reg, cfg: cfg, kr: kr}
 }
 
 // ConnectionView is the outward-facing view, without the credential.
@@ -76,6 +78,9 @@ func (s *Service) CreateAPIKey(ctx context.Context, t connector.Type, authMethod
 		return uuid.Nil, fmt.Errorf("%w: %s is %s", ErrWrongAuthType, authMethodKey, method.Type)
 	}
 	if err := validateFields(method.CredentialFields, fields); err != nil {
+		return uuid.Nil, err
+	}
+	if err := s.cfg.RequireEnabled(ctx, t); err != nil {
 		return uuid.Nil, err
 	}
 

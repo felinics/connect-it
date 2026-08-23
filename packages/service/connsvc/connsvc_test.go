@@ -11,6 +11,7 @@ import (
 	"github.com/memohai/connect-it/packages/core/connector"
 	"github.com/memohai/connect-it/packages/core/crypto"
 	"github.com/memohai/connect-it/packages/core/registry"
+	"github.com/memohai/connect-it/packages/service/configsvc"
 	"github.com/memohai/connect-it/packages/service/connsvc"
 	"github.com/memohai/connect-it/packages/service/store"
 	"github.com/memohai/connect-it/packages/service/testutil"
@@ -46,7 +47,8 @@ func newReg(t *testing.T) *registry.Registry {
 // Validation errors are returned before touching the database, so a nil
 // store is enough for a pure unit test.
 func TestCreateAPIKeyValidation(t *testing.T) {
-	s := connsvc.New(nil, newReg(t), nil)
+	reg := newReg(t)
+	s := connsvc.New(nil, reg, configsvc.New(nil, reg, nil), nil)
 	ctx := context.Background()
 
 	cases := []struct {
@@ -84,7 +86,9 @@ func TestConnectionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := connsvc.New(store.New(pool), newReg(t), kr)
+	q := store.New(pool)
+	reg := newReg(t)
+	s := connsvc.New(q, reg, configsvc.New(q, reg, kr), kr)
 	ctx := context.Background()
 
 	id, err := s.CreateAPIKey(ctx, "example_app", "pat", "acct-1", map[string]string{"token": "tok_abc"})
@@ -187,5 +191,25 @@ func TestConnectionLifecycle(t *testing.T) {
 	}
 	if _, err := s.Get(ctx, uuid.New()); !errors.Is(err, connsvc.ErrNotFound) {
 		t.Fatalf("a missing connection should yield ErrNotFound, got %v", err)
+	}
+}
+
+func TestCreateAPIKeyRejectsDisabledConnector(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	reg := newReg(t)
+	kr, err := crypto.ParseKeyring("1:" + strings.Repeat("ef", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := configsvc.New(q, reg, kr)
+	if err := cfg.SetEnabled(t.Context(), "example_app", false); err != nil {
+		t.Fatal(err)
+	}
+	s := connsvc.New(q, reg, cfg, kr)
+	_, err = s.CreateAPIKey(t.Context(), "example_app", "pat", "acct-1",
+		map[string]string{"token": "tok_abc"})
+	if !errors.Is(err, configsvc.ErrConnectorDisabled) {
+		t.Fatalf("a disabled connector should reject new connections, got %v", err)
 	}
 }

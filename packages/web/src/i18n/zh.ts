@@ -68,6 +68,10 @@ export default {
     empty: '没有已注册的连接器',
     noMatch: '没有符合条件的连接器',
     loadFailed: '加载连接器失败',
+    enabledLabel: '启用{name}',
+    enabled: '已启用{name}',
+    disabled: '已停用{name}',
+    updateFailed: '更新连接器失败',
   },
   connector: {
     statusSection: '状态',

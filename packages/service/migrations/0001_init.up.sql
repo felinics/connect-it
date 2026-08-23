@@ -23,6 +23,12 @@ create table connector_configs (
   updated_at timestamptz not null
 );
 
+create table connector_settings (
+  connector_type text primary key,
+  enabled boolean not null default true,
+  updated_at timestamptz not null
+);
+
 create table oauth_clients (
   id uuid primary key,
   connector_type text not null,

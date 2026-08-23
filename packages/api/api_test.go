@@ -47,7 +47,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *authsvc.Service) {
 	auth := authsvc.New(q)
 	cat := catalogsvc.New(reg, cfg)
 	oauth := oauthsvc.New(q, reg, cfg, kr, http.DefaultClient, "http://connect.test")
-	conns := connsvc.New(q, reg, kr)
+	conns := connsvc.New(q, reg, cfg, kr)
 
 	t.Setenv(authsvc.EnvAdminPassword, adminPassword)
 	if err := auth.EnsureAdminFromEnv(t.Context()); err != nil {
@@ -177,6 +177,52 @@ func TestV1RequiresBearerToken(t *testing.T) {
 	}
 	if !strings.Contains(body, "needs_config") {
 		t.Fatalf("an unconfigured connector should be needs_config: %s", body)
+	}
+}
+
+func TestConnectorEnabledLifecycle(t *testing.T) {
+	srv, auth := newTestServer(t)
+	adminHeader := adminLogin(t, srv)
+	token, _, err := auth.CreateAPIToken(t.Context(), "enabled-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiHeader := http.Header{}
+	apiHeader.Set("Authorization", "Bearer "+token)
+
+	resp, body := doReq(t, http.MethodPut, srv.URL+"/admin/connectors/example_app/enabled",
+		`{"enabled":false}`, adminHeader)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"enabled":false`) ||
+		!strings.Contains(body, `"status":"disabled"`) {
+		t.Fatalf("disable connector: %d %s", resp.StatusCode, body)
+	}
+	resp, body = doReq(t, http.MethodGet, srv.URL+"/admin/connectors", "", adminHeader)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"type":"example_app"`) ||
+		!strings.Contains(body, `"enabled":false`) {
+		t.Fatalf("admin catalog should retain disabled connectors: %d %s", resp.StatusCode, body)
+	}
+	resp, body = doReq(t, http.MethodGet, srv.URL+"/v1/connectors", "", apiHeader)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "example_app") {
+		t.Fatalf("downstream catalog should omit disabled connectors: %d %s", resp.StatusCode, body)
+	}
+	resp, _ = doReq(t, http.MethodGet, srv.URL+"/v1/connectors/example_app", "", apiHeader)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("downstream get should hide a disabled connector: %d", resp.StatusCode)
+	}
+
+	resp, body = doReq(t, http.MethodPut, srv.URL+"/admin/connectors/example_app/enabled",
+		`{"enabled":true}`, adminHeader)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"enabled":true`) {
+		t.Fatalf("re-enable connector: %d %s", resp.StatusCode, body)
+	}
+	resp, body = doReq(t, http.MethodGet, srv.URL+"/v1/connectors", "", apiHeader)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "example_app") {
+		t.Fatalf("re-enabled connector should return downstream: %d %s", resp.StatusCode, body)
+	}
+
+	resp, _ = doReq(t, http.MethodPut, srv.URL+"/admin/connectors/example_app/enabled", `{}`, adminHeader)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("enabled is required: %d", resp.StatusCode)
 	}
 }
 

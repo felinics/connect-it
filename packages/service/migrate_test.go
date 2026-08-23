@@ -48,7 +48,7 @@ func newTestSchema(t *testing.T) string {
 }
 
 var wantTables = []string{
-	"admin_account", "api_tokens", "connector_configs", "oauth_clients", "connections",
+	"admin_account", "api_tokens", "connector_configs", "connector_settings", "oauth_clients", "connections",
 	"oauth_authorizations", "mcp_sessions", "tool_runs",
 }
 
