@@ -12,15 +12,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	echoSwagger "github.com/swaggo/echo-swagger"
 
-	_ "github.com/memohai/connect-it/packages/api/docs"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/service/authsvc"
-	"github.com/memohai/connect-it/packages/service/catalogsvc"
-	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/connsvc"
-	"github.com/memohai/connect-it/packages/service/oauthsvc"
-	"github.com/memohai/connect-it/packages/service/sessions"
-	"github.com/memohai/connect-it/packages/service/store"
+	_ "github.com/felinics/connect-it/packages/api/docs"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/service/authsvc"
+	"github.com/felinics/connect-it/packages/service/catalogsvc"
+	"github.com/felinics/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/service/connsvc"
+	"github.com/felinics/connect-it/packages/service/oauthsvc"
+	"github.com/felinics/connect-it/packages/service/sessions"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 // ToolExecutor abstracts exec.Engine so /mcp tests can inject a fake

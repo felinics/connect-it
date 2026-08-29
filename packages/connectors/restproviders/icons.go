@@ -1,6 +1,6 @@
 package restproviders
 
-import "github.com/memohai/connect-it/packages/core/connector"
+import "github.com/felinics/connect-it/packages/core/connector"
 
 // providerIconURLs covers providers whose icon is unavailable from the current
 // Simple Icons catalog. Prefer an official brand asset; use a maintained icon

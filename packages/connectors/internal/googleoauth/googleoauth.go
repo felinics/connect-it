@@ -2,7 +2,7 @@
 // connectors. Each connector still declares its own scopes and implementation.
 package googleoauth
 
-import "github.com/memohai/connect-it/packages/core/connector"
+import "github.com/felinics/connect-it/packages/core/connector"
 
 func ConfigFields() []connector.ConfigField {
 	return []connector.ConfigField{

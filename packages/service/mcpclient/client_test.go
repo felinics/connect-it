@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/memohai/connect-it/packages/service/mcpclient"
+	"github.com/felinics/connect-it/packages/service/mcpclient"
 )
 
 type echoInput struct {

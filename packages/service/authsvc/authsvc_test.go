@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/memohai/connect-it/packages/service/store"
-	"github.com/memohai/connect-it/packages/service/testutil"
+	"github.com/felinics/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/service/testutil"
 )
 
 func TestPasswordHashRoundtrip(t *testing.T) {

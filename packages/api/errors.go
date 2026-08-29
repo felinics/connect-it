@@ -6,10 +6,10 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/memohai/connect-it/packages/service/authsvc"
-	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/connsvc"
-	"github.com/memohai/connect-it/packages/service/oauthsvc"
+	"github.com/felinics/connect-it/packages/service/authsvc"
+	"github.com/felinics/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/service/connsvc"
+	"github.com/felinics/connect-it/packages/service/oauthsvc"
 )
 
 // ErrorResponse is the single error response body.

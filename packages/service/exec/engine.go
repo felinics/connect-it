@@ -14,13 +14,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/crypto"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/credential"
-	"github.com/memohai/connect-it/packages/service/store"
-	"github.com/memohai/connect-it/packages/service/tokens"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/crypto"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/service/credential"
+	"github.com/felinics/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/service/tokens"
 )
 
 const (

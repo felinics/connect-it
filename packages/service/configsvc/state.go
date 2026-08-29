@@ -8,9 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/status"
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/status"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 // ConfigState maps a connector_configs row to the status machine input. When

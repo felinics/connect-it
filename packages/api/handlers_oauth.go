@@ -7,7 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/memohai/connect-it/packages/service/oauthsvc"
+	"github.com/felinics/connect-it/packages/service/oauthsvc"
 )
 
 type oauthRedirectURLResponse struct {

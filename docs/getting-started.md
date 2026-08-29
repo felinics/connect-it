@@ -8,7 +8,7 @@ provider, create a connection, and call its tools over MCP.
 Requires Docker and Docker Compose.
 
 ```bash
-git clone --recursive https://github.com/memohai/connect-it.git
+git clone --recursive https://github.com/felinics/connect-it.git
 cd connect-it
 cp .env.example .env
 ```

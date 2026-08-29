@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/memohai/connect-it/packages/api"
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/crypto"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/service/authsvc"
-	"github.com/memohai/connect-it/packages/service/catalogsvc"
-	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/connsvc"
-	"github.com/memohai/connect-it/packages/service/oauthsvc"
-	"github.com/memohai/connect-it/packages/service/store"
-	"github.com/memohai/connect-it/packages/service/testutil"
+	"github.com/felinics/connect-it/packages/api"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/crypto"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/service/authsvc"
+	"github.com/felinics/connect-it/packages/service/catalogsvc"
+	"github.com/felinics/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/service/connsvc"
+	"github.com/felinics/connect-it/packages/service/oauthsvc"
+	"github.com/felinics/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/service/testutil"
 )
 
 // newConnServer wires the full service stack with a fake OAuth provider and

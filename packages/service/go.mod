@@ -1,13 +1,13 @@
-module github.com/memohai/connect-it/packages/service
+module github.com/felinics/connect-it/packages/service
 
 go 1.25.7
 
 require (
+	github.com/felinics/connect-it/packages/core v0.0.0-00010101000000-000000000000
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/memohai/connect-it/packages/core v0.0.0-00010101000000-000000000000
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/crypto v0.45.0
 	golang.org/x/sync v0.20.0
@@ -27,6 +27,6 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 )
 
-replace github.com/memohai/connect-it/packages/core => ../core
+replace github.com/felinics/connect-it/packages/core => ../core
 
-replace github.com/memohai/connect-it/packages/connectors => ../connectors
+replace github.com/felinics/connect-it/packages/connectors => ../connectors

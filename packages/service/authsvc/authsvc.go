@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 // EnvAdminPassword seeds the admin account on first start. The user name is

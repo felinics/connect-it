@@ -1,16 +1,16 @@
-module github.com/memohai/connect-it/packages/api
+module github.com/felinics/connect-it/packages/api
 
 go 1.25.7
 
-require github.com/memohai/connect-it/packages/core v0.0.0
+require github.com/felinics/connect-it/packages/core v0.0.0
 
-require github.com/memohai/connect-it/packages/service v0.0.0
+require github.com/felinics/connect-it/packages/service v0.0.0
 
 require (
+	github.com/felinics/connect-it/packages/connectors v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/labstack/echo/v4 v4.15.4
-	github.com/memohai/connect-it/packages/connectors v0.0.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/swaggo/echo-swagger v1.5.2
 	github.com/swaggo/swag v1.16.2
@@ -56,8 +56,8 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-replace github.com/memohai/connect-it/packages/core => ../core
+replace github.com/felinics/connect-it/packages/core => ../core
 
-replace github.com/memohai/connect-it/packages/connectors => ../connectors
+replace github.com/felinics/connect-it/packages/connectors => ../connectors
 
-replace github.com/memohai/connect-it/packages/service => ../service
+replace github.com/felinics/connect-it/packages/service => ../service

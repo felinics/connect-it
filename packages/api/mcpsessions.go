@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/memohai/connect-it/packages/service/sessions"
+	"github.com/felinics/connect-it/packages/service/sessions"
 )
 
 type createMCPSessionRequest struct {

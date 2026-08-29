@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/memohai/connect-it/packages/core/crypto"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/core/crypto"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 var (

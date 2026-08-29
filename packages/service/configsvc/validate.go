@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 // Validate checks a complete config against the ConfigFields of a Definition:

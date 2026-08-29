@@ -23,12 +23,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/crypto"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/service/configsvc"
-	"github.com/memohai/connect-it/packages/service/credential"
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/crypto"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/service/credential"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 // CallbackPath is the fixed callback path. The full callback address is

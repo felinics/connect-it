@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 const (

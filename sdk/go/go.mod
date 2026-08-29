@@ -1,4 +1,4 @@
-module github.com/memohai/connect-it/sdk/go
+module github.com/felinics/connect-it/sdk/go
 
 go 1.25.7
 

@@ -3,7 +3,7 @@
 package status
 
 import (
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 type Status string

@@ -4,7 +4,7 @@
 
 **Self-hosted connector gateway — hold your SaaS credentials once, and hand your agents a single MCP endpoint.**
 
-[![CI](https://github.com/memohai/connect-it/actions/workflows/ci.yml/badge.svg)](https://github.com/memohai/connect-it/actions/workflows/ci.yml)
+[![CI](https://github.com/felinics/connect-it/actions/workflows/ci.yml/badge.svg)](https://github.com/felinics/connect-it/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -34,7 +34,7 @@
 Requires Docker and Docker Compose.
 
 ```bash
-git clone --recursive https://github.com/memohai/connect-it.git
+git clone --recursive https://github.com/felinics/connect-it.git
 cd connect-it
 cp .env.example .env
 ```
@@ -54,7 +54,7 @@ docker compose up -d --build
 ```
 
 The same multi-architecture image is published as
-`ghcr.io/memohai/connect-it:latest` from the default branch and with semver tags
+`ghcr.io/felinics/connect-it:latest` from the default branch and with semver tags
 from version tags.
 
 Open <http://localhost:8421> and sign in as `admin` with the

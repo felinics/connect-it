@@ -6,8 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 // Enabled reports whether a registered connector can be used. Connectors are

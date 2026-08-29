@@ -96,5 +96,5 @@ COOKIE_SECRET='dev-cookie-secret' \
 CONNECT_IT_ADMIN_PASSWORD='admin123' \
 CONNECT_IT_BASE_URL='http://localhost:8421' \
 VERSION=$(node -p "require('../../version.json').version") \
-go run -ldflags="-X github.com/memohai/connect-it/packages/core/buildinfo.Version=$VERSION" ./cmd/connect-it
+go run -ldflags="-X github.com/felinics/connect-it/packages/core/buildinfo.Version=$VERSION" ./cmd/connect-it
 '''

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 var (

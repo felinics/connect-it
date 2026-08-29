@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 func TestImplementationBuildsConstrainedRequest(t *testing.T) {

@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     && test -n "$version" \
     && GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
     go build -trimpath \
-      -ldflags="-s -w -X github.com/memohai/connect-it/packages/core/buildinfo.Version=$version" \
+      -ldflags="-s -w -X github.com/felinics/connect-it/packages/core/buildinfo.Version=$version" \
       -o /out/connect-it ./cmd/connect-it
 
 FROM alpine:3.24

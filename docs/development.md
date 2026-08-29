@@ -9,7 +9,7 @@ packages/
 ├── service/     Config, connections, OAuth, tokens, execution, MCP sessions
 ├── api/         Echo HTTP layer, program entry point, generated OpenAPI
 ├── sdk/         TypeScript SDK generated from OpenAPI (admin UI only)
-├── ui/          git submodule → github.com/memohai/ui
+├── ui/          git submodule → github.com/felinics/ui
 └── web/         Vue 3 admin UI
 sdk/go/          Hand-written Go SDK for trusted downstream services
 Dockerfile       Combined Go API and admin UI container image
@@ -130,7 +130,7 @@ mise run release -- 0.2.0
 ```
 
 The tag workflow verifies that the tag matches `version.json`, runs CI,
-publishes `ghcr.io/memohai/connect-it`, and finally creates a GitHub Release
+publishes `ghcr.io/felinics/connect-it`, and finally creates a GitHub Release
 with generated notes. A failed CI or image publish therefore cannot create a
 GitHub Release.
 

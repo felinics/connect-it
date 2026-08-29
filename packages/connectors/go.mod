@@ -1,9 +1,9 @@
-module github.com/memohai/connect-it/packages/connectors
+module github.com/felinics/connect-it/packages/connectors
 
 go 1.25.7
 
 require (
-	github.com/memohai/connect-it/packages/core v0.0.0
+	github.com/felinics/connect-it/packages/core v0.0.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 
@@ -18,4 +18,4 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 )
 
-replace github.com/memohai/connect-it/packages/core => ../core
+replace github.com/felinics/connect-it/packages/core => ../core

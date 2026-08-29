@@ -19,10 +19,10 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/memohai/connect-it/packages/core/buildinfo"
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/crypto"
-	"github.com/memohai/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/core/buildinfo"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/crypto"
+	"github.com/felinics/connect-it/packages/service/store"
 )
 
 const (

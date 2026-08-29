@@ -4,7 +4,7 @@ package datadog
 import (
 	"time"
 
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 var defaultSite = "us1"

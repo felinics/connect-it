@@ -3,8 +3,8 @@ package status_test
 import (
 	"testing"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/status"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/status"
 )
 
 func strPtr(s string) *string { return &s }

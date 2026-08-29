@@ -11,11 +11,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/memohai/connect-it/packages/core/buildinfo"
-	"github.com/memohai/connect-it/packages/service/configsvc"
-	execsvc "github.com/memohai/connect-it/packages/service/exec"
-	"github.com/memohai/connect-it/packages/service/sessions"
-	"github.com/memohai/connect-it/packages/service/tokens"
+	"github.com/felinics/connect-it/packages/core/buildinfo"
+	"github.com/felinics/connect-it/packages/service/configsvc"
+	execsvc "github.com/felinics/connect-it/packages/service/exec"
+	"github.com/felinics/connect-it/packages/service/sessions"
+	"github.com/felinics/connect-it/packages/service/tokens"
 )
 
 type sessionCtxKey struct{}

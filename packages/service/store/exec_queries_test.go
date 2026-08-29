@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/memohai/connect-it/packages/service/store"
-	"github.com/memohai/connect-it/packages/service/testutil"
+	"github.com/felinics/connect-it/packages/service/store"
+	"github.com/felinics/connect-it/packages/service/testutil"
 )
 
 func ptr[T any](v T) *T { return &v }

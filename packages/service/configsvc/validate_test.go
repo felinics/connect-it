@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/service/configsvc"
 )
 
 // newValidateService wires only the registry; store and keyring are nil

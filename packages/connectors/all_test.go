@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	connectors "github.com/memohai/connect-it/packages/connectors"
-	"github.com/memohai/connect-it/packages/connectors/restproviders"
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/registry"
+	connectors "github.com/felinics/connect-it/packages/connectors"
+	"github.com/felinics/connect-it/packages/connectors/restproviders"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/registry"
 )
 
 func definitions(t *testing.T) *registry.Registry {

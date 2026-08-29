@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memohai/connect-it/packages/connectors/internal/managedapi"
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/connectors/internal/managedapi"
+	"github.com/felinics/connect-it/packages/core/connector"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 // withTestServer overrides the package-level apiBaseURL with an

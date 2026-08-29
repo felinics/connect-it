@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memohai/connect-it/packages/core/crypto"
+	"github.com/felinics/connect-it/packages/core/crypto"
 )
 
 func testKeyring(t *testing.T) *crypto.Keyring {

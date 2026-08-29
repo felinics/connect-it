@@ -8,16 +8,16 @@ OpenAPI spec — that one is private to the admin UI.
 ## Install
 
 ```bash
-go get github.com/memohai/connect-it/sdk/go
+go get github.com/felinics/connect-it/sdk/go
 ```
 
 While developing against a local checkout, use a replace directive in the
 downstream `go.mod`:
 
 ```go
-require github.com/memohai/connect-it/sdk/go v0.0.0
+require github.com/felinics/connect-it/sdk/go v0.0.0
 
-replace github.com/memohai/connect-it/sdk/go => ../connect-it/sdk/go
+replace github.com/felinics/connect-it/sdk/go => ../connect-it/sdk/go
 ```
 
 Releases of the submodule are tagged as `sdk/go/vX.Y.Z`.

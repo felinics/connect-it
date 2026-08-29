@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	connectit "github.com/memohai/connect-it/sdk/go"
+	connectit "github.com/felinics/connect-it/sdk/go"
 )
 
 func TestClientAndMCPAuthHandler(t *testing.T) {

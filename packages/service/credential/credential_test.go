@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/memohai/connect-it/packages/service/credential"
+	"github.com/felinics/connect-it/packages/service/credential"
 )
 
 func TestOAuthRoundtrip(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	service "github.com/memohai/connect-it/packages/service"
+	service "github.com/felinics/connect-it/packages/service"
 )
 
 // NewDB returns a pool connected to a dedicated random schema with every

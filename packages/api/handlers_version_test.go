@@ -7,7 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/memohai/connect-it/packages/core/buildinfo"
+	"github.com/felinics/connect-it/packages/core/buildinfo"
 )
 
 func TestGetVersion(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/memohai/connect-it/packages/service/authsvc"
+	"github.com/felinics/connect-it/packages/service/authsvc"
 )
 
 const apiTokenIDContextKey = "connect_it_api_token_id"

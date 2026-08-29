@@ -15,7 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/memohai/connect-it/packages/core/buildinfo"
+	"github.com/felinics/connect-it/packages/core/buildinfo"
 )
 
 // Client is a stateless adapter that exposes the package-level functions to

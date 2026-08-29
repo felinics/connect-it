@@ -4,7 +4,7 @@ package dropbox
 import (
 	"time"
 
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/connector"
 )
 
 var Definition = connector.Definition{

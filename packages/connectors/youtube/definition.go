@@ -4,8 +4,8 @@ package youtube
 import (
 	"encoding/json"
 
-	"github.com/memohai/connect-it/packages/connectors/internal/googleoauth"
-	"github.com/memohai/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/connectors/internal/googleoauth"
+	"github.com/felinics/connect-it/packages/core/connector"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

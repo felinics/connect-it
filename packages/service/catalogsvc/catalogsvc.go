@@ -6,10 +6,10 @@ package catalogsvc
 import (
 	"context"
 
-	"github.com/memohai/connect-it/packages/core/connector"
-	"github.com/memohai/connect-it/packages/core/registry"
-	"github.com/memohai/connect-it/packages/core/status"
-	"github.com/memohai/connect-it/packages/service/configsvc"
+	"github.com/felinics/connect-it/packages/core/connector"
+	"github.com/felinics/connect-it/packages/core/registry"
+	"github.com/felinics/connect-it/packages/core/status"
+	"github.com/felinics/connect-it/packages/service/configsvc"
 )
 
 type Item struct {
