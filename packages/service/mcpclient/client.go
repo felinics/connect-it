@@ -178,7 +178,7 @@ func (t *responseTracker) observe(statusCode int) {
 }
 
 func (t *responseTracker) observeTransportError(err error) {
-	if t == nil || err == nil || err == io.EOF {
+	if t == nil || err == nil {
 		return
 	}
 	t.mu.Lock()
@@ -254,7 +254,9 @@ type cleanupReadCloser struct {
 
 func (r *cleanupReadCloser) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
-	r.tracker.observeTransportError(err)
+	if err != io.EOF {
+		r.tracker.observeTransportError(err)
+	}
 	return n, err
 }
 
