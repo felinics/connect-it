@@ -162,6 +162,9 @@ func TestFailureDiagnostics(t *testing.T) {
 				t.Fatalf("stage=%s status=%d", detail.UpstreamStage(), detail.UpstreamStatusCode())
 			}
 			failure := exec.DescribeError(err)
+			if tc.status != 0 && failure.RPCCode != nil {
+				t.Fatalf("invented RPC code %d for plain HTTP failure: %+v", *failure.RPCCode, failure)
+			}
 			if tc.rpcCode != 0 && (failure.RPCCode == nil || *failure.RPCCode != int64(tc.rpcCode)) {
 				t.Fatalf("lost RPC code: %+v", failure)
 			}

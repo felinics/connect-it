@@ -27,6 +27,11 @@ func DescribeError(err error) Failure {
 	var stage interface{ UpstreamStage() string }
 	if errors.As(err, &stage) {
 		f.Stage = stage.UpstreamStage()
+	} else {
+		var local interface{ FailureStage() string }
+		if errors.As(err, &local) {
+			f.Stage = local.FailureStage()
+		}
 	}
 	var upstream interface{ UpstreamStatusCode() int }
 	if errors.As(err, &upstream) {
@@ -37,7 +42,7 @@ func DescribeError(err error) Failure {
 	var transport interface{ UpstreamTransportFailure() bool }
 	transportFailed := errors.As(err, &transport) && transport.UpstreamTransportFailure()
 	var rpc *jsonrpc.Error
-	if !transportFailed && f.UpstreamStatus == 0 && errors.As(err, &rpc) {
+	if !transportFailed && f.UpstreamStatus != http.StatusTooManyRequests && f.UpstreamStatus < 500 && errors.As(err, &rpc) {
 		code := rpc.Code
 		f.RPCCode = &code
 	}
@@ -58,15 +63,15 @@ func DescribeError(err error) Failure {
 		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream rate limit exceeded", "rate_limited"
 	case f.UpstreamStatus >= 500:
 		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream is temporarily unavailable", errorKindUpstream5xx
-	case f.UpstreamStatus >= 400:
-		f.Message, f.Kind = "upstream rejected the request", errorKindUpstream4xx
-	case f.UpstreamStatus >= 300:
-		f.Message, f.Kind = "upstream redirect was refused", "upstream_redirect"
 	case rpc != nil:
 		f.Message, f.Kind = "upstream returned a protocol error", "upstream_rpc"
 		if rpc.Code == jsonrpc.CodeInvalidParams {
 			f.Message, f.Kind = "upstream rejected the tool arguments", errorKindInvalidArgs
 		}
+	case f.UpstreamStatus >= 400:
+		f.Message, f.Kind = "upstream rejected the request", errorKindUpstream4xx
+	case f.UpstreamStatus >= 300:
+		f.Message, f.Kind = "upstream redirect was refused", "upstream_redirect"
 	case errors.As(err, &network) || transportFailed:
 		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream transport failed", errorKindTransport
 		if network != nil && network.Timeout() {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -101,27 +102,39 @@ func (e *Engine) CallTool(
 	ctx context.Context,
 	sessionID, apiTokenID, connectionID uuid.UUID,
 	params *mcp.CallToolParamsRaw,
-) (*mcp.CallToolResult, error) {
-	row, def, err := e.connection(ctx, connectionID)
-	if err != nil {
-		return nil, err
-	}
+) (result *mcp.CallToolResult, err error) {
+	ctx, runID := WithRunID(ctx)
+	stage := "connection"
 	toolName := ""
 	if params != nil {
 		toolName = params.Name
 	}
 	rec := &recorder{
-		engine:        e,
-		started:       time.Now(),
-		connectorType: row.ConnectorType,
-		connectionID:  connectionID,
-		sessionID:     sessionID,
-		apiTokenID:    apiTokenID,
-		toolName:      toolName,
+		engine:       e,
+		started:      time.Now(),
+		runID:        runID,
+		connectionID: connectionID,
+		sessionID:    sessionID,
+		apiTokenID:   apiTokenID,
+		toolName:     toolName,
 	}
+	defer func() {
+		if result == nil && err == nil {
+			err = errors.New("exec: tool returned an empty result")
+		}
+		if err != nil {
+			err = &callError{err: err, stage: stage}
+		}
+		rec.record(ctx, result, err)
+	}()
+	row, def, err := e.connection(ctx, connectionID)
+	rec.connectorType = row.ConnectorType
+	if err != nil {
+		return nil, err
+	}
+	stage = "validate"
 	if params == nil || params.Name == "" {
 		err := fmt.Errorf("%w: tool name must not be empty", ErrToolUnavailable)
-		rec.record(ctx, nil, err)
 		return nil, err
 	}
 
@@ -130,49 +143,42 @@ func (e *Engine) CallTool(
 		tool := findManagedTool(impl, params.Name)
 		if tool == nil {
 			err := fmt.Errorf("%w: %s", ErrToolUnavailable, params.Name)
-			rec.record(ctx, nil, err)
 			return nil, err
 		}
 		arguments, err := validateManagedArguments(tool.Tool.InputSchema, params.Arguments)
 		if err != nil {
 			result := invalidArgumentsResult(err)
-			rec.record(ctx, result, nil)
 			return result, nil
 		}
+		stage = "prepare"
 		prepared, err := e.prepare(ctx, row, def)
 		if err != nil {
-			rec.record(ctx, nil, err)
 			return nil, err
 		}
+		stage = "dispatch"
 		result, err := tool.Handler(ctx, connector.ManagedCall{
 			Arguments:   arguments,
 			Config:      prepared.config,
 			Credential:  prepared.credential,
 			AccessToken: prepared.accessToken,
 		})
-		if result == nil && err == nil {
-			err = fmt.Errorf("exec: managed tool %q returned an empty result", params.Name)
-		}
-		rec.record(ctx, result, err)
 		return result, err
 	case connector.RemoteMCP:
+		stage = "prepare"
 		prepared, err := e.prepare(ctx, row, def)
 		if err != nil {
-			rec.record(ctx, nil, err)
 			return nil, err
 		}
 		endpoint, err := remoteEndpoint(impl, prepared.config)
 		if err != nil {
-			rec.record(ctx, nil, err)
 			return nil, err
 		}
+		stage = "dispatch"
 		result, err := e.mcp.CallTool(ctx, endpoint, prepared.accessToken,
 			authorizationScheme(impl), requestTimeout(impl), params)
-		rec.record(ctx, result, err)
 		return result, err
 	default:
 		err := fmt.Errorf("exec: connector %s has an invalid implementation", def.Type)
-		rec.record(ctx, nil, err)
 		return nil, err
 	}
 }
@@ -181,25 +187,25 @@ func (e *Engine) connection(ctx context.Context, connectionID uuid.UUID) (store.
 	row, err := e.q.GetConnection(ctx, connectionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return store.Connection{}, connector.Definition{}, ErrConnectionNotFound
+			return row, connector.Definition{}, ErrConnectionNotFound
 		}
-		return store.Connection{}, connector.Definition{}, err
+		return row, connector.Definition{}, err
 	}
 	if row.Status == "reauth_required" {
-		return store.Connection{}, connector.Definition{},
+		return row, connector.Definition{},
 			fmt.Errorf("%w (current status %s)", tokens.ErrReauthRequired, row.Status)
 	}
 	if row.Status != "active" {
-		return store.Connection{}, connector.Definition{},
+		return row, connector.Definition{},
 			fmt.Errorf("%w (current status %s)", ErrConnectionInactive, row.Status)
 	}
 	def, ok := e.reg.Get(connector.Type(row.ConnectorType))
 	if !ok {
-		return store.Connection{}, connector.Definition{},
+		return row, connector.Definition{},
 			fmt.Errorf("exec: unknown connector type %s", row.ConnectorType)
 	}
 	if err := e.cfg.RequireEnabled(ctx, def.Type); err != nil {
-		return store.Connection{}, connector.Definition{}, fmt.Errorf("exec: %w", err)
+		return row, connector.Definition{}, fmt.Errorf("exec: %w", err)
 	}
 	return row, def, nil
 }
@@ -373,6 +379,7 @@ func findAuthMethod(def connector.Definition, key string) (connector.AuthMethod,
 
 // recorder writes metadata-only audit rows for attempted tool calls.
 type recorder struct {
+	runID         uuid.UUID
 	engine        *Engine
 	started       time.Time
 	connectorType string
@@ -410,8 +417,8 @@ func (r *recorder) record(ctx context.Context, result *mcp.CallToolResult, callE
 	}
 	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), auditWriteTimeout)
 	defer cancel()
-	_ = r.engine.q.InsertToolRun(auditCtx, store.InsertToolRunParams{
-		ID:             uuid.New(),
+	err := r.engine.q.InsertToolRun(auditCtx, store.InsertToolRunParams{
+		ID:             r.runID,
 		ConnectorType:  r.connectorType,
 		ConnectionID:   &connectionID,
 		ToolID:         r.toolName,
@@ -422,6 +429,10 @@ func (r *recorder) record(ctx context.Context, result *mcp.CallToolResult, callE
 		UpstreamStatus: upstreamStatus,
 		DurationMs:     &duration,
 	})
+	if err != nil {
+		slog.ErrorContext(auditCtx, "tool audit write failed", "run_id", r.runID.String(),
+			"connection_id", r.connectionID.String(), "error_type", fmt.Sprintf("%T", err))
+	}
 }
 
 func classifyToolError(result *mcp.CallToolResult) string {
