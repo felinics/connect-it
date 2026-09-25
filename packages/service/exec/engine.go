@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -423,48 +422,6 @@ func (r *recorder) record(ctx context.Context, result *mcp.CallToolResult, callE
 		UpstreamStatus: upstreamStatus,
 		DurationMs:     &duration,
 	})
-}
-
-type upstreamStatusError interface {
-	error
-	UpstreamStatusCode() int
-}
-
-func classifyCallError(err error) (string, *int32) {
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return errorKindTimeout, nil
-	case errors.Is(err, context.Canceled):
-		return errorKindCanceled, nil
-	case errors.Is(err, ErrToolUnavailable):
-		return errorKindToolUnavailable, nil
-	case errors.Is(err, tokens.ErrReauthRequired):
-		return errorKindAuth, nil
-	}
-	var upstreamErr upstreamStatusError
-	if errors.As(err, &upstreamErr) {
-		statusCode := upstreamErr.UpstreamStatusCode()
-		var storedStatus *int32
-		if statusCode >= 100 && statusCode <= 599 {
-			value := int32(statusCode)
-			storedStatus = &value
-		}
-		switch {
-		case statusCode == 401 || statusCode == 403:
-			return errorKindAuth, storedStatus
-		case statusCode >= 400 && statusCode < 500:
-			return errorKindUpstream4xx, storedStatus
-		case statusCode >= 500:
-			return errorKindUpstream5xx, storedStatus
-		default:
-			return errorKindTransport, storedStatus
-		}
-	}
-	var transportErr *url.Error
-	if errors.As(err, &transportErr) {
-		return errorKindTransport, nil
-	}
-	return errorKindInternal, nil
 }
 
 func classifyToolError(result *mcp.CallToolResult) string {
