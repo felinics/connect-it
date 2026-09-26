@@ -35,16 +35,20 @@ var (
 )
 
 const (
-	errorKindAuth            = "auth"
-	errorKindCanceled        = "canceled"
-	errorKindInternal        = "internal"
-	errorKindInvalidArgs     = "invalid_args"
-	errorKindTimeout         = "timeout"
-	errorKindToolError       = "tool_error"
-	errorKindToolUnavailable = "tool_unavailable"
-	errorKindTransport       = "transport"
-	errorKindUpstream4xx     = "upstream_4xx"
-	errorKindUpstream5xx     = "upstream_5xx"
+	errorKindAuth             = "auth"
+	errorKindCanceled         = "canceled"
+	errorKindInternal         = "internal"
+	errorKindInvalidArgs      = "invalid_args"
+	errorKindRateLimited      = "rate_limited"
+	errorKindTimeout          = "timeout"
+	errorKindToolError        = "tool_error"
+	errorKindToolUnavailable  = "tool_unavailable"
+	errorKindTransport        = "transport"
+	errorKindUpstream4xx      = "upstream_4xx"
+	errorKindUpstream5xx      = "upstream_5xx"
+	errorKindUpstreamRPC      = "upstream_rpc"
+	errorKindUpstreamRedirect = "upstream_redirect"
+	errorKindUpstreamProtocol = "upstream_protocol"
 )
 
 type MCPClient interface {

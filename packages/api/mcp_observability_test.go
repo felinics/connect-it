@@ -69,6 +69,30 @@ func TestMCPFailureObservability(t *testing.T) {
 	}
 }
 
+func TestMCPDeniedToolLogsRequestedName(t *testing.T) {
+	var logs bytes.Buffer
+	e := echo.New()
+	e.Logger.SetOutput(&logs)
+	host := &mcpHost{logger: e.Logger}
+	view := sessions.SessionView{ID: uuid.New()}
+	result := host.callTool(t.Context(), view, &mcp.CallToolParamsRaw{
+		Name: "github__unknown", Arguments: json.RawMessage(`{"secret":"private-arguments"}`),
+	})
+	if !result.IsError {
+		t.Fatal("expected denied tool call to fail")
+	}
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["tool_name"] != "github__unknown" || record["stage"] != "route" || record["kind"] != "tool_unavailable" {
+		t.Fatalf("missing denied tool diagnostics: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), "private-arguments") {
+		t.Fatal("tool arguments escaped into logs")
+	}
+}
+
 func TestMCPPreservesToolResult(t *testing.T) {
 	for _, isError := range []bool{false, true} {
 		var logs bytes.Buffer

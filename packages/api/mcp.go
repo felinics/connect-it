@@ -153,12 +153,12 @@ func (h *mcpHost) callTool(
 	if params == nil {
 		return fail(execsvc.Failure{Code: "tool_unavailable", Message: "missing tool call parameters", Kind: "tool_unavailable", Stage: "route"})
 	}
+	toolName = params.Name
 	var allowed bool
 	route, allowed = view.Routes[params.Name]
 	if !allowed {
 		return fail(execsvc.Failure{Code: "tool_unavailable", Message: "tool is not allowed", Kind: "tool_unavailable", Stage: "route"})
 	}
-	toolName = params.Name
 	routed := *params
 	routed.Name = route.ToolName
 	result, err := h.exec.CallTool(ctx, view.ID, view.APITokenID, route.ConnectionID, &routed)

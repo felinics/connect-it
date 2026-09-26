@@ -60,25 +60,25 @@ func DescribeError(err error) Failure {
 	case f.UpstreamStatus == http.StatusUnauthorized || f.UpstreamStatus == http.StatusForbidden:
 		f.Code, f.Message, f.Kind = "upstream_auth_error", "upstream denied access to the tool", errorKindAuth
 	case f.UpstreamStatus == http.StatusTooManyRequests:
-		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream rate limit exceeded", "rate_limited"
+		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream rate limit exceeded", errorKindRateLimited
 	case f.UpstreamStatus >= 500:
 		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream is temporarily unavailable", errorKindUpstream5xx
 	case rpc != nil:
-		f.Message, f.Kind = "upstream returned a protocol error", "upstream_rpc"
+		f.Message, f.Kind = "upstream returned a protocol error", errorKindUpstreamRPC
 		if rpc.Code == jsonrpc.CodeInvalidParams {
 			f.Message, f.Kind = "upstream rejected the tool arguments", errorKindInvalidArgs
 		}
 	case f.UpstreamStatus >= 400:
 		f.Message, f.Kind = "upstream rejected the request", errorKindUpstream4xx
 	case f.UpstreamStatus >= 300:
-		f.Message, f.Kind = "upstream redirect was refused", "upstream_redirect"
+		f.Message, f.Kind = "upstream redirect was refused", errorKindUpstreamRedirect
 	case errors.As(err, &network) || transportFailed:
 		f.Code, f.Message, f.Kind = "temporarily_unavailable", "upstream transport failed", errorKindTransport
 		if network != nil && network.Timeout() {
 			f.Message, f.Kind = "tool call timed out", errorKindTimeout
 		}
 	case stage != nil:
-		f.Message, f.Kind = "upstream MCP exchange failed", "upstream_protocol"
+		f.Message, f.Kind = "upstream MCP exchange failed", errorKindUpstreamProtocol
 	case upstream != nil:
 		f.Kind = errorKindTransport
 	}
