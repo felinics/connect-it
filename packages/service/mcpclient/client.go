@@ -5,12 +5,12 @@ package mcpclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,13 +25,17 @@ type Client struct{}
 // UpstreamError marks a failed MCP operation and retains only its HTTP status,
 // when one was observed. It never stores an upstream response body.
 type UpstreamError struct {
-	err        error
-	statusCode int
+	err              error
+	statusCode       int
+	stage            string
+	transportFailure bool
 }
 
-func (e *UpstreamError) Error() string           { return e.err.Error() }
-func (e *UpstreamError) Unwrap() error           { return e.err }
-func (e *UpstreamError) UpstreamStatusCode() int { return e.statusCode }
+func (e *UpstreamError) Error() string                  { return e.err.Error() }
+func (e *UpstreamError) Unwrap() error                  { return e.err }
+func (e *UpstreamError) UpstreamStatusCode() int        { return e.statusCode }
+func (e *UpstreamError) UpstreamStage() string          { return e.stage }
+func (e *UpstreamError) UpstreamTransportFailure() bool { return e.transportFailure }
 
 func (Client) ListTools(ctx context.Context, endpoint, token, authorizationScheme string, timeout time.Duration) ([]*mcp.Tool, error) {
 	return ListTools(ctx, endpoint, token, authorizationScheme, timeout)
@@ -55,7 +59,7 @@ func ListTools(ctx context.Context, endpoint, token, authorizationScheme string,
 	var tools []*mcp.Tool
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
-			return nil, upstreamError(fmt.Errorf("mcpclient: tools/list failed: %w", err), tracker)
+			return nil, upstreamError(ctx, "tools/list", fmt.Errorf("mcpclient: tools/list failed: %w", err), tracker)
 		}
 		tools = append(tools, tool)
 	}
@@ -83,7 +87,7 @@ func CallTool(ctx context.Context, endpoint, token, authorizationScheme string, 
 		Arguments: params.Arguments,
 	})
 	if err != nil {
-		return nil, upstreamError(fmt.Errorf("mcpclient: calling tool %q failed: %w", params.Name, err), tracker)
+		return nil, upstreamError(ctx, "tools/call", fmt.Errorf("mcpclient: calling tool %q failed: %w", params.Name, err), tracker)
 	}
 	return res, nil
 }
@@ -131,38 +135,64 @@ func connect(ctx context.Context, endpoint, token, authorizationScheme string) (
 	}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, tracker, upstreamError(
+		return nil, tracker, upstreamError(ctx, "connect",
 			fmt.Errorf("mcpclient: connecting to %s failed: %w", endpoint, err), tracker)
 	}
 	return session, tracker, nil
 }
 
-func upstreamError(err error, tracker *responseTracker) error {
+func upstreamError(ctx context.Context, stage string, err error, tracker *responseTracker) error {
 	if err == nil {
 		return nil
 	}
 	statusCode := 0
+	var transportErr error
 	if tracker != nil {
-		statusCode = tracker.statusCode()
+		statusCode, transportErr = tracker.failure()
+		if transportErr != nil {
+			err = errors.Join(err, transportErr)
+		}
 	}
-	return &UpstreamError{err: err, statusCode: statusCode}
+	if ctx.Err() != nil && !errors.Is(err, ctx.Err()) {
+		err = errors.Join(err, ctx.Err())
+	}
+	return &UpstreamError{err: err, statusCode: statusCode, stage: stage, transportFailure: transportErr != nil}
 }
 
 type responseTracker struct {
-	lastErrorStatus atomic.Int64
+	mu              sync.Mutex
+	lastErrorStatus int
+	transportErr    error
 }
 
 func (t *responseTracker) observe(statusCode int) {
-	if t != nil && (statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices) {
-		t.lastErrorStatus.Store(int64(statusCode))
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.lastErrorStatus, t.transportErr = 0, nil
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		t.lastErrorStatus = statusCode
 	}
 }
 
-func (t *responseTracker) statusCode() int {
-	if t == nil {
-		return 0
+func (t *responseTracker) observeTransportError(err error) {
+	if t == nil || err == nil {
+		return
 	}
-	return int(t.lastErrorStatus.Load())
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.transportErr = err
+}
+
+func (t *responseTracker) failure() (int, error) {
+	if t == nil {
+		return 0, nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.lastErrorStatus, t.transportErr
 }
 
 type authorizationRoundTripper struct {
@@ -174,6 +204,12 @@ type authorizationRoundTripper struct {
 }
 
 func (rt authorizationRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	tracker := rt.tracker
+	if req.Method == http.MethodDelete {
+		tracker = nil
+	} else {
+		tracker.observe(http.StatusOK)
+	}
 	if err := rt.operationCtx.Err(); err != nil {
 		return nil, err
 	}
@@ -194,17 +230,18 @@ func (rt authorizationRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	}
 	resp, err := rt.base.RoundTrip(req)
 	if err != nil {
+		tracker.observeTransportError(err)
 		cleanup()
 		return nil, err
 	}
-	rt.tracker.observe(resp.StatusCode)
+	tracker.observe(resp.StatusCode)
 	if req.Method == http.MethodDelete {
 		_ = resp.Body.Close()
 		resp.Body = http.NoBody
 		cleanup()
 		return resp, nil
 	}
-	resp.Body = &cleanupReadCloser{ReadCloser: resp.Body, cleanup: cleanup}
+	resp.Body = &cleanupReadCloser{ReadCloser: resp.Body, cleanup: cleanup, tracker: tracker}
 	return resp, nil
 }
 
@@ -212,6 +249,15 @@ type cleanupReadCloser struct {
 	io.ReadCloser
 	once    sync.Once
 	cleanup func()
+	tracker *responseTracker
+}
+
+func (r *cleanupReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if err != io.EOF {
+		r.tracker.observeTransportError(err)
+	}
+	return n, err
 }
 
 func (r *cleanupReadCloser) Close() error {

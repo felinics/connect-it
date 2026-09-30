@@ -4,18 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
+	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/felinics/connect-it/packages/core/buildinfo"
-	"github.com/felinics/connect-it/packages/service/configsvc"
 	execsvc "github.com/felinics/connect-it/packages/service/exec"
 	"github.com/felinics/connect-it/packages/service/sessions"
-	"github.com/felinics/connect-it/packages/service/tokens"
 )
 
 type sessionCtxKey struct{}
@@ -110,69 +110,82 @@ func (h *mcpHost) callTool(
 	ctx context.Context,
 	view sessions.SessionView,
 	params *mcp.CallToolParamsRaw,
-) *mcp.CallToolResult {
-	if params == nil {
-		return errorResult("tool_unavailable", "missing tool call parameters")
+) (result *mcp.CallToolResult) {
+	ctx, runID := execsvc.WithRunID(ctx)
+	started := time.Now()
+	var failure *execsvc.Failure
+	var route sessions.ToolRoute
+	var toolName string
+	defer func() {
+		diagnostics := map[string]any{"run_id": runID.String()}
+		if failure != nil {
+			diagnostics["kind"] = failure.Kind
+			record := log.JSON{
+				"event": "mcp_tool_call_failed", "run_id": runID.String(),
+				"session_id": view.ID.String(), "connection_id": route.ConnectionID.String(),
+				"tool_name": toolName, "upstream_tool": route.ToolName,
+				"error": failure.Code, "kind": failure.Kind,
+				"duration_ms": time.Since(started).Milliseconds(),
+			}
+			if failure.Stage != "" {
+				record["stage"] = failure.Stage
+			}
+			if failure.UpstreamStatus != 0 {
+				record["upstream_status"] = failure.UpstreamStatus
+			}
+			if failure.RPCCode != nil {
+				record["rpc_code"] = *failure.RPCCode
+			}
+			h.logger.Errorj(record)
+		}
+		copy := *result
+		copy.Meta = maps.Clone(result.Meta)
+		if copy.Meta == nil {
+			copy.Meta = mcp.Meta{}
+		}
+		copy.Meta["connect-it.dev/diagnostics"] = diagnostics
+		result = &copy
+	}()
+	fail := func(f execsvc.Failure) *mcp.CallToolResult {
+		failure = &f
+		return errorResult(f, runID.String())
 	}
-	route, allowed := view.Routes[params.Name]
+	if params == nil {
+		return fail(execsvc.Failure{Code: "tool_unavailable", Message: "missing tool call parameters", Kind: "tool_unavailable", Stage: "route"})
+	}
+	toolName = params.Name
+	var allowed bool
+	route, allowed = view.Routes[params.Name]
 	if !allowed {
-		return errorResult("tool_unavailable", "tool "+params.Name+" is not allowed")
+		return fail(execsvc.Failure{Code: "tool_unavailable", Message: "tool is not allowed", Kind: "tool_unavailable", Stage: "route"})
 	}
 	routed := *params
 	routed.Name = route.ToolName
-	result, err := h.exec.CallTool(
-		ctx, view.ID, view.APITokenID, route.ConnectionID, &routed,
-	)
+	result, err := h.exec.CallTool(ctx, view.ID, view.APITokenID, route.ConnectionID, &routed)
 	if err != nil {
-		h.logger.Errorf(
-			"MCP tool call failed connection_id=%s tool_name=%q upstream_tool=%q error=%v",
-			route.ConnectionID, params.Name, route.ToolName, err,
-		)
-		code, message := publicToolError(err)
-		return errorResult(code, message)
+		return fail(execsvc.DescribeError(err))
 	}
 	if result == nil {
-		return errorResult("execution_failed", "tool returned no result")
+		return fail(execsvc.DescribeError(errors.New("tool returned no result")))
+	}
+	if result.IsError {
+		f := execsvc.DescribeToolError(result)
+		failure = &f
 	}
 	return result
 }
 
-type upstreamStatusError interface {
-	UpstreamStatusCode() int
-}
-
-func publicToolError(err error) (string, string) {
-	switch {
-	case errors.Is(err, tokens.ErrReauthRequired):
-		return "reauth_required", "connection needs reauthorization"
-	case errors.Is(err, execsvc.ErrToolUnavailable),
-		errors.Is(err, execsvc.ErrConnectionNotFound),
-		errors.Is(err, execsvc.ErrConnectionInactive),
-		errors.Is(err, configsvc.ErrConnectorDisabled),
-		errors.Is(err, tokens.ErrNotFound):
-		return "tool_unavailable", "tool is unavailable"
+func errorResult(f execsvc.Failure, runID string) *mcp.CallToolResult {
+	body := map[string]any{"error": f.Code, "message": f.Message, "kind": f.Kind, "run_id": runID}
+	if f.Stage != "" {
+		body["stage"] = f.Stage
 	}
-
-	var upstream upstreamStatusError
-	if errors.As(err, &upstream) {
-		switch status := upstream.UpstreamStatusCode(); {
-		case status == http.StatusUnauthorized || status == http.StatusForbidden:
-			return "upstream_auth_error", "upstream rejected the connection credentials"
-		case status == http.StatusTooManyRequests || status >= http.StatusInternalServerError:
-			return "temporarily_unavailable", "upstream is temporarily unavailable"
-		}
+	if f.UpstreamStatus != 0 {
+		body["upstream_status"] = f.UpstreamStatus
 	}
-	var networkError net.Error
-	if errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, context.Canceled) ||
-		errors.As(err, &networkError) {
-		return "temporarily_unavailable", "tool is temporarily unavailable"
+	if f.RPCCode != nil {
+		body["rpc_code"] = *f.RPCCode
 	}
-	return "execution_failed", "tool execution failed"
-}
-
-func errorResult(code, message string) *mcp.CallToolResult {
-	body := map[string]string{"error": code, "message": message}
 	encoded, _ := json.Marshal(body)
 	return &mcp.CallToolResult{
 		IsError:           true,
