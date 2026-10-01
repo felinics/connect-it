@@ -54,8 +54,15 @@ func (rt diagnosticAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestMCPDiagnosticsEndToEnd(t *testing.T) {
 	pool := testutil.NewDB(t)
 	up := mcp.NewServer(&mcp.Implementation{Name: "fixture", Version: "1"}, nil)
-	for _, name := range []string{"rpc", "tool_error", "ok"} {
-		up.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	for _, name := range []string{"rpc", "tool_error", "ok", "headers"} {
+		schema := map[string]any{"type": "object"}
+		if name == "headers" {
+			schema["properties"] = map[string]any{
+				"owner": map[string]any{"type": "string", "x-mcp-header": "Owner"},
+				"repo":  map[string]any{"type": "string", "x-mcp-header": "Repo"},
+			}
+		}
+		up.AddTool(&mcp.Tool{Name: name, InputSchema: schema}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "private-result"}}, IsError: name == "tool_error"}, nil
 		})
 	}
@@ -119,8 +126,12 @@ func TestMCPDiagnosticsEndToEnd(t *testing.T) {
 	}
 	defer cs.Close()
 	seen := map[string]bool{}
-	for _, tc := range []struct{ name, kind string }{{"rpc", "invalid_args"}, {"tool_error", "tool_error"}, {"ok", ""}} {
-		result, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "fixture__" + tc.name, Arguments: map[string]any{"private": "private-argument"}})
+	for _, tc := range []struct{ name, kind string }{{"rpc", "invalid_args"}, {"tool_error", "tool_error"}, {"ok", ""}, {"headers", ""}, {"headers", ""}} {
+		args := map[string]any{"private": "private-argument"}
+		if tc.name == "headers" {
+			args["owner"], args["repo"] = "felinics", "Memoh"
+		}
+		result, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "fixture__" + tc.name, Arguments: args})
 		if err != nil {
 			t.Fatal(err)
 		}
