@@ -81,6 +81,12 @@ func CallTool(ctx context.Context, endpoint, token, authorizationScheme string, 
 	}
 	defer session.Close()
 
+	if info := session.InitializeResult(); info != nil && info.ProtocolVersion >= "2026-07-28" {
+		if err := discoverTool(ctx, session, params.Name); err != nil {
+			return nil, upstreamError(ctx, "tools/list", fmt.Errorf("mcpclient: tools/list before tool %q failed: %w", params.Name, err), tracker)
+		}
+	}
+
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Meta:      params.Meta,
 		Name:      params.Name,
@@ -90,6 +96,33 @@ func CallTool(ctx context.Context, endpoint, token, authorizationScheme string, 
 		return nil, upstreamError(ctx, "tools/call", fmt.Errorf("mcpclient: calling tool %q failed: %w", params.Name, err), tracker)
 	}
 	return res, nil
+}
+
+func discoverTool(ctx context.Context, session *mcp.ClientSession, name string) error {
+	params := &mcp.ListToolsParams{}
+	seen := map[string]bool{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if seen[params.Cursor] {
+			return errors.New("repeated tools/list cursor")
+		}
+		seen[params.Cursor] = true
+		result, err := session.ListTools(ctx, params)
+		if err != nil {
+			return err
+		}
+		for _, tool := range result.Tools {
+			if tool.Name == name {
+				return nil
+			}
+		}
+		if result.NextCursor == "" {
+			return nil
+		}
+		params.Cursor = result.NextCursor
+	}
 }
 
 // CheckEndpoint is kept as the shared URL-shape validator used by service
