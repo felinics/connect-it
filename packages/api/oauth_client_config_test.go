@@ -130,8 +130,8 @@ func decodeError(t *testing.T, body string) api.ErrorResponse {
 func assertOAuthClientNotConfigured(t *testing.T, s oauthConfigServer, resp *http.Response, body string) {
 	t.Helper()
 	got := decodeError(t, body)
-	if resp.StatusCode != http.StatusConflict || got.Error != "oauth_client_not_configured" {
-		t.Fatalf("want 409 oauth_client_not_configured, got %d %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusUnprocessableEntity || got.Error != "oauth_client_not_configured" {
+		t.Fatalf("want 422 oauth_client_not_configured, got %d %s", resp.StatusCode, body)
 	}
 	for _, leaked := range []string{oauthClientIDValue, oauthClientSecretValue, "oauthsvc:"} {
 		if strings.Contains(body, leaked) || strings.Contains(s.logs.String(), leaked) {

@@ -41,8 +41,7 @@ type createConnectionResponse struct {
 //	@Param		body	body		api.beginOAuthRequest	true	"alias is an optional display label"
 //	@Success	201		{object}	api.beginOAuthResponse
 //	@Failure	404		{object}	api.ErrorResponse
-//	@Failure	409		{object}	api.ErrorResponse	"oauth_client_not_configured: the connector has no OAuth client config"
-//	@Failure	422		{object}	api.ErrorResponse
+//	@Failure	422		{object}	api.ErrorResponse	"validation_failed, or oauth_client_not_configured when the connector has no OAuth client config"
 //	@Security	BearerAuth
 //	@Router		/v1/connections/oauth [post]
 func (h *handlers) beginOAuthConnection(c echo.Context) error {
@@ -119,7 +118,7 @@ func (h *handlers) getConnection(c echo.Context) error {
 //	@Param		id		path		string				true	"connection id（uuid）"
 //	@Success	200		{object}	api.beginOAuthResponse
 //	@Failure	404		{object}	api.ErrorResponse
-//	@Failure	409		{object}	api.ErrorResponse	"oauth_client_not_configured: the connector has no OAuth client config"
+//	@Failure	422		{object}	api.ErrorResponse	"validation_failed, or oauth_client_not_configured when the connector has no OAuth client config"
 //	@Security	BearerAuth
 //	@Router		/v1/connections/{id}/reauth [post]
 func (h *handlers) reauthConnection(c echo.Context) error {
@@ -186,7 +185,7 @@ func (h *handlers) listConnections(c echo.Context) error {
 //	@Param		id	path		string	true	"connection id（uuid）"
 //	@Success	200	{object}	api.beginOAuthResponse
 //	@Failure	404	{object}	api.ErrorResponse
-//	@Failure	409	{object}	api.ErrorResponse	"oauth_client_not_configured: the connector has no OAuth client config"
+//	@Failure	422	{object}	api.ErrorResponse	"validation_failed, or oauth_client_not_configured when the connector has no OAuth client config"
 //	@Router		/admin/connections/{id}/reauth [post]
 func (h *handlers) adminReauthConnection(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))

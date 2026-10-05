@@ -217,8 +217,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
-                    "409": {
-                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
+                    "422": {
+                        "description": "validation_failed, or oauth_client_not_configured when the connector has no OAuth client config",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -679,14 +679,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
-                    "409": {
-                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
                     "422": {
-                        "description": "Unprocessable Entity",
+                        "description": "validation_failed, or oauth_client_not_configured when the connector has no OAuth client config",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -803,8 +797,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
-                    "409": {
-                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
+                    "422": {
+                        "description": "validation_failed, or oauth_client_not_configured when the connector has no OAuth client config",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }

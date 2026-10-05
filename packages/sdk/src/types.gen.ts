@@ -322,9 +322,9 @@ export type AdminReauthConnectionErrors = {
      */
     404: ApiErrorResponse;
     /**
-     * oauth_client_not_configured: the connector has no OAuth client config
+     * validation_failed, or oauth_client_not_configured when the connector has no OAuth client config
      */
-    409: ApiErrorResponse;
+    422: ApiErrorResponse;
 };
 
 export type AdminReauthConnectionError = AdminReauthConnectionErrors[keyof AdminReauthConnectionErrors];
@@ -676,11 +676,7 @@ export type BeginOAuthConnectionErrors = {
      */
     404: ApiErrorResponse;
     /**
-     * oauth_client_not_configured: the connector has no OAuth client config
-     */
-    409: ApiErrorResponse;
-    /**
-     * Unprocessable Entity
+     * validation_failed, or oauth_client_not_configured when the connector has no OAuth client config
      */
     422: ApiErrorResponse;
 };
@@ -772,9 +768,9 @@ export type ReauthConnectionErrors = {
      */
     404: ApiErrorResponse;
     /**
-     * oauth_client_not_configured: the connector has no OAuth client config
+     * validation_failed, or oauth_client_not_configured when the connector has no OAuth client config
      */
-    409: ApiErrorResponse;
+    422: ApiErrorResponse;
 };
 
 export type ReauthConnectionError = ReauthConnectionErrors[keyof ReauthConnectionErrors];

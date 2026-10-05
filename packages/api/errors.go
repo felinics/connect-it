@@ -49,7 +49,7 @@ func mapServiceError(c echo.Context, err error) error {
 		errors.Is(err, oauthsvc.ErrNotOAuth):
 		return writeError(c, http.StatusUnprocessableEntity, "validation_failed", err.Error())
 	case errors.Is(err, oauthsvc.ErrMissingClient):
-		return writeError(c, http.StatusConflict, "oauth_client_not_configured",
+		return writeError(c, http.StatusUnprocessableEntity, "oauth_client_not_configured",
 			"the connector's OAuth client is not configured; an administrator must set its client ID and client secret")
 	case errors.Is(err, oauthsvc.ErrMCPDiscovery):
 		c.Logger().Error(err)
