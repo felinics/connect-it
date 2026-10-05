@@ -82,6 +82,12 @@ type APIError struct {
 	Message    string
 }
 
+// ErrorCodeOAuthClientNotConfigured is the APIError.Code answered when the
+// connector has no OAuth client ID or secret configured. Unlike
+// validation_failed it is not a fault of the request: an administrator must
+// configure the connector before an authorization can start.
+const ErrorCodeOAuthClientNotConfigured = "oauth_client_not_configured"
+
 func (e *APIError) Error() string {
 	message := strings.TrimSpace(e.Message)
 	if message == "" {
