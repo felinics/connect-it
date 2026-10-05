@@ -209,6 +209,12 @@
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
+                    },
+                    "409": {
+                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     }
                 }
             }
@@ -666,6 +672,12 @@
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
+                    "409": {
+                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
@@ -780,6 +792,12 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }

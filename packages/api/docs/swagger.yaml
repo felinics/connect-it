@@ -437,6 +437,11 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: 'oauth_client_not_configured: the connector has no OAuth client
+            config'
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       summary: Mint a re-authorization link for an operator to hand to the right end
         user
       tags:
@@ -747,6 +752,11 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: 'oauth_client_not_configured: the connector has no OAuth client
+            config'
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Re-authorize an existing connection, keeping the same ID
@@ -807,6 +817,11 @@ paths:
             $ref: '#/definitions/api.beginOAuthResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: 'oauth_client_not_configured: the connector has no OAuth client
+            config'
           schema:
             $ref: '#/definitions/api.ErrorResponse'
         "422":

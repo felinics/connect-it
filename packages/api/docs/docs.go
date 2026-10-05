@@ -216,6 +216,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
+                    },
+                    "409": {
+                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
                     }
                 }
             }
@@ -673,6 +679,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
+                    "409": {
+                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "422": {
                         "description": "Unprocessable Entity",
                         "schema": {
@@ -787,6 +799,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "oauth_client_not_configured: the connector has no OAuth client config",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
