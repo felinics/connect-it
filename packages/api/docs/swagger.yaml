@@ -437,6 +437,11 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: validation_failed, or oauth_client_not_configured when the
+            connector has no OAuth client config
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       summary: Mint a re-authorization link for an operator to hand to the right end
         user
       tags:
@@ -747,6 +752,11 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "422":
+          description: validation_failed, or oauth_client_not_configured when the
+            connector has no OAuth client config
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Re-authorize an existing connection, keeping the same ID
@@ -810,7 +820,8 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorResponse'
         "422":
-          description: Unprocessable Entity
+          description: validation_failed, or oauth_client_not_configured when the
+            connector has no OAuth client config
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       security:

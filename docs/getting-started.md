@@ -119,6 +119,12 @@ curl -s -X POST "$BASE/v1/connections/oauth" \
 }
 ```
 
+If the connector still lacks its OAuth app client ID or secret (step 2), the
+call answers `422` with `"error": "oauth_client_not_configured"` rather than
+`validation_failed`, and creates no connection. Re-authorization answers the
+same way. Once an administrator saves the client config, start the
+authorization again.
+
 Store `connection_id` now — it is durable and will not change. Send the end
 user to `authorization_url`. When they finish, connect-it renders its own
 completion page; there is no second redirect back into your application.
