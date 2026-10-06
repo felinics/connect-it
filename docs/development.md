@@ -134,7 +134,40 @@ publishes `ghcr.io/felinics/connect-it`, and finally creates a GitHub Release
 with generated notes. A failed CI or image publish therefore cannot create a
 GitHub Release.
 
+## Database migrations
+
+`packages/service/migrations` is embedded in the binary and applied at
+startup, and existing databases upgrade in place. Every push to `main`
+publishes the `latest` image, so a migration is frozen once merged: change the
+schema in a new numbered migration, never by editing an existing one.
+
+The binary only migrates up, and an older binary refuses to start against a
+newer schema version. To roll back:
+
+1. Stop every instance.
+2. Migrate the service's schema (the first `search_path` entry of
+   `DATABASE_URL`, or `public` when it sets none) down to the newest version
+   the older image ships. From a checkout of the newer release, run the
+   golang-migrate CLI on the database's network:
+
+   ```bash
+   docker run --rm --network <network> -v "$PWD/packages/service/migrations:/m:ro" \
+     migrate/migrate:v4.19.1 -path /m -database '<DATABASE_URL with scheme pgx5://>' goto <version>
+   ```
+
+3. Start the older image.
+
+`0002_connector_settings.down.sql` keeps the table and its settings, so going
+from 2 to 1 only resets the version, and this statement can replace the CLI in
+step 2. Replace `connect_it` with the service's schema and expect `UPDATE 1`:
+
+```sql
+UPDATE connect_it.schema_migrations SET version = 1 WHERE version = 2 AND NOT dirty;
+```
+
+v0.1.1 and v0.2.0 ignore `connector_settings`: after rolling back to them,
+disabled connectors are available again until the next upgrade.
+
 ## Status
 
-The project is pre-1.0. Migrations only maintain the schema of a fresh
-database; in-place upgrades of older development databases are not promised.
+The project is pre-1.0.

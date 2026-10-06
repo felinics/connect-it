@@ -15,6 +15,12 @@ packages/sdk/src/*.gen.ts              ← mise run sdk     (source: packages/ap
 Change the source and re-run the generator. Editing a handler's `@Summary`
 means `mise run swagger` followed by `mise run sdk`.
 
+## Never edit a merged migration
+
+Existing databases upgrade in place, and every push to `main` publishes the
+`latest` image. Change the schema in a new numbered migration; see
+[docs/development.md](docs/development.md#database-migrations).
+
 ## Everything is in English
 
 Code, comments, log lines, error messages and documentation. The only place
