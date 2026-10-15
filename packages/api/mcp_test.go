@@ -71,12 +71,13 @@ func (f *fakeExecutor) CallTool(
 }
 
 type mcpEnv struct {
-	server *httptest.Server
-	exec   *fakeExecutor
-	sess   *sessions.Service
-	connGH uuid.UUID
-	connNT uuid.UUID
-	token  uuid.UUID
+	server   *httptest.Server
+	exec     *fakeExecutor
+	sess     *sessions.Service
+	connGH   uuid.UUID
+	connNT   uuid.UUID
+	token    uuid.UUID
+	rawToken string
 }
 
 func newMCPEnv(t *testing.T) *mcpEnv {
@@ -139,7 +140,7 @@ func newMCPEnv(t *testing.T) *mcpEnv {
 	if err := auth.EnsureAdminFromEnv(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, env.token, err = auth.CreateAPIToken(t.Context(), "test-session-owner"); err != nil {
+	if env.rawToken, env.token, err = auth.CreateAPIToken(t.Context(), "test-session-owner"); err != nil {
 		t.Fatal(err)
 	}
 	echo := api.New(api.Deps{
@@ -322,6 +323,71 @@ func TestSessionCreationFailsWhenToolDiscoveryFails(t *testing.T) {
 		map[string]uuid.UUID{"github": env.connGH}, nil, time.Hour)
 	if !errors.Is(err, sessions.ErrToolDiscovery) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestSessionCreationSkipsConnectionWhoseDiscoveryFails(t *testing.T) {
+	env := newMCPEnv(t)
+	env.exec.listErrs[env.connNT] = context.DeadlineExceeded
+	result, err := env.sess.Create(t.Context(), env.token,
+		map[string]uuid.UUID{"github": env.connGH, "notion": env.connNT}, nil, time.Hour)
+	if err != nil {
+		t.Fatalf("one failing connection must not fail the session: %v", err)
+	}
+	if len(result.FailedConnections) != 1 || result.FailedConnections[0].Alias != "notion" ||
+		result.FailedConnections[0].ConnectionID != env.connNT {
+		t.Fatalf("failed=%+v", result.FailedConnections)
+	}
+	session := mcpConnect(t, env, result.Token)
+
+	var names []string
+	for tool, err := range session.Tools(t.Context(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	want := []string{"github__create.issue", "github__list_issues"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("names=%v", names)
+	}
+}
+
+func TestCreateMCPSessionReportsFailedConnections(t *testing.T) {
+	env := newMCPEnv(t)
+	env.exec.listErrs[env.connNT] = context.DeadlineExceeded
+	body := fmt.Sprintf(`{"connections":{"github":%q,"notion":%q}}`, env.connGH, env.connNT)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		env.server.URL+"/v1/mcp-sessions", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+env.rawToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d", response.StatusCode)
+	}
+	var payload struct {
+		Token             string `json:"token"`
+		FailedConnections []struct {
+			Alias        string `json:"alias"`
+			ConnectionID string `json:"connection_id"`
+			Error        string `json:"error"`
+		} `json:"failed_connections"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Token == "" || len(payload.FailedConnections) != 1 ||
+		payload.FailedConnections[0].Alias != "notion" ||
+		payload.FailedConnections[0].ConnectionID != env.connNT.String() ||
+		payload.FailedConnections[0].Error == "" {
+		t.Fatalf("payload=%+v", payload)
 	}
 }
 

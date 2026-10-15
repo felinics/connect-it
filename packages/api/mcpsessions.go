@@ -20,6 +20,16 @@ type createMCPSessionRequest struct {
 type createMCPSessionResponse struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expires_at"`
+	// FailedConnections lists the aliases left out of the session because
+	// their upstream could not list tools. Omitted when discovery succeeded
+	// for every alias.
+	FailedConnections []failedConnection `json:"failed_connections,omitempty"`
+}
+
+type failedConnection struct {
+	Alias        string `json:"alias"`
+	ConnectionID string `json:"connection_id"`
+	Error        string `json:"error"`
 }
 
 func registerMCPSessions(g *echo.Group, deps Deps) {
@@ -31,6 +41,7 @@ func registerMCPSessions(g *echo.Group, deps Deps) {
 // createMCPSession godoc
 //
 //	@Summary	Issue a short-lived MCP session token aggregating several connections
+//	@Description	Discovery is per connection: a connection whose upstream fails to list tools is excluded from the session and reported in failed_connections. 502 tool_discovery_failed is returned only when every connection fails or the allowlist names a tool of a failed connection.
 //	@ID			createMcpSession
 //	@Tags		mcp
 //	@Accept		json
@@ -80,8 +91,16 @@ func createMCPSession(c echo.Context, deps Deps) error {
 		c.Logger().Error(err)
 		return writeError(c, http.StatusInternalServerError, "internal", "failed to create mcp session")
 	}
-	return c.JSON(http.StatusCreated, createMCPSessionResponse{
+	response := createMCPSessionResponse{
 		Token:     result.Token,
 		ExpiresAt: result.ExpiresAt.UTC().Format(time.RFC3339),
-	})
+	}
+	for _, failure := range result.FailedConnections {
+		response.FailedConnections = append(response.FailedConnections, failedConnection{
+			Alias:        failure.Alias,
+			ConnectionID: failure.ConnectionID.String(),
+			Error:        failure.Error,
+		})
+	}
+	return c.JSON(http.StatusCreated, response)
 }

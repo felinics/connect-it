@@ -330,6 +330,7 @@ export const getConnector = <ThrowOnError extends boolean = false>(options: Opti
 
 /**
  * Issue a short-lived MCP session token aggregating several connections
+ * Discovery is per connection: a connection whose upstream fails to list tools is excluded from the session and reported in failed_connections. 502 tool_discovery_failed is returned only when every connection fails or the allowlist names a tool of a failed connection.
  */
 export const createMcpSession = <ThrowOnError extends boolean = false>(options: Options<CreateMcpSessionData, ThrowOnError>) => {
     return (options.client ?? client).post<CreateMcpSessionResponses, CreateMcpSessionErrors, ThrowOnError>({

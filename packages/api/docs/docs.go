@@ -887,6 +887,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Discovery is per connection: a connection whose upstream fails to list tools is excluded from the session and reported in failed_connections. 502 tool_discovery_failed is returned only when every connection fails or the allowlist names a tool of a failed connection.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1172,6 +1173,13 @@ const docTemplate = `{
                 "expires_at": {
                     "type": "string"
                 },
+                "failed_connections": {
+                    "description": "FailedConnections lists the aliases left out of the session because\ntheir upstream could not list tools. Omitted when discovery succeeded\nfor every alias.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.failedConnection"
+                    }
+                },
                 "token": {
                     "type": "string"
                 }
@@ -1192,6 +1200,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.failedConnection": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "connection_id": {
+                    "type": "string"
+                },
+                "error": {
                     "type": "string"
                 }
             }

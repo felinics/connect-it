@@ -188,3 +188,69 @@ func TestClientRejectsCrossOriginRedirects(t *testing.T) {
 		t.Fatalf("cross-origin redirect requests = %d, want 0", redirectedRequests.Load())
 	}
 }
+
+func TestMCPAuthHandlerReportsFailedConnections(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/mcp-sessions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":      "session-1",
+			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			"failed_connections": []map[string]any{{
+				"alias":         "gmail",
+				"connection_id": "3f2c0069-c8ec-45db-b6af-42643ae003d5",
+				"error":         "tools/list: Forbidden",
+			}},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := connectit.New(server.URL, "cit_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.CreateMCPSession(t.Context(), connectit.MCPSessionConfig{
+		Connections: map[string]string{"github": "a", "gmail": "b"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(session.FailedConnections) != 1 || session.FailedConnections[0].Alias != "gmail" ||
+		session.FailedConnections[0].Error != "tools/list: Forbidden" {
+		t.Fatalf("failed connections not decoded: %+v", session)
+	}
+
+	var observed []connectit.MCPSession
+	handler := client.MCPAuthHandler(connectit.MCPSessionConfig{
+		Connections:      map[string]string{"github": "a", "gmail": "b"},
+		OnSessionCreated: func(session connectit.MCPSession) { observed = append(observed, session) },
+	})
+	for range 2 {
+		source, err := handler.TokenSource(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := source.Token(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(observed) != 1 {
+		t.Fatalf("observer must see each issued session exactly once, got %d", len(observed))
+	}
+	if observed[0].Token != "session-1" || len(observed[0].FailedConnections) != 1 ||
+		observed[0].FailedConnections[0].Alias != "gmail" {
+		t.Fatalf("observed=%+v", observed[0])
+	}
+	if err := handler.Authorize(context.Background(), nil, &http.Response{
+		StatusCode: http.StatusUnauthorized, Body: http.NoBody,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) != 2 {
+		t.Fatalf("re-issued session must be observed too, got %d", len(observed))
+	}
+}
