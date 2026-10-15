@@ -33,10 +33,11 @@ type mcpAuthHandler struct {
 }
 
 func (h *mcpAuthHandler) TokenSource(ctx context.Context) (oauth2.TokenSource, error) {
-	token, err := h.currentToken(ctx)
+	token, created, err := h.currentToken(ctx)
 	if err != nil {
 		return nil, err
 	}
+	h.observe(created)
 	return oauth2.StaticTokenSource(token), nil
 }
 
@@ -51,8 +52,21 @@ func (h *mcpAuthHandler) Authorize(ctx context.Context, request *http.Request, r
 		h.token = nil
 	}
 	h.mu.Unlock()
-	_, err := h.currentToken(ctx)
-	return err
+	_, created, err := h.currentToken(ctx)
+	if err != nil {
+		return err
+	}
+	h.observe(created)
+	return nil
+}
+
+// observe reports a freshly issued session to the configured observer. It
+// runs outside the handler lock so the observer may block or log freely.
+func (h *mcpAuthHandler) observe(created *MCPSession) {
+	if created == nil || h.config.OnSessionCreated == nil {
+		return
+	}
+	h.config.OnSessionCreated(*created)
 }
 
 func requestBearerToken(request *http.Request) string {
@@ -66,32 +80,35 @@ func requestBearerToken(request *http.Request) string {
 	return strings.TrimSpace(token)
 }
 
-func (h *mcpAuthHandler) currentToken(ctx context.Context) (*oauth2.Token, error) {
+// currentToken returns the cached token, or issues a new session. The second
+// result is the freshly issued session, nil when the cached token was reused.
+func (h *mcpAuthHandler) currentToken(ctx context.Context) (*oauth2.Token, *MCPSession, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if h.token != nil && h.token.AccessToken != "" &&
 		(h.token.Expiry.IsZero() || time.Now().Add(sessionRefreshSkew).Before(h.token.Expiry)) {
-		return cloneOAuthToken(h.token), nil
+		return cloneOAuthToken(h.token), nil, nil
 	}
 
 	session, err := h.client.CreateMCPSession(ctx, h.config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	h.token = &oauth2.Token{
 		AccessToken: session.Token,
 		TokenType:   "Bearer",
 		Expiry:      session.ExpiresAt,
 	}
-	return cloneOAuthToken(h.token), nil
+	return cloneOAuthToken(h.token), &session, nil
 }
 
 func cloneSessionConfig(config MCPSessionConfig) MCPSessionConfig {
 	return MCPSessionConfig{
-		Connections:   cloneConnections(config.Connections),
-		ToolAllowlist: append([]string(nil), config.ToolAllowlist...),
-		TTL:           config.TTL,
+		Connections:      cloneConnections(config.Connections),
+		ToolAllowlist:    append([]string(nil), config.ToolAllowlist...),
+		TTL:              config.TTL,
+		OnSessionCreated: config.OnSessionCreated,
 	}
 }
 

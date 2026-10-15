@@ -16,12 +16,28 @@ type MCPSessionConfig struct {
 	Connections   map[string]string
 	ToolAllowlist []string
 	TTL           time.Duration
+	// OnSessionCreated, when set, observes every session MCPAuthHandler
+	// issues, including the connections Connect-It left out because their
+	// tools could not be discovered. It runs synchronously after the token
+	// is stored and must not call back into the handler.
+	OnSessionCreated func(MCPSession)
 }
 
 // MCPSession is a short-lived credential for the /mcp endpoint.
 type MCPSession struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// FailedConnections lists the aliases excluded from this session because
+	// their upstream could not list tools. Empty when every connection was
+	// discovered.
+	FailedConnections []FailedConnection `json:"failed_connections,omitempty"`
+}
+
+// FailedConnection is one alias Connect-It excluded from an MCP session.
+type FailedConnection struct {
+	Alias        string `json:"alias"`
+	ConnectionID string `json:"connection_id"`
+	Error        string `json:"error"`
 }
 
 // CreateMCPSession signs a short-lived MCP credential. Downstreams normally

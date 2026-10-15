@@ -120,6 +120,14 @@ definitions:
     properties:
       expires_at:
         type: string
+      failed_connections:
+        description: |-
+          FailedConnections lists the aliases left out of the session because
+          their upstream could not list tools. Omitted when discovery succeeded
+          for every alias.
+        items:
+          $ref: '#/definitions/api.failedConnection'
+        type: array
       token:
         type: string
     type: object
@@ -133,6 +141,15 @@ definitions:
       id:
         type: string
       token:
+        type: string
+    type: object
+  api.failedConnection:
+    properties:
+      alias:
+        type: string
+      connection_id:
+        type: string
+      error:
         type: string
     type: object
   api.loginRequest:
@@ -880,6 +897,10 @@ paths:
     post:
       consumes:
       - application/json
+      description: 'Discovery is per connection: a connection whose upstream fails
+        to list tools is excluded from the session and reported in failed_connections.
+        502 tool_discovery_failed is returned only when every connection fails or
+        the allowlist names a tool of a failed connection.'
       operationId: createMcpSession
       parameters:
       - description: connections maps namespace to connection_id; allowlist entries

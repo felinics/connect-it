@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,9 +81,21 @@ type Service struct {
 	lister ToolLister
 }
 
+// DiscoveryFailure reports one alias whose Connection could not list its
+// tools when the session was created. The session still carries every other
+// alias; the caller decides whether to surface the failure or retry later.
+type DiscoveryFailure struct {
+	Alias        string
+	ConnectionID uuid.UUID
+	Error        string
+}
+
 type CreateResult struct {
 	Token     string
 	ExpiresAt time.Time
+	// FailedConnections lists aliases excluded from the snapshot because
+	// tool discovery failed. Empty when every alias was discovered.
+	FailedConnections []DiscoveryFailure
 }
 
 func New(q *store.Queries, lister ToolLister) *Service {
@@ -92,6 +105,12 @@ func New(q *store.Queries, lister ToolLister) *Service {
 // Create discovers tools for every alias→Connection binding and signs one
 // immutable aggregate snapshot. An empty allowlist includes every discovered
 // tool; a non-empty allowlist uses exposed alias__tool names.
+//
+// Discovery is per alias: an upstream that fails to list its tools is left
+// out of the snapshot and reported in CreateResult.FailedConnections, so one
+// broken Connection does not take the other Connections down with it. Only
+// when every alias fails (or the allowlist names a tool of a failed alias)
+// does Create return ErrToolDiscovery.
 func (s *Service) Create(
 	ctx context.Context,
 	apiTokenID uuid.UUID,
@@ -161,9 +180,13 @@ func (s *Service) Create(
 		return CreateResult{}, &ValidationError{Code: "invalid_ttl", Message: "ttl must not exceed 24h"}
 	}
 
-	snapshotJSON, err := s.discoverTools(ctx, bindings, requestedTools)
+	snapshotJSON, failed, err := s.discoverTools(ctx, bindings, requestedTools)
 	if err != nil {
 		return CreateResult{}, err
+	}
+	failedAliases := make(map[string]bool, len(failed))
+	for _, failure := range failed {
+		failedAliases[failure.Alias] = true
 	}
 
 	raw := make([]byte, 32)
@@ -192,8 +215,14 @@ func (s *Service) Create(
 	}); err != nil {
 		return CreateResult{}, err
 	}
+	// Only aliases that contributed to the snapshot are bound to the session:
+	// a failed Connection has no routes, so binding it would only let a token
+	// outlive the retry that is supposed to pick the Connection up again.
 	aliases := sortedAliases(bindings)
 	for _, alias := range aliases {
+		if failedAliases[alias] {
+			continue
+		}
 		if err := qtx.AddMCPSessionConnection(ctx, store.AddMCPSessionConnectionParams{
 			SessionID:    sessionID,
 			Alias:        alias,
@@ -205,7 +234,7 @@ func (s *Service) Create(
 	if err := tx.Commit(ctx); err != nil {
 		return CreateResult{}, err
 	}
-	return CreateResult{Token: token, ExpiresAt: expiresAt}, nil
+	return CreateResult{Token: token, ExpiresAt: expiresAt, FailedConnections: failed}, nil
 }
 
 type discoveryJob struct {
@@ -220,13 +249,17 @@ type discoveryResult struct {
 	err          error
 }
 
+// discoverTools lists every alias in parallel and encodes the snapshot of
+// the aliases that succeeded. The returned failures are sorted by alias; the
+// error is non-nil only when nothing could be discovered at all or when the
+// allowlist depends on a failed alias.
 func (s *Service) discoverTools(
 	ctx context.Context,
 	bindings map[string]uuid.UUID,
 	requested map[string]bool,
-) ([]byte, error) {
+) ([]byte, []DiscoveryFailure, error) {
 	if s.lister == nil {
-		return nil, fmt.Errorf("%w: tool lister is not configured", ErrToolDiscovery)
+		return nil, nil, fmt.Errorf("%w: tool lister is not configured", ErrToolDiscovery)
 	}
 	discoveryCtx, cancel := context.WithTimeout(ctx, toolDiscoveryTimeout)
 	defer cancel()
@@ -260,11 +293,33 @@ func (s *Service) discoverTools(
 	close(results)
 
 	byAlias := make(map[string]discoveryResult, len(aliases))
+	var failed []DiscoveryFailure
 	for result := range results {
 		if result.err != nil {
-			return nil, fmt.Errorf("%w for alias %q: %v", ErrToolDiscovery, result.alias, result.err)
+			// Keep the alias in the message: operators pair this line with the
+			// downstream's own discovery warning by alias and timestamp.
+			slog.WarnContext(ctx, fmt.Sprintf("sessions: tool discovery failed for alias %q: %v", result.alias, result.err),
+				slog.String("connection_id", result.connectionID.String()),
+				slog.String("alias", result.alias))
+			failed = append(failed, DiscoveryFailure{
+				Alias:        result.alias,
+				ConnectionID: result.connectionID,
+				Error:        result.err.Error(),
+			})
+			continue
 		}
 		byAlias[result.alias] = result
+	}
+	sort.Slice(failed, func(i, j int) bool { return failed[i].Alias < failed[j].Alias })
+	if len(failed) == len(aliases) {
+		return nil, nil, fmt.Errorf("%w for alias %q: %s", ErrToolDiscovery, failed[0].Alias, failed[0].Error)
+	}
+	for _, failure := range failed {
+		for name := range requested {
+			if requestedAlias(name) == failure.Alias {
+				return nil, nil, fmt.Errorf("%w for alias %q: %s", ErrToolDiscovery, failure.Alias, failure.Error)
+			}
+		}
 	}
 
 	snapshot := toolSnapshot{
@@ -272,7 +327,10 @@ func (s *Service) discoverTools(
 		Routes: make(map[string]ToolRoute),
 	}
 	for _, alias := range aliases {
-		result := byAlias[alias]
+		result, discovered := byAlias[alias]
+		if !discovered {
+			continue
+		}
 		seenOriginal := make(map[string]bool)
 		for _, tool := range result.tools {
 			if tool == nil {
@@ -320,7 +378,7 @@ func (s *Service) discoverTools(
 	if len(requested) > 0 {
 		for name := range requested {
 			if _, found := snapshot.Routes[name]; !found {
-				return nil, &ValidationError{Code: "invalid_allowlist",
+				return nil, nil, &ValidationError{Code: "invalid_allowlist",
 					Message: fmt.Sprintf("tool %q was not discovered", name)}
 			}
 		}
@@ -339,17 +397,27 @@ func (s *Service) discoverTools(
 		return snapshot.Tools[i].Name < snapshot.Tools[j].Name
 	})
 	if len(snapshot.Tools) > maxSnapshotTools {
-		return nil, fmt.Errorf("%w: snapshot contains more than %d tools",
+		return nil, nil, fmt.Errorf("%w: snapshot contains more than %d tools",
 			ErrToolDiscovery, maxSnapshotTools)
 	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
-		return nil, fmt.Errorf("%w: encode snapshot: %v", ErrToolDiscovery, err)
+		return nil, nil, fmt.Errorf("%w: encode snapshot: %v", ErrToolDiscovery, err)
 	}
 	if len(encoded) > maxSnapshotBytes {
-		return nil, fmt.Errorf("%w: snapshot exceeds %d bytes", ErrToolDiscovery, maxSnapshotBytes)
+		return nil, nil, fmt.Errorf("%w: snapshot exceeds %d bytes", ErrToolDiscovery, maxSnapshotBytes)
 	}
-	return encoded, nil
+	return encoded, failed, nil
+}
+
+// requestedAlias returns the alias part of an exposed alias__tool name, or ""
+// when the name has no namespace.
+func requestedAlias(exposedName string) string {
+	alias, _, ok := strings.Cut(exposedName, "__")
+	if !ok {
+		return ""
+	}
+	return alias
 }
 
 func sortedAliases(bindings map[string]uuid.UUID) []string {

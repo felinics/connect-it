@@ -80,6 +80,12 @@ export type ApiCreateMcpSessionRequest = {
 
 export type ApiCreateMcpSessionResponse = {
     expires_at?: string;
+    /**
+     * FailedConnections lists the aliases left out of the session because
+     * their upstream could not list tools. Omitted when discovery succeeded
+     * for every alias.
+     */
+    failed_connections?: Array<ApiFailedConnection>;
     token?: string;
 };
 
@@ -90,6 +96,12 @@ export type ApiCreateTokenRequest = {
 export type ApiCreateTokenResponse = {
     id?: string;
     token?: string;
+};
+
+export type ApiFailedConnection = {
+    alias?: string;
+    connection_id?: string;
+    error?: string;
 };
 
 export type ApiLoginRequest = {

@@ -80,9 +80,12 @@ connections:
 
 Freezing the list guarantees that `tools/list` and `tools/call` refer to the
 same set of tools for the lifetime of a session. Tools added or removed
-upstream during the session do not change an already-issued one. Sessions are
-issued as a complete snapshot: if tool discovery fails for any single
-connection, the whole issue fails rather than producing a partial session.
+upstream during the session do not change an already-issued one. Discovery is
+isolated per connection: a connection whose upstream cannot list its tools is
+left out of the session and reported back in `failed_connections`, so one
+broken upstream does not take the other connections down with it. The issue
+fails as a whole (`tool_discovery_failed`) only when every connection fails,
+or when the allowlist names a tool of a failed connection.
 
 Omitting `tool_allowlist` allows every tool discovered at issue time. When an
 explicit allowlist is given, every name in it must exist or the session is
